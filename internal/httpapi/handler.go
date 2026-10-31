@@ -59,7 +59,11 @@ type ConversationRepository interface {
 }
 
 func NewServer() *Server {
-	return NewServerWithRepository(&Store{conversations: make(map[string]*Conversation)})
+	return NewServerWithRepository(NewMemoryRepository())
+}
+
+func NewMemoryRepository() ConversationRepository {
+	return &Store{conversations: make(map[string]*Conversation)}
 }
 
 func NewServerWithRepository(repository ConversationRepository) *Server {

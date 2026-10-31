@@ -16,10 +16,20 @@ Kubernetes上で会話単位のCodexセッションを起動・停止・再開�
 
 現在のストアはプロセス内メモリです。これはAPI契約とテストを先に固定するための段階的実装であり、プロセス再起動でデータが消えるため本番利用はできません。次のPRでlibSQL永続化へ置き換えます。
 
+`LIBSQL_URL`を設定すると、起動時にlibSQL/sqldへスキーマを適用して永続Repositoryを使用します。未設定時はローカル開発用のメモリRepositoryです。
+
 ## ローカル実行
 
 ```bash
 go test ./...
+go run ./cmd/runner-api
+```
+
+libSQL/sqldを使う場合:
+
+```bash
+LIBSQL_URL=http://localhost:8080 \
+LIBSQL_AUTH_TOKEN=... \
 go run ./cmd/runner-api
 ```
 
