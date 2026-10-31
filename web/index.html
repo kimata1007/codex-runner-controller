@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#111827">
+    <link rel="manifest" href="manifest.webmanifest">
+    <link rel="stylesheet" href="styles.css">
+    <title>Codex Runner</title>
+  </head>
+  <body>
+    <main class="shell">
+      <header>
+        <p class="eyebrow">CODEX RUNNER</p>
+        <h1>セッション会話</h1>
+        <p id="status" class="status">未接続</p>
+      </header>
+
+      <section class="settings" aria-label="接続設定">
+        <label>API URL <input id="api-url" type="url" autocomplete="url"></label>
+        <label>Bearer token <input id="api-token" type="password" autocomplete="off"></label>
+        <button id="save-settings" type="button">設定を保存</button>
+      </section>
+
+      <section class="conversation" aria-label="会話">
+        <div class="conversation-toolbar">
+          <button id="new-conversation" type="button">新しい会話</button>
+          <span id="conversation-id" class="muted">会話未作成</span>
+        </div>
+        <ol id="messages" class="messages" aria-live="polite"></ol>
+        <form id="message-form" class="composer">
+          <textarea id="message" rows="3" placeholder="Codexに相談する、または実装を依頼する" required></textarea>
+          <button type="submit">送信</button>
+        </form>
+      </section>
+    </main>
+    <script type="module" src="app.js"></script>
+  </body>
+</html>
