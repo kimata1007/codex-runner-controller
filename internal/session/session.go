@@ -26,3 +26,9 @@ type Activator interface {
 type ActivityRecorder interface {
 	Touch(context.Context, string, time.Time) error
 }
+
+// PhaseRecorder projects the live run state onto CodexSession.status for
+// operators and the controller's lifecycle decisions.
+type PhaseRecorder interface {
+	SetPhase(context.Context, string, string) error
+}
