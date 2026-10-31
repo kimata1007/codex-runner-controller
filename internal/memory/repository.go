@@ -23,16 +23,21 @@ func NewRepository() *Repository {
 }
 
 func (r *Repository) CreateConversation(ctx context.Context) (conversation.Conversation, error) {
+	return r.CreateConversationWithRepository(ctx, nil)
+}
+
+func (r *Repository) CreateConversationWithRepository(ctx context.Context, repository *conversation.RepositoryConfig) (conversation.Conversation, error) {
 	if err := ctx.Err(); err != nil {
 		return conversation.Conversation{}, err
 	}
 
 	now := time.Now().UTC()
 	value := conversation.Conversation{
-		ID:        r.newID("conversation"),
-		Status:    "active",
-		CreatedAt: now,
-		UpdatedAt: now,
+		ID:         r.newID("conversation"),
+		Status:     "active",
+		Repository: repository,
+		CreatedAt:  now,
+		UpdatedAt:  now,
 	}
 
 	r.mu.Lock()

@@ -44,6 +44,9 @@ func (a SessionActivator) Activate(ctx context.Context, activation session.Activ
 		spec := a.Defaults
 		spec.ConversationID = activation.ConversationID
 		spec.DesiredState = v1alpha1.DesiredStateActive
+		if activation.Repository != nil {
+			spec.Repository = &v1alpha1.Repository{URL: activation.Repository.URL, Revision: activation.Repository.Revision}
+		}
 		if err := spec.Validate(); err != nil {
 			return fmt.Errorf("session activator: validate defaults: %w", err)
 		}
@@ -57,9 +60,14 @@ func (a SessionActivator) Activate(ctx context.Context, activation session.Activ
 		return fmt.Errorf("session activator: get session: %w", err)
 	}
 	if existing.Spec.DesiredState == v1alpha1.DesiredStateActive {
-		return nil
+		if activation.Repository == nil || (existing.Spec.Repository != nil && existing.Spec.Repository.URL == activation.Repository.URL && existing.Spec.Repository.Revision == activation.Repository.Revision) {
+			return nil
+		}
 	}
 	existing.Spec.DesiredState = v1alpha1.DesiredStateActive
+	if activation.Repository != nil {
+		existing.Spec.Repository = &v1alpha1.Repository{URL: activation.Repository.URL, Revision: activation.Repository.Revision}
+	}
 	if err := a.Client.Update(ctx, existing); err != nil {
 		return fmt.Errorf("session activator: resume session: %w", err)
 	}

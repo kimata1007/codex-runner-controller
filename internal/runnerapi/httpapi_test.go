@@ -94,6 +94,26 @@ func TestCreateConversationAndMessage(t *testing.T) {
 	}
 }
 
+func TestCreateConversationPersistsRepositoryConfiguration(t *testing.T) {
+	router := newTestRouter()
+	response := serveJSON(t, router, http.MethodPost, "/v1/conversations", `{"repository":{"url":"https://example.test/repo.git","revision":"main"}}`)
+	if response.Code != http.StatusCreated {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	var value conversationResponse
+	decodeResponse(t, response, &value)
+	if value.Repository == nil || value.Repository.URL != "https://example.test/repo.git" || value.Repository.Revision != "main" {
+		t.Fatalf("repository = %+v", value.Repository)
+	}
+}
+
+func TestCreateConversationRejectsIncompleteRepositoryConfiguration(t *testing.T) {
+	response := serveJSON(t, newTestRouter(), http.MethodPost, "/v1/conversations", `{"repository":{"url":"https://example.test/repo.git"}}`)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusBadRequest)
+	}
+}
+
 func TestCreateMessageActivatesSessionBeforeRun(t *testing.T) {
 	activator := &fakeSessionActivator{}
 	router := NewRouter(NewHandlerWithDispatcherEventsAndActivator(memory.NewRepository(), nil, nil, nil, activator))

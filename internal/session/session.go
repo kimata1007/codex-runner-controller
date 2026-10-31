@@ -10,6 +10,12 @@ import (
 type Activation struct {
 	ConversationID string
 	Mode           string
+	Repository     *Repository
+}
+
+type Repository struct {
+	URL      string
+	Revision string
 }
 
 // Activator makes the session pod reachable before a run is started.

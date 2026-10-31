@@ -121,7 +121,15 @@ type apiSessionActivator struct {
 }
 
 func (a apiSessionActivator) Activate(ctx context.Context, conversationID string) error {
-	return a.activator.Activate(ctx, session.Activation{ConversationID: conversationID})
+	return a.ActivateConversation(ctx, conversationID, nil)
+}
+
+func (a apiSessionActivator) ActivateConversation(ctx context.Context, conversationID string, repository *conversation.RepositoryConfig) error {
+	var sessionRepository *session.Repository
+	if repository != nil {
+		sessionRepository = &session.Repository{URL: repository.URL, Revision: repository.Revision}
+	}
+	return a.activator.Activate(ctx, session.Activation{ConversationID: conversationID, Repository: sessionRepository})
 }
 
 func (a apiSessionActivator) Touch(ctx context.Context, conversationID string, at time.Time) error {

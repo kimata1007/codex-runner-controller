@@ -9,11 +9,17 @@ import (
 var ErrNotFound = errors.New("conversation not found")
 
 type Conversation struct {
-	ID        string
-	Status    string
-	CreatedAt time.Time
-	UpdatedAt time.Time
-	Messages  []Message
+	ID         string
+	Status     string
+	Repository *RepositoryConfig
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+	Messages   []Message
+}
+
+type RepositoryConfig struct {
+	URL      string
+	Revision string
 }
 
 type Message struct {
@@ -36,4 +42,8 @@ type Repository interface {
 	GetConversation(ctx context.Context, id string) (Conversation, error)
 	ListMessages(ctx context.Context, id string) ([]Message, error)
 	CreateMessage(ctx context.Context, id string, input NewMessage) (Message, bool, error)
+}
+
+type RepositoryConfigurer interface {
+	CreateConversationWithRepository(context.Context, *RepositoryConfig) (Conversation, error)
 }
