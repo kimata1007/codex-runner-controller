@@ -24,7 +24,7 @@ func (r *CodexSessionController) Reconcile(ctx context.Context, request reconcil
 	}
 
 	logic := CodexSessionReconciler{Client: KubernetesResourceClient{Client: r.Client, Owner: session}, Builder: r.Builder}
-	result, err := logic.Reconcile(ctx, session.Namespace, session.Name, session.Spec)
+	result, err := logic.ReconcileStatus(ctx, session.Namespace, session.Name, session.Spec, session.Status)
 	if err != nil {
 		return reconcile.Result{}, err
 	}
@@ -38,7 +38,7 @@ func (r *CodexSessionController) Reconcile(ctx context.Context, request reconcil
 			return reconcile.Result{}, err
 		}
 	}
-	return reconcile.Result{}, nil
+	return reconcile.Result{RequeueAfter: result.RequeueAfter}, nil
 }
 
 func (r *CodexSessionController) SetupWithManager(manager manager.Manager) error {

@@ -18,11 +18,12 @@ func TestSessionActivatorCreatesSessionAndWaitsUntilReady(t *testing.T) {
 	if err := AddToScheme(scheme); err != nil {
 		t.Fatal(err)
 	}
-	base := fake.NewClientBuilder().WithScheme(scheme).Build()
+	base := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&v1alpha1.CodexSession{}).Build()
 	kubeClient := &readyOnWriteClient{Client: base}
 	activator := &SessionActivator{Client: kubeClient, Namespace: "sessions", ReadyPollInterval: time.Millisecond}
 
-	if err := activator.Activate(context.Background(), session.Activation{ConversationID: "conversation-1"}); err != nil {
+	activityAt := time.Date(2026, 10, 31, 10, 20, 30, 0, time.FixedZone("JST", 9*60*60))
+	if err := activator.Activate(context.Background(), session.Activation{ConversationID: "conversation-1", RequestedAt: activityAt}); err != nil {
 		t.Fatalf("Activate: %v", err)
 	}
 
@@ -35,6 +36,9 @@ func TestSessionActivatorCreatesSessionAndWaitsUntilReady(t *testing.T) {
 	}
 	if created.Spec.SessionData.Size != DefaultSessionDataSize || created.Spec.Execution.ApprovalPolicy != DefaultApprovalPolicy {
 		t.Fatalf("created session defaults = %+v", created.Spec)
+	}
+	if created.Status.LastActivityAt != "2026-10-31T01:20:30Z" {
+		t.Fatalf("last activity = %q", created.Status.LastActivityAt)
 	}
 }
 
@@ -50,7 +54,7 @@ func TestSessionActivatorResumesSuspendedSession(t *testing.T) {
 			DesiredState:   v1alpha1.DesiredStateSuspended,
 		},
 	}
-	base := fake.NewClientBuilder().WithScheme(scheme).WithObjects(existing).Build()
+	base := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&v1alpha1.CodexSession{}).WithObjects(existing).Build()
 	kubeClient := &readyOnWriteClient{Client: base}
 	activator := &SessionActivator{Client: kubeClient, Namespace: "sessions", ReadyPollInterval: time.Millisecond}
 
@@ -78,18 +82,13 @@ func TestSessionEndpointResolverUsesSanitizedSessionName(t *testing.T) {
 
 type readyOnWriteClient struct{ client.Client }
 
-func (c *readyOnWriteClient) Create(ctx context.Context, object client.Object, options ...client.CreateOption) error {
+func (c *readyOnWriteClient) Get(ctx context.Context, key client.ObjectKey, object client.Object, options ...client.GetOption) error {
+	if err := c.Client.Get(ctx, key, object, options...); err != nil {
+		return err
+	}
 	if session, ok := object.(*v1alpha1.CodexSession); ok {
 		session.Status.Phase = v1alpha1.PhaseReady
 		session.Status.ObservedGeneration = session.Generation
 	}
-	return c.Client.Create(ctx, object, options...)
-}
-
-func (c *readyOnWriteClient) Update(ctx context.Context, object client.Object, options ...client.UpdateOption) error {
-	if session, ok := object.(*v1alpha1.CodexSession); ok {
-		session.Status.Phase = v1alpha1.PhaseReady
-		session.Status.ObservedGeneration = session.Generation
-	}
-	return c.Client.Update(ctx, object, options...)
+	return nil
 }

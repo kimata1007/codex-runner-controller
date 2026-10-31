@@ -11,7 +11,7 @@ libSQLを設定せずに起動するとメモリrepositoryを使い、メッセ�
 libSQLを設定し、`RUNNER_AGENT_URL`を空にすると、Runner APIはKubernetes上の会話別セッションを使います。メッセージ送信時の順序は次の通りです。
 
 1. `runnerapi`が会話の存在を確認する。
-2. `kubernetes.SessionActivator`が会話IDと同名の`CodexSession`を作成するか、SuspendedならActiveへ戻す。これは`session.Activator`インターフェースを実装する。
+2. `kubernetes.SessionActivator`が会話IDと同名の`CodexSession`を作成するか、SuspendedならActiveへ戻す。これは`session.Activator`インターフェースを実装し、Ready待ちの前に`status.lastActivityAt`を更新する。
 3. `CodexSession`コントローラーがPVC、Service、runner-agent Podを準備し、状態をReadyにする。
 4. `kubernetes.SessionEndpointResolver`が`http://<session-name>.<namespace>.svc:8081`を選ぶ。
 5. `runs.MessageDispatcher`がメッセージを保存し、`agentclient.RunAdapter`経由でthreadを開始または再開してturnを送る。
