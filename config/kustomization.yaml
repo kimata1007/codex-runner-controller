@@ -10,3 +10,4 @@ resources:
   - manager
   - api
   - libsql
+  - web
