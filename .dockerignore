@@ -1,0 +1,7 @@
+.git
+.github
+.tmp-codex-runner-controller
+*.md
+docs/
+config/
+**/*_test.go
