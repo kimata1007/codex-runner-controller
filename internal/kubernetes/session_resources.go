@@ -24,6 +24,7 @@ const (
 type ResourceBuilder struct {
 	RunnerImage                string
 	RunnerEventURL             string
+	RunnerHeartbeatURL         string
 	RunnerAgentTokenSecretName string
 	RunnerAgentTokenSecretKey  string
 	RunnerAPITokenSecretName   string
@@ -88,6 +89,9 @@ func (b ResourceBuilder) BuildPod(namespace, name string, spec v1alpha1.CodexSes
 	}
 	if b.RunnerEventURL != "" {
 		env = append(env, corev1.EnvVar{Name: "RUNNER_EVENT_URL", Value: b.RunnerEventURL})
+	}
+	if b.RunnerHeartbeatURL != "" {
+		env = append(env, corev1.EnvVar{Name: "RUNNER_HEARTBEAT_URL", Value: b.RunnerHeartbeatURL})
 	}
 	if b.RunnerAgentTokenSecretName != "" {
 		key := b.RunnerAgentTokenSecretKey

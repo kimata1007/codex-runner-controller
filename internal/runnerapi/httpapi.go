@@ -90,6 +90,9 @@ func NewRouter(handler *Handler) *echo.Echo {
 		e.POST("/internal/runs/:runID/events", handler.receiveAppServerRunEvent)
 		e.GET("/v1/runs/:runID/events", events.NewSSEHandler(handler.eventStore, handler.eventHub))
 	}
+	if handler.activity != nil {
+		e.POST("/internal/sessions/:conversationID/heartbeat", handler.receiveHeartbeat)
+	}
 	return e
 }
 
@@ -148,6 +151,13 @@ func (h *Handler) receiveAppServerRunEvent(c echo.Context) error {
 
 func (h *Handler) checkHealth(c echo.Context) error {
 	return writeJSON(c, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (h *Handler) receiveHeartbeat(c echo.Context) error {
+	if err := h.activity.Touch(c.Request().Context(), c.Param("conversationID"), time.Now().UTC()); err != nil {
+		return writeError(c, http.StatusBadGateway, "failed to record heartbeat")
+	}
+	return writeJSON(c, http.StatusAccepted, map[string]string{"status": "accepted"})
 }
 
 func (h *Handler) respondApproval(c echo.Context) error {

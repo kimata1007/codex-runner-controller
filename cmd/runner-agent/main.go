@@ -56,6 +56,14 @@ func main() {
 		log.Fatal(err)
 	}
 	process.Client.SetRequestHandler(approvals.Handle)
+	if heartbeatURL := os.Getenv("RUNNER_HEARTBEAT_URL"); heartbeatURL != "" {
+		heartbeat, heartbeatErr := agent.NewHTTPHeartbeatSinkWithToken(heartbeatURL, os.Getenv("CODEX_CONVERSATION_ID"), os.Getenv("RUNNER_AGENT_TOKEN"))
+		if heartbeatErr != nil {
+			log.Printf("configure heartbeat: %v", heartbeatErr)
+		} else {
+			go runHeartbeat(ctx, heartbeat)
+		}
+	}
 
 	session := agent.NewSession(process.Client)
 	if err := session.Initialize(ctx, agent.ClientInfo{
@@ -101,5 +109,27 @@ func main() {
 		defer cancel()
 		_ = server.Shutdown(shutdownCtx)
 		_ = process.Close()
+	}
+}
+
+func runHeartbeat(ctx context.Context, heartbeat *agent.HTTPHeartbeatSink) {
+	const interval = 30 * time.Second
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	report := func() {
+		heartbeatCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		if err := heartbeat.Report(heartbeatCtx); err != nil && ctx.Err() == nil {
+			log.Printf("report heartbeat: %v", err)
+		}
+	}
+	report()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			report()
+		}
 	}
 }
