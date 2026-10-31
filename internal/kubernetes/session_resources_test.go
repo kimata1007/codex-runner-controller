@@ -129,3 +129,16 @@ func TestResourceBuilderInjectsRunnerRuntimeConfiguration(t *testing.T) {
 		t.Fatalf("runtime env = %q / %q / %q / %q", eventURL, heartbeatURL, agentToken, apiToken)
 	}
 }
+
+func TestResourceBuilderInjectsCodexAccessTokenReference(t *testing.T) {
+	pod, err := (ResourceBuilder{RunnerImage: "runner:v1.0.0", CodexAccessTokenSecretName: "codex-auth", CodexAccessTokenSecretKey: "accessToken"}).BuildPod("codex-system", "session-1", testSessionSpec())
+	if err != nil {
+		t.Fatalf("build pod: %v", err)
+	}
+	for _, env := range pod.Spec.Containers[0].Env {
+		if env.Name == "ACCESS_TOKEN" && env.ValueFrom != nil && env.ValueFrom.SecretKeyRef.Name == "codex-auth" && env.ValueFrom.SecretKeyRef.Key == "accessToken" {
+			return
+		}
+	}
+	t.Fatal("ACCESS_TOKEN SecretKeyRef was not injected")
+}

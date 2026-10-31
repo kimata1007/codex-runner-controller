@@ -24,7 +24,7 @@ func main() {
 	}
 	args := strings.Fields(os.Getenv("CODEX_APP_SERVER_ARGS"))
 	if len(args) == 0 {
-		args = []string{"app-server", "--listen", "stdio://"}
+		args = defaultAppServerArgs()
 	}
 
 	tracker := agent.NewRunTracker()
@@ -116,6 +116,22 @@ func main() {
 		_ = server.Shutdown(shutdownCtx)
 		_ = process.Close()
 	}
+}
+
+func defaultAppServerArgs() []string {
+	args := []string{"app-server", "--listen", "stdio://"}
+	if strings.TrimSpace(os.Getenv("ACCESS_TOKEN")) == "" {
+		return args
+	}
+	return append(args,
+		"-c", `model_provider="openai_chatgpt_plan"`,
+		"-c", `model_providers.openai_chatgpt_plan.name="ChatGPT plan"`,
+		"-c", `model_providers.openai_chatgpt_plan.base_url="https://api.openai.com/v1"`,
+		"-c", `model_providers.openai_chatgpt_plan.env_key="ACCESS_TOKEN"`,
+		"-c", `model_providers.openai_chatgpt_plan.wire_api="responses"`,
+		"-c", `model_providers.openai_chatgpt_plan.requires_openai_auth=false`,
+		"-c", `model_providers.openai_chatgpt_plan.supports_websockets=false`,
+	)
 }
 
 func runHeartbeat(ctx context.Context, heartbeat *agent.HTTPHeartbeatSink, tracker *agent.RunTracker) {
