@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -10,7 +11,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/kimata1007/codex-runner-controller/internal/conversation"
 	"github.com/kimata1007/codex-runner-controller/internal/httpapi"
+	"github.com/kimata1007/codex-runner-controller/internal/libsql"
 	"github.com/kimata1007/codex-runner-controller/internal/memory"
 )
 
@@ -20,7 +23,12 @@ func main() {
 		addr = ":8080"
 	}
 
-	repository := memory.NewRepository()
+	migrationContext, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	repository, err := repositoryFromEnvironment(migrationContext)
+	cancel()
+	if err != nil {
+		log.Fatal(err)
+	}
 	router := httpapi.NewRouter(httpapi.NewHandler(repository))
 	server := &http.Server{
 		Addr:              addr,
@@ -47,4 +55,18 @@ func main() {
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatal(err)
 	}
+}
+
+func repositoryFromEnvironment(ctx context.Context) (conversation.Repository, error) {
+	libSQLURL := os.Getenv("LIBSQL_URL")
+	if libSQLURL == "" {
+		return memory.NewRepository(), nil
+	}
+
+	client := libsql.NewClient(libSQLURL, os.Getenv("LIBSQL_AUTH_TOKEN"))
+	repository := libsql.NewRepository(client, os.Getenv("RUNNER_API_USER_ID"))
+	if err := repository.Migrate(ctx); err != nil {
+		return nil, fmt.Errorf("database migration: %w", err)
+	}
+	return repository, nil
 }
