@@ -1,49 +1,83 @@
 # Codex Runner Controller
 
-Kubernetes上で会話単位のCodexセッションを起動・停止・再開するための基盤です。
-全体設計は [docs/design.md](docs/design.md)、アーキテクチャ図と主要フローは [docs/diagrams.md](docs/diagrams.md) にまとめています。
+Kubernetes上で会話単位のCodexセッションを起動・停止・再開する基盤です。Tailnet内のPWAからRunner APIへ接続し、Runner APIがlibSQLとCodexSessionリソースを管理します。
 
-## 開発状況
+## 構成
 
-最初の実装PRでは、後続のコンポーネントが依存するRunner APIの最小HTTP契約を実装しています。
+- `runner-api`: 会話、メッセージ、run、App Serverイベントを保存し、セッションPodへ処理を依頼するHTTP API
+- `runner-controller`: `CodexSession` CRDを監視し、会話ごとのPVC、Service、セッションPodを作成・削除するController
+- `runner-agent`: セッションPod内でCodex App Serverを子プロセスとして起動し、HTTP APIとstdio JSON-RPCを橋渡しするプロセス
+- `libSQL/sqld`: 会話とイベントの永続DB。Podを削除しても会話履歴を保持する
+- `web`: Tailnet内から利用する同一OriginのレスポンシブPWA
 
-- `GET /healthz`, `GET /readyz`
-- `POST /v1/conversations`
-- `GET /v1/conversations/{id}`
-- `POST /v1/conversations/{id}/messages`
-- `GET /v1/conversations/{id}/messages`
-- `clientMessageId`によるメッセージ再送の冪等性
+会話開始時にセッションPodを作成し、既存会話なら同じPVC上のthreadを再開します。既定では30分間アクティビティがないとPodだけを削除します。CRD、PVC、Service、libSQLの会話データは残るため、次のメッセージでPodを再作成できます。
 
-`LIBSQL_URL`を設定すると、起動時にlibSQL/sqldへスキーマを適用して永続Repositoryを使用します。未設定時はローカル開発用のプロセス内メモリRepositoryです。メモリのデータは再起動で消えるため、本番利用にはlibSQLを設定してください。
+詳しい設計は [docs/design.md](docs/design.md)、C4モデルとシーケンス図は [docs/diagrams.md](docs/diagrams.md) を参照してください。
 
 libSQLを設定し、`RUNNER_AGENT_URL`を空にすると、Runner APIは会話ごとの`CodexSession`をKubernetes上で起動してrunを開始します。`RUNNER_AGENT_URL`を設定すると、単一のrunner-agentへ接続する開発用経路になります。`CODEX_MODEL`、`CODEX_CWD`、`CODEX_APPROVAL_POLICY`はthread作成/再開時のオプションです。Kubernetesセッションのnamespace、PVC容量、StorageClassは`RUNNER_SESSION_NAMESPACE`、`RUNNER_SESSION_DATA_SIZE`、`RUNNER_SESSION_STORAGE_CLASS`で指定できます。
 
-## ローカル実行
+## 開発
 
 ```bash
 go test ./...
-go run ./cmd/runner-api
+go vet ./...
+sh scripts/runner-agent-entrypoint_test.sh
+kubectl kustomize config > /tmp/codex-runner-manifests.yaml
 ```
 
-libSQL/sqldを使う場合:
+## コンテナイメージ
+
+イメージはコンポーネントごとにビルドします。
 
 ```bash
-LIBSQL_URL=http://localhost:8081 \
-LIBSQL_AUTH_TOKEN=... \
-go run ./cmd/runner-api
+docker build -f Dockerfile.runner-api \
+  --tag ghcr.io/kimata1007/codex-runner-api:dev .
+docker build -f Dockerfile.runner-controller \
+  --tag ghcr.io/kimata1007/codex-runner-controller:dev .
+docker build --build-arg CODEX_CLI_VERSION=<pinned-version> \
+  -f Dockerfile.runner-agent \
+  --tag ghcr.io/kimata1007/codex-runner-agent:dev .
+docker build -f Dockerfile.runner-pwa \
+  --tag ghcr.io/kimata1007/codex-runner-pwa:dev .
 ```
 
-この例ではsqldがポート8081、Runner APIがポート8080で動いている前提です。認証なしのsqldなら`LIBSQL_AUTH_TOKEN`は省略できます。
+`Dockerfile.runner-agent` はGit取得に使う `git` と、固定したCodex CLIのバージョンを含みます。`CODEX_CLI_VERSION`を省略してビルドできないようにしているため、環境ごとに明示的に固定してください。
 
-別のターミナルから確認できます。
+## Kubernetesデプロイ
+
+1. 4つのイメージをレジストリへpushし、`config/manager/deployment.yaml`、`config/api/deployment.yaml`、`config/web/deployment.yaml`のイメージを環境のタグへ変更します。
+2. 同じNamespaceにRunner APIとrunner-agent間で共有するSecretを作成します。
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: codex-runner-tokens
+  namespace: codex-system
+type: Opaque
+stringData:
+  runnerApiToken: replace-me
+  runnerAgentToken: replace-me
+```
+
+3. GitHubなどのprivate HTTPSリポジトリを使う場合は、Git tokenを別Secretの `token` キーへ保存し、Runner API Deploymentの `CODEX_GIT_CREDENTIALS_SECRET_NAME` にそのSecret名を設定します。Secretの値をURLやCRDへ埋め込まないでください。詳細は [docs/repository-workspace-bootstrap.md](docs/repository-workspace-bootstrap.md) を参照してください。
+4. Tailscaleのサーバーまたはクラスタ内からのみPWA/APIへ到達できるよう、Tailnet側のリバースプロキシ、Service公開、またはport-forwardを設定します。Ingressをインターネットへ公開する設定はこのリポジトリには含めていません。
+
+```bash
+kubectl apply -k config/
+```
+
+環境ごとの差分はKustomize overlayで管理し、イメージタグ、Secret参照、リソース要求、公開方法をoverlay側で上書きしてください。
+
+## APIとクライアント
+
+モバイル側はKubernetesやCodex App Serverを直接知りません。PWAまたは将来のネイティブアプリはRunner APIのJSON APIとSSEだけを利用します。音声入力は後から同じメッセージAPIへ接続できます。
+
+ローカルでは `LIBSQL_URL` 未設定時にメモリRepositoryへフォールバックできますが、再起動で消えるため本番利用には使いません。Kubernetesでは `LIBSQL_URL` をlibSQL Serviceへ向けます。API認証とagent間認証の環境変数は [docs/api-authentication.md](docs/api-authentication.md) を参照してください。
 
 ```bash
 curl http://localhost:8080/healthz
-curl -X POST http://localhost:8080/v1/conversations
+curl -X POST http://localhost:8080/v1/conversations \
+  -H 'Content-Type: application/json' \
+  -d '{"mode":"chat"}'
 ```
-
-## クライアント方針
-
-モバイル側はKubernetesやCodex App Serverを直接知りません。Runner APIのHTTPS JSON APIと、後続PRで追加するSSEイベントAPIだけを利用します。
-
-音声入力を後回しにする現段階では、まずレスポンシブWeb/PWAを作る方針を推奨します。Tailnet内のブラウザからすぐ利用でき、アプリストア配布なしでAPI契約と会話UIを検証できます。プッシュ通知、バックグラウンド実行、ネイティブ音声などが必要になった時点で、同じAPIクライアントをExpoへ移す選択肢を残します。
