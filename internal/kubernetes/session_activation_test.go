@@ -46,6 +46,14 @@ func TestSessionActivatorCreatesSessionAndWaitsUntilReady(t *testing.T) {
 	}
 }
 
+func TestSessionActivatorUsesCredentialsSecretReference(t *testing.T) {
+	activator := &SessionActivator{CredentialsRefName: "github-credentials"}
+	spec := activator.newSpec("conversation-1", nil)
+	if spec.CredentialsRef == nil || spec.CredentialsRef.Name != "github-credentials" {
+		t.Fatalf("credentials ref = %+v", spec.CredentialsRef)
+	}
+}
+
 func TestSessionActivatorResumesSuspendedSession(t *testing.T) {
 	scheme := runtime.NewScheme()
 	if err := AddToScheme(scheme); err != nil {

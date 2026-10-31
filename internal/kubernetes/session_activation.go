@@ -18,9 +18,9 @@ import (
 )
 
 const (
-	DefaultSessionNamespace   = "codex-system"
-	DefaultSessionDataSize    = "10Gi"
-	DefaultApprovalPolicy     = "user"
+	DefaultSessionNamespace = "codex-system"
+	DefaultSessionDataSize  = "10Gi"
+	DefaultApprovalPolicy   = "user"
 )
 
 // SessionActivator creates or resumes a CodexSession and waits for its controller to
@@ -30,6 +30,7 @@ type SessionActivator struct {
 	Namespace          string
 	SessionDataSize    string
 	StorageClassName   string
+	CredentialsRefName string
 	IdleTimeoutSeconds int32
 	Model              string
 	ApprovalPolicy     string
@@ -138,6 +139,9 @@ func (a *SessionActivator) newSpec(conversationID string, repository *session.Re
 			Retain:           true,
 		},
 		Execution: v1alpha1.Execution{Model: a.Model, ApprovalPolicy: approvalPolicy},
+	}
+	if a.CredentialsRefName != "" {
+		spec.CredentialsRef = &v1alpha1.SecretReference{Name: a.CredentialsRefName}
 	}
 	if repository != nil {
 		spec.Repository = &v1alpha1.Repository{URL: repository.URL, Revision: repository.Revision}

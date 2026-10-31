@@ -132,3 +132,17 @@ func TestRouterWiresEventIngestAndSSE(t *testing.T) {
 		t.Fatalf("SSE body = %q", sseRecorder.Body.String())
 	}
 }
+
+func TestGitCredentialsSecretNameFromEnvironment(t *testing.T) {
+	t.Setenv("CODEX_GIT_CREDENTIALS_SECRET_NAME", " github-credentials ")
+	if got := gitCredentialsSecretNameFromEnvironment(); got != "github-credentials" {
+		t.Fatalf("credentials secret name = %q", got)
+	}
+}
+
+func TestGitCredentialsSecretNameFromEnvironmentWhenUnset(t *testing.T) {
+	t.Setenv("CODEX_GIT_CREDENTIALS_SECRET_NAME", "")
+	if got := gitCredentialsSecretNameFromEnvironment(); got != "" {
+		t.Fatalf("credentials secret name = %q, want empty", got)
+	}
+}
