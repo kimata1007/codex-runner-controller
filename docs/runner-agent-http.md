@@ -11,6 +11,6 @@
 | `POST` | `/v1/threads/{id}/resume` | 保存済みthreadを再開 |
 | `POST` | `/v1/threads/{id}/turns` | ユーザーのテキスト入力を送信 |
 
-Runner APIはまずDBへユーザーメッセージを保存し、対象のCodexSession PodがReadyになった後にこのHTTP APIを呼ぶ。`turns` は実行開始を受け付けた時点で `202 Accepted` を返し、App Serverからのイベントは後続PRでDBとクライアント配信へ接続する。
+Runner APIはまずDBへユーザーメッセージを保存し、対象のCodexSession PodがReadyになった後にこのHTTP APIを呼ぶ。`turns` は実行開始を受け付けた時点で `202 Accepted` を返し、App ServerからのイベントはRunner APIの内部イベントAPI、libSQL、SSEへ接続される。
 
 runner-agentのHTTPポートは `RUNNER_AGENT_ADDR` で変更でき、未指定時は `:8081` でlistenする。Service経由でPodへ到達させるため、外部へ公開せずクラスタ内部だけに配置する。

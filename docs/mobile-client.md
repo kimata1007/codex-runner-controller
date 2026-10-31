@@ -11,8 +11,8 @@
 - 会話の作成と取得
 - メッセージ送信
 - 会話履歴取得
-- 後続PRで追加するSSEによる実行イベント購読
-- 後続PRで追加する承認要求への回答
+- SSEによる実行イベント購読
+- 承認要求への回答
 
 Kubernetes API、CodexSession CRD、Session Pod、Codex App Server、libSQLには直接アクセスしない。これらはRunner APIの内部実装である。
 
