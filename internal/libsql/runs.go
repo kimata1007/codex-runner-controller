@@ -117,6 +117,38 @@ func (r *Repository) ApplyAppServerEvent(ctx context.Context, runID, eventType, 
 		messageStatus = "failed"
 	}
 	_, err := r.client.Exec(ctx, `UPDATE messages SET status = ? WHERE id = (SELECT message_id FROM runs WHERE id = ?)`, []Value{Text(messageStatus), Text(runID)}, false)
+	if err != nil {
+		return err
+	}
+	if status == runs.StatusCompleted {
+		if err := r.persistAssistantMessage(ctx, runID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *Repository) persistAssistantMessage(ctx context.Context, runID string) error {
+	run, found, err := r.GetRun(ctx, runID)
+	if err != nil || !found {
+		return err
+	}
+	events, err := r.ListEvents(ctx, runID, 0)
+	if err != nil {
+		return err
+	}
+	content := runs.AssistantTextFromEvents(events)
+	if content == "" {
+		return nil
+	}
+	messageID := "assistant-" + runID
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	_, err = r.client.Exec(ctx, `INSERT INTO messages
+		(id, conversation_id, role, content, sequence, status, created_at)
+		VALUES (?, ?, 'assistant', ?, COALESCE((SELECT MAX(sequence) FROM messages WHERE conversation_id = ?), 0) + 1, 'completed', ?)
+		ON CONFLICT(id) DO UPDATE SET content = excluded.content, status = excluded.status, created_at = excluded.created_at`, []Value{
+		Text(messageID), Text(run.ConversationID), Text(content), Text(run.ConversationID), Text(now),
+	}, false)
 	return err
 }
 
