@@ -3,6 +3,7 @@ package kubernetes
 import (
 	"context"
 	"testing"
+	"time"
 
 	v1alpha1 "github.com/kimata1007/codex-runner-controller/api/v1alpha1"
 	"github.com/kimata1007/codex-runner-controller/internal/session"
@@ -58,6 +59,23 @@ func TestSessionActivatorResumesExistingSession(t *testing.T) {
 	}
 	if updated.Spec.DesiredState != v1alpha1.DesiredStateActive {
 		t.Fatalf("desired state = %q", updated.Spec.DesiredState)
+	}
+}
+
+func TestSessionActivatorRecordsActivity(t *testing.T) {
+	existing := &v1alpha1.CodexSession{ObjectMeta: metav1.ObjectMeta{Name: "conversation-1", Namespace: "codex-system"}, Spec: activationDefaults()}
+	kubeClient := fake.NewClientBuilder().WithScheme(activationScheme(t)).WithStatusSubresource(existing).WithObjects(existing).Build()
+	activator := SessionActivator{Client: kubeClient, Namespace: "codex-system", Defaults: activationDefaults()}
+	activityAt := time.Date(2026, 10, 31, 10, 20, 30, 0, time.FixedZone("JST", 9*60*60))
+	if err := activator.Touch(context.Background(), "conversation-1", activityAt); err != nil {
+		t.Fatalf("touch: %v", err)
+	}
+	updated := &v1alpha1.CodexSession{}
+	if err := kubeClient.Get(context.Background(), client.ObjectKey{Namespace: "codex-system", Name: "conversation-1"}, updated); err != nil {
+		t.Fatalf("get session: %v", err)
+	}
+	if updated.Status.LastActivityAt != "2026-10-31T01:20:30Z" {
+		t.Fatalf("last activity = %q", updated.Status.LastActivityAt)
 	}
 }
 

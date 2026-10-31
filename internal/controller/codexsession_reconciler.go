@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	v1alpha1 "github.com/kimata1007/codex-runner-controller/api/v1alpha1"
 	"github.com/kimata1007/codex-runner-controller/internal/kubernetes"
@@ -26,6 +27,7 @@ type Result struct {
 	Phase          string
 	PodName        string
 	WorkspaceClaim string
+	RequeueAfter   time.Duration
 }
 
 type CodexSessionReconciler struct {
@@ -34,6 +36,10 @@ type CodexSessionReconciler struct {
 }
 
 func (r CodexSessionReconciler) Reconcile(ctx context.Context, namespace, name string, spec v1alpha1.CodexSessionSpec) (Result, error) {
+	return r.ReconcileStatus(ctx, namespace, name, spec, v1alpha1.CodexSessionStatus{})
+}
+
+func (r CodexSessionReconciler) ReconcileStatus(ctx context.Context, namespace, name string, spec v1alpha1.CodexSessionSpec, status v1alpha1.CodexSessionStatus) (Result, error) {
 	if r.Client == nil {
 		return Result{}, fmt.Errorf("resource client is required")
 	}
@@ -41,6 +47,16 @@ func (r CodexSessionReconciler) Reconcile(ctx context.Context, namespace, name s
 		return Result{}, err
 	}
 	if spec.DesiredState == v1alpha1.DesiredStateSuspended {
+		if err := r.deletePodIfPresent(ctx, namespace, name); err != nil {
+			return Result{}, err
+		}
+		return Result{Phase: v1alpha1.PhaseSuspended, WorkspaceClaim: name}, nil
+	}
+	idle, requeueAfter, err := idleState(spec, status, time.Now().UTC())
+	if err != nil {
+		return Result{}, err
+	}
+	if idle {
 		if err := r.deletePodIfPresent(ctx, namespace, name); err != nil {
 			return Result{}, err
 		}
@@ -80,7 +96,7 @@ func (r CodexSessionReconciler) Reconcile(ctx context.Context, namespace, name s
 		if err := r.Client.CreatePod(ctx, pod); err != nil {
 			return Result{}, fmt.Errorf("create pod: %w", err)
 		}
-		return Result{Phase: v1alpha1.PhaseStarting, PodName: name, WorkspaceClaim: name}, nil
+		return Result{Phase: v1alpha1.PhaseStarting, PodName: name, WorkspaceClaim: name, RequeueAfter: requeueAfter}, nil
 	}
 	if err != nil {
 		return Result{}, fmt.Errorf("get pod: %w", err)
@@ -89,7 +105,22 @@ func (r CodexSessionReconciler) Reconcile(ctx context.Context, namespace, name s
 	if podReady(pod) {
 		phase = v1alpha1.PhaseReady
 	}
-	return Result{Phase: phase, PodName: name, WorkspaceClaim: name}, nil
+	return Result{Phase: phase, PodName: name, WorkspaceClaim: name, RequeueAfter: requeueAfter}, nil
+}
+
+func idleState(spec v1alpha1.CodexSessionSpec, status v1alpha1.CodexSessionStatus, now time.Time) (bool, time.Duration, error) {
+	if spec.IdleTimeoutSeconds <= 0 || status.LastActivityAt == "" {
+		return false, 0, nil
+	}
+	lastActivity, err := time.Parse(time.RFC3339Nano, status.LastActivityAt)
+	if err != nil {
+		return false, 0, fmt.Errorf("parse lastActivityAt: %w", err)
+	}
+	deadline := lastActivity.Add(time.Duration(spec.IdleTimeoutSeconds) * time.Second)
+	if !now.Before(deadline) {
+		return true, 0, nil
+	}
+	return false, deadline.Sub(now), nil
 }
 
 func (r CodexSessionReconciler) deletePodIfPresent(ctx context.Context, namespace, name string) error {

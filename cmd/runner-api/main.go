@@ -113,10 +113,17 @@ func messageDispatcherFromEnvironment(repository conversation.Repository) (runne
 	return runs.NewMessageDispatcherWithFactory(runStore, agentclient.NewRunClientFactory(resolver, params)), nil
 }
 
-type apiSessionActivator struct{ activator session.Activator }
+type apiSessionActivator struct {
+	activator session.Activator
+	activity  session.ActivityRecorder
+}
 
 func (a apiSessionActivator) Activate(ctx context.Context, conversationID string) error {
 	return a.activator.Activate(ctx, session.Activation{ConversationID: conversationID})
+}
+
+func (a apiSessionActivator) Touch(ctx context.Context, conversationID string, at time.Time) error {
+	return a.activity.Touch(ctx, conversationID, at)
 }
 
 func sessionActivatorFromEnvironment() runnerapi.SessionActivator {
@@ -147,7 +154,8 @@ func sessionActivatorFromEnvironment() runnerapi.SessionActivator {
 	if defaults.Execution.ApprovalPolicy == "" {
 		defaults.Execution.ApprovalPolicy = "user"
 	}
-	return apiSessionActivator{activator: kube.SessionActivator{Client: kubeClient, Namespace: namespace, Defaults: defaults}}
+	concrete := kube.SessionActivator{Client: kubeClient, Namespace: namespace, Defaults: defaults}
+	return apiSessionActivator{activator: concrete, activity: concrete}
 }
 
 func repositoryFromEnvironment(ctx context.Context) (conversation.Repository, error) {

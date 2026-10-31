@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"time"
 
 	v1alpha1 "github.com/kimata1007/codex-runner-controller/api/v1alpha1"
 	"github.com/kimata1007/codex-runner-controller/internal/session"
@@ -61,6 +62,29 @@ func (a SessionActivator) Activate(ctx context.Context, activation session.Activ
 	existing.Spec.DesiredState = v1alpha1.DesiredStateActive
 	if err := a.Client.Update(ctx, existing); err != nil {
 		return fmt.Errorf("session activator: resume session: %w", err)
+	}
+	return nil
+}
+
+func (a SessionActivator) Touch(ctx context.Context, conversationID string, at time.Time) error {
+	if a.Client == nil {
+		return fmt.Errorf("session activity: client is required")
+	}
+	name, err := SessionName(conversationID)
+	if err != nil {
+		return err
+	}
+	namespace := a.Namespace
+	if namespace == "" {
+		namespace = DefaultSessionNamespace
+	}
+	resource := &v1alpha1.CodexSession{}
+	if err := a.Client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, resource); err != nil {
+		return fmt.Errorf("session activity: get session: %w", err)
+	}
+	resource.Status.LastActivityAt = at.UTC().Format(time.RFC3339Nano)
+	if err := a.Client.Status().Update(ctx, resource); err != nil {
+		return fmt.Errorf("session activity: update status: %w", err)
 	}
 	return nil
 }

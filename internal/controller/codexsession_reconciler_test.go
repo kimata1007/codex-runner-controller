@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"testing"
+	"time"
 
 	v1alpha1 "github.com/kimata1007/codex-runner-controller/api/v1alpha1"
 	"github.com/kimata1007/codex-runner-controller/internal/kubernetes"
@@ -102,5 +103,36 @@ func TestCodexSessionReconcilerSuspendedDeletesOnlyPod(t *testing.T) {
 	}
 	if result.Phase != v1alpha1.PhaseSuspended || client.deletedPod != 1 || client.pvc == nil {
 		t.Fatalf("suspend = %+v, deleted=%d pvc=%v", result, client.deletedPod, client.pvc)
+	}
+}
+
+func TestReconcilerDeletesIdlePodAndRetainsWorkspace(t *testing.T) {
+	client := &fakeResourceClient{}
+	r := CodexSessionReconciler{Client: client}
+	if _, err := r.Reconcile(context.Background(), "codex-system", "session-1", reconcileSpec()); err != nil {
+		t.Fatal(err)
+	}
+	spec := reconcileSpec()
+	spec.IdleTimeoutSeconds = 1
+	status := v1alpha1.CodexSessionStatus{LastActivityAt: time.Now().UTC().Add(-time.Minute).Format(time.RFC3339Nano)}
+	result, err := r.ReconcileStatus(context.Background(), "codex-system", "session-1", spec, status)
+	if err != nil {
+		t.Fatalf("idle reconcile: %v", err)
+	}
+	if result.Phase != v1alpha1.PhaseSuspended || client.deletedPod != 1 || client.pvc == nil || client.service == nil {
+		t.Fatalf("idle result = %+v, deleted=%d pvc=%v service=%v", result, client.deletedPod, client.pvc, client.service)
+	}
+}
+
+func TestReconcilerRequeuesBeforeIdleDeadline(t *testing.T) {
+	status := v1alpha1.CodexSessionStatus{LastActivityAt: time.Now().UTC().Format(time.RFC3339Nano)}
+	spec := reconcileSpec()
+	spec.IdleTimeoutSeconds = 30
+	result, err := (CodexSessionReconciler{Client: &fakeResourceClient{}}).ReconcileStatus(context.Background(), "codex-system", "session-1", spec, status)
+	if err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+	if result.RequeueAfter <= 0 || result.RequeueAfter > 30*time.Second {
+		t.Fatalf("requeue after = %s", result.RequeueAfter)
 	}
 }

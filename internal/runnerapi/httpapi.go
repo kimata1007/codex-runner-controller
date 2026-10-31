@@ -20,6 +20,7 @@ type Handler struct {
 	repository conversation.Repository
 	dispatcher MessageDispatcher
 	activator  SessionActivator
+	activity   SessionActivityRecorder
 	eventStore RunEventStore
 	publisher  RunEventPublisher
 }
@@ -38,6 +39,10 @@ type SessionActivator interface {
 	Activate(context.Context, string) error
 }
 
+type SessionActivityRecorder interface {
+	Touch(context.Context, string, time.Time) error
+}
+
 func NewHandlerWithDispatcher(repository conversation.Repository, dispatcher MessageDispatcher) *Handler {
 	return &Handler{repository: repository, dispatcher: dispatcher}
 }
@@ -47,7 +52,11 @@ func NewHandlerWithDispatcherAndEvents(repository conversation.Repository, dispa
 }
 
 func NewHandlerWithDispatcherEventsAndActivator(repository conversation.Repository, dispatcher MessageDispatcher, eventStore RunEventStore, publisher RunEventPublisher, activator SessionActivator) *Handler {
-	return &Handler{repository: repository, dispatcher: dispatcher, eventStore: eventStore, publisher: publisher, activator: activator}
+	var activity SessionActivityRecorder
+	if recorder, ok := activator.(SessionActivityRecorder); ok {
+		activity = recorder
+	}
+	return &Handler{repository: repository, dispatcher: dispatcher, eventStore: eventStore, publisher: publisher, activator: activator, activity: activity}
 }
 
 func NewRouter(handler *Handler) *echo.Echo {
@@ -118,6 +127,11 @@ func (h *Handler) createMessage(c echo.Context) error {
 	if created && h.activator != nil {
 		if err := h.activator.Activate(c.Request().Context(), message.ConversationID); err != nil {
 			return writeError(c, http.StatusServiceUnavailable, "failed to activate session")
+		}
+	}
+	if created && h.activity != nil {
+		if err := h.activity.Touch(c.Request().Context(), message.ConversationID, time.Now().UTC()); err != nil {
+			return writeError(c, http.StatusServiceUnavailable, "failed to record session activity")
 		}
 	}
 	if created && h.dispatcher != nil {
