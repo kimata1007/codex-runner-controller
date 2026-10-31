@@ -12,6 +12,7 @@ import (
 )
 
 type NotificationHandler func(AppServerNotification)
+type RequestHandler func(context.Context, Message) (any, error)
 
 type Message struct {
 	JSONRPC string          `json:"jsonrpc"`
@@ -29,9 +30,10 @@ type RPCError struct {
 }
 
 type JSONRPCClient struct {
-	reader  *bufio.Reader
-	writer  io.Writer
-	handler NotificationHandler
+	reader         *bufio.Reader
+	writer         io.Writer
+	handler        NotificationHandler
+	requestHandler RequestHandler
 
 	callMu     sync.Mutex
 	writeMu    sync.Mutex
@@ -40,6 +42,12 @@ type JSONRPCClient struct {
 	pending    map[int64]chan callResult
 	readErr    error
 	readerOnce sync.Once
+}
+
+func (c *JSONRPCClient) SetRequestHandler(handler RequestHandler) {
+	if c != nil {
+		c.requestHandler = handler
+	}
 }
 
 type callResult struct {
@@ -145,6 +153,10 @@ func (c *JSONRPCClient) readLoop() {
 			}
 			continue
 		}
+		if message.Method != "" {
+			c.handleRequest(context.Background(), message)
+			continue
+		}
 		c.pendingMu.Lock()
 		responseCh := c.pending[*message.ID]
 		delete(c.pending, *message.ID)
@@ -153,6 +165,22 @@ func (c *JSONRPCClient) readLoop() {
 			responseCh <- callResult{message: message}
 		}
 	}
+}
+
+func (c *JSONRPCClient) handleRequest(ctx context.Context, message Message) {
+	response := Message{JSONRPC: "2.0", ID: message.ID}
+	if c.requestHandler == nil {
+		response.Error = &RPCError{Code: -32601, Message: "method not handled"}
+		_ = c.write(response)
+		return
+	}
+	result, err := c.requestHandler(ctx, message)
+	if err != nil {
+		response.Error = &RPCError{Code: -32000, Message: err.Error()}
+	} else {
+		response.Result = mustRawJSON(result)
+	}
+	_ = c.write(response)
 }
 
 func (c *JSONRPCClient) removePending(id int64) {
