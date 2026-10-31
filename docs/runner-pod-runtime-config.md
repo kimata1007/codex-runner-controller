@@ -10,4 +10,6 @@ Controllerは`ResourceBuilder`で、セッションPodに次の設定を注入�
 - 専用ServiceAccountとnon-root/seccomp設定
 - session PVCと`/tmp`用の一時`emptyDir`
 
-Controller Deploymentの環境変数で、イベントとheartbeatの送信先・agentイメージ・Secret名とキーを指定します。トークン値自体はPod specの平文に埋め込まず、`SecretKeyRef`だけをPodへ渡します。イメージタグは`v0.1.0`を例にしています。実際にpushした固定バージョンへ合わせてください。
+Controller Deploymentの環境変数で、イベントとheartbeatの送信先・agentイメージ・各Secret名とキーを指定します。トークン値自体はPod specの平文に埋め込まず、`SecretKeyRef`だけをPodへ渡します。
+
+ChatGPTプランのOAuth tokenを使う場合は、Controller Deploymentへ`CODEX_ACCESS_TOKEN_SECRET_NAME`と`CODEX_ACCESS_TOKEN_SECRET_KEY`も設定します。runner-agentはそのSecret参照を`ACCESS_TOKEN`としてApp Serverへ継承します。
