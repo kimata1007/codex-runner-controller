@@ -11,14 +11,21 @@ import (
 	"syscall"
 	"time"
 
+	v1alpha1 "github.com/kimata1007/codex-runner-controller/api/v1alpha1"
 	"github.com/kimata1007/codex-runner-controller/internal/agent"
 	"github.com/kimata1007/codex-runner-controller/internal/agentclient"
 	"github.com/kimata1007/codex-runner-controller/internal/conversation"
 	"github.com/kimata1007/codex-runner-controller/internal/events"
+	kube "github.com/kimata1007/codex-runner-controller/internal/kubernetes"
 	"github.com/kimata1007/codex-runner-controller/internal/libsql"
 	"github.com/kimata1007/codex-runner-controller/internal/memory"
 	"github.com/kimata1007/codex-runner-controller/internal/runnerapi"
 	"github.com/kimata1007/codex-runner-controller/internal/runs"
+	"github.com/kimata1007/codex-runner-controller/internal/session"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 func main() {
@@ -39,7 +46,7 @@ func main() {
 	}
 	server := &http.Server{
 		Addr:              addr,
-		Handler:           handlerFromRepository(repository, dispatcher),
+		Handler:           handlerFromRepositoryWithActivator(repository, dispatcher, sessionActivatorFromEnvironment()),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,
@@ -48,7 +55,6 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-
 	go func() {
 		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -57,7 +63,6 @@ func main() {
 			log.Printf("server shutdown: %v", err)
 		}
 	}()
-
 	log.Printf("runner-api listening on %s", addr)
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatal(err)
@@ -65,18 +70,23 @@ func main() {
 }
 
 func handlerFromRepository(repository conversation.Repository, dispatcher runnerapi.MessageDispatcher) http.Handler {
-	eventStore, canAppend := repository.(runnerapi.RunEventStore)
-	if !canAppend {
-		return runnerapi.NewRouter(runnerapi.NewHandlerWithDispatcher(repository, dispatcher))
-	}
+	return handlerFromRepositoryWithActivator(repository, dispatcher, nil)
+}
 
+func handlerFromRepositoryWithActivator(repository conversation.Repository, dispatcher runnerapi.MessageDispatcher, activator runnerapi.SessionActivator) http.Handler {
+	eventStore, canAppend := repository.(runnerapi.RunEventStore)
 	broker := events.NewBroker()
-	router := runnerapi.NewRouter(runnerapi.NewHandlerWithDispatcherAndEvents(repository, dispatcher, eventStore, broker))
+	var handler *runnerapi.Handler
+	if canAppend {
+		handler = runnerapi.NewHandlerWithDispatcherEventsAndActivator(repository, dispatcher, eventStore, broker, activator)
+	} else {
+		handler = runnerapi.NewHandlerWithDispatcherEventsAndActivator(repository, dispatcher, nil, nil, activator)
+	}
+	router := runnerapi.NewRouter(handler)
 	listStore, canList := repository.(events.Store)
-	if !canList {
+	if !canAppend || !canList {
 		return router
 	}
-
 	mux := http.NewServeMux()
 	mux.Handle("/v1/runs/", events.NewSSEHandler(listStore, broker))
 	mux.Handle("/", router)
@@ -84,22 +94,60 @@ func handlerFromRepository(repository conversation.Repository, dispatcher runner
 }
 
 func messageDispatcherFromEnvironment(repository conversation.Repository) (runnerapi.MessageDispatcher, error) {
-	agentURL := os.Getenv("RUNNER_AGENT_URL")
-	if agentURL == "" {
+	runnerURL := os.Getenv("RUNNER_AGENT_URL")
+	namespace := os.Getenv("KUBERNETES_NAMESPACE")
+	if runnerURL == "" && namespace == "" {
 		return nil, nil
 	}
 	runStore, ok := repository.(runs.Store)
 	if !ok {
-		return nil, errors.New("RUNNER_AGENT_URL requires a run-capable libSQL repository")
+		return nil, errors.New("runner agent requires a run-capable repository")
 	}
-	params := agent.ThreadStartParams{
-		Model:          os.Getenv("CODEX_MODEL"),
-		CWD:            os.Getenv("CODEX_CWD"),
-		ApprovalPolicy: os.Getenv("CODEX_APPROVAL_POLICY"),
+	params := agent.ThreadStartParams{Model: os.Getenv("CODEX_MODEL"), CWD: os.Getenv("CODEX_CWD"), ApprovalPolicy: os.Getenv("CODEX_APPROVAL_POLICY")}
+	var resolver agentclient.EndpointResolver
+	if runnerURL != "" {
+		resolver = agentclient.StaticEndpointResolver{URL: runnerURL}
+	} else {
+		resolver = kube.SessionEndpointResolver{Namespace: namespace}
 	}
-	resolver := agentclient.StaticEndpointResolver{URL: agentURL}
-	factory := agentclient.NewRunClientFactory(resolver, params)
-	return runs.NewMessageDispatcherWithFactory(runStore, factory), nil
+	return runs.NewMessageDispatcherWithFactory(runStore, agentclient.NewRunClientFactory(resolver, params)), nil
+}
+
+type apiSessionActivator struct{ activator session.Activator }
+
+func (a apiSessionActivator) Activate(ctx context.Context, conversationID string) error {
+	return a.activator.Activate(ctx, session.Activation{ConversationID: conversationID})
+}
+
+func sessionActivatorFromEnvironment() runnerapi.SessionActivator {
+	namespace := os.Getenv("KUBERNETES_NAMESPACE")
+	if namespace == "" {
+		return nil
+	}
+	config, err := ctrl.GetConfig()
+	if err != nil {
+		log.Printf("Kubernetes session activation disabled: %v", err)
+		return nil
+	}
+	scheme := runtime.NewScheme()
+	if err := corev1.AddToScheme(scheme); err != nil {
+		log.Printf("Kubernetes session activation disabled: %v", err)
+		return nil
+	}
+	if err := v1alpha1.AddToScheme(scheme); err != nil {
+		log.Printf("Kubernetes session activation disabled: %v", err)
+		return nil
+	}
+	kubeClient, err := client.New(config, client.Options{Scheme: scheme})
+	if err != nil {
+		log.Printf("Kubernetes session activation disabled: %v", err)
+		return nil
+	}
+	defaults := v1alpha1.CodexSessionSpec{SessionData: v1alpha1.SessionData{Size: "10Gi", Retain: true}, Execution: v1alpha1.Execution{ApprovalPolicy: os.Getenv("CODEX_APPROVAL_POLICY")}}
+	if defaults.Execution.ApprovalPolicy == "" {
+		defaults.Execution.ApprovalPolicy = "user"
+	}
+	return apiSessionActivator{activator: kube.SessionActivator{Client: kubeClient, Namespace: namespace, Defaults: defaults}}
 }
 
 func repositoryFromEnvironment(ctx context.Context) (conversation.Repository, error) {
@@ -107,7 +155,6 @@ func repositoryFromEnvironment(ctx context.Context) (conversation.Repository, er
 	if libSQLURL == "" {
 		return memory.NewRepository(), nil
 	}
-
 	client := libsql.NewClient(libSQLURL, os.Getenv("LIBSQL_AUTH_TOKEN"))
 	repository := libsql.NewRepository(client, os.Getenv("RUNNER_API_USER_ID"))
 	if err := repository.Migrate(ctx); err != nil {
