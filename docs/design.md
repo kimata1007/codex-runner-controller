@@ -257,9 +257,9 @@ Controllerは、次の条件をすべて満たした場合にPodを削除する�
 - Conversation、Message、Run、Approval
 - session-data PVC
 - thread ID
+- session Pod用のClusterIP Service
 削除するもの:
 - runner Pod
-- session Pod用の一時Service
 新しいメッセージが来た場合は、API ServerがdesiredStateをActiveへ戻し、Controllerが再作成する。
 初期値のidleTimeoutSecondsは1800秒とする。実装中や承認待ちの場合はアイドル扱いにしない。
 ## 8. APIとrunner-agentの通信
@@ -269,13 +269,11 @@ Controllerは、次の条件をすべて満たした場合にPodを削除する�
 - GET /v1/conversations/{id}
 - GET /v1/conversations/{id}/messages
 - POST /v1/conversations/{id}/messages
-- GET /v1/conversations/{id}/events
-- POST /v1/approvals/{id}/respond
+- GET /v1/runs/{runID}/events
+- POST /v1/approvals/{runID}/{requestID}
 内部API:
-- GET /internal/sessions/{id}/commands
-- POST /internal/sessions/{id}/events
+- POST /internal/runs/{runID}/events
 - POST /internal/sessions/{id}/heartbeat
-- POST /internal/sessions/{id}/thread
 runner-agentからAPI Serverへのアウトバウンド接続を基本とする。API ServerがPodへ直接接続する方式に比べ、Podの再作成やネットワーク一時障害に強く、runner Podを外部公開する必要がない。
 内部APIはPod単位の短期トークンまたはServiceAccount認証で保護する。メッセージの取得はleaseまたはDBトランザクションで1回だけ実行されるようにする。
 ## 9. 認証とSecret
