@@ -37,7 +37,22 @@ func main() {
 		logger.Error(err, "create manager")
 		os.Exit(1)
 	}
-	if err := (&controller.CodexSessionController{Client: mgr.GetClient(), Builder: kubernetes.ResourceBuilder{RunnerImage: runnerImage}}).SetupWithManager(mgr); err != nil {
+	serviceAccountName := os.Getenv("RUNNER_SERVICE_ACCOUNT_NAME")
+	if serviceAccountName == "" {
+		serviceAccountName = kubernetes.DefaultRunnerServiceAccount
+	}
+	tokenSecretKey := os.Getenv("RUNNER_AGENT_TOKEN_SECRET_KEY")
+	if tokenSecretKey == "" {
+		tokenSecretKey = "token"
+	}
+	builder := kubernetes.ResourceBuilder{
+		RunnerImage:                runnerImage,
+		RunnerEventURL:             os.Getenv("RUNNER_EVENT_URL"),
+		RunnerAgentTokenSecretName: os.Getenv("RUNNER_AGENT_TOKEN_SECRET_NAME"),
+		RunnerAgentTokenSecretKey:  tokenSecretKey,
+		RunnerServiceAccountName:   serviceAccountName,
+	}
+	if err := (&controller.CodexSessionController{Client: mgr.GetClient(), Builder: builder}).SetupWithManager(mgr); err != nil {
 		logger.Error(err, "setup controller")
 		os.Exit(1)
 	}
