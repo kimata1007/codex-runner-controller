@@ -36,6 +36,7 @@ func TestResourceBuilderBuildsPVC(t *testing.T) {
 func TestResourceBuilderBuildsPodFromSession(t *testing.T) {
 	spec := testSessionSpec()
 	spec.Repository = &v1alpha1.Repository{URL: "https://github.com/example/repo.git", Revision: "main"}
+	spec.CredentialsRef = &v1alpha1.SecretReference{Name: "github-credentials"}
 	pod, err := (ResourceBuilder{RunnerImage: "runner:v1.0.0"}).BuildPod("codex-system", "session-1", spec)
 	if err != nil {
 		t.Fatalf("build pod: %v", err)
@@ -55,8 +56,20 @@ func TestResourceBuilderBuildsPodFromSession(t *testing.T) {
 	if !foundPVC {
 		t.Fatal("pod must mount the session PVC")
 	}
-	if len(pod.Spec.Containers[0].Env) != 5 {
-		t.Fatalf("environment variable count = %d, want 5", len(pod.Spec.Containers[0].Env))
+	if len(pod.Spec.Containers[0].Env) != 6 {
+		t.Fatalf("environment variable count = %d, want 6", len(pod.Spec.Containers[0].Env))
+	}
+	if got := pod.Spec.Containers[0].Command; len(got) != 1 || got[0] != "/runner-agent-entrypoint" {
+		t.Fatalf("runner command = %v", got)
+	}
+	var gitToken *corev1.SecretKeySelector
+	for _, env := range pod.Spec.Containers[0].Env {
+		if env.Name == "GIT_AUTH_TOKEN" && env.ValueFrom != nil {
+			gitToken = env.ValueFrom.SecretKeyRef
+		}
+	}
+	if gitToken == nil || gitToken.Name != "github-credentials" || gitToken.Key != "token" {
+		t.Fatalf("git auth token ref = %+v", gitToken)
 	}
 	if pod.Spec.Containers[0].Env[2].Name != "CODEX_HOME" || pod.Spec.Containers[0].Env[2].Value != DefaultMountPath {
 		t.Fatal("CODEX_HOME must point to the persistent session volume")

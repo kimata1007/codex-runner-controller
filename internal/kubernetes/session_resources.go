@@ -76,6 +76,15 @@ func (b ResourceBuilder) BuildPod(namespace, name string, spec v1alpha1.CodexSes
 			corev1.EnvVar{Name: "CODEX_REPOSITORY_URL", Value: spec.Repository.URL},
 			corev1.EnvVar{Name: "CODEX_REPOSITORY_REVISION", Value: spec.Repository.Revision},
 		)
+		if spec.CredentialsRef != nil {
+			env = append(env, corev1.EnvVar{
+				Name: "GIT_AUTH_TOKEN",
+				ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{
+					LocalObjectReference: corev1.LocalObjectReference{Name: spec.CredentialsRef.Name},
+					Key:                  "token",
+				}},
+			})
+		}
 	}
 	if b.RunnerEventURL != "" {
 		env = append(env, corev1.EnvVar{Name: "RUNNER_EVENT_URL", Value: b.RunnerEventURL})
@@ -108,7 +117,7 @@ func (b ResourceBuilder) BuildPod(namespace, name string, spec v1alpha1.CodexSes
 			Containers: []corev1.Container{{
 				Name:    "runner-agent",
 				Image:   runnerImage,
-				Command: []string{"/runner-agent"},
+				Command: []string{"/runner-agent-entrypoint"},
 				Ports:   []corev1.ContainerPort{{Name: "http", ContainerPort: RunnerAgentPort}},
 				Env:     env,
 				VolumeMounts: []corev1.VolumeMount{{
