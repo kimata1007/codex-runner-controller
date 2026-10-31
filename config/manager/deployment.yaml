@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: codex-runner-controller
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: codex-runner-controller
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: codex-runner-controller
+    spec:
+      serviceAccountName: codex-runner-controller
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: controller
+          image: ghcr.io/kimata1007/codex-runner-controller:latest
+          imagePullPolicy: IfNotPresent
+          command: ["/runner-controller"]
+          args: ["--metrics-bind-address=:8080"]
+          ports:
+            - name: metrics
+              containerPort: 8080
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          resources:
+            requests:
+              cpu: 10m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
