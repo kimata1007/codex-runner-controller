@@ -46,6 +46,39 @@ function addMessage(role, content) {
   return item;
 }
 
+function addApproval(runID, payload) {
+  const item = document.createElement('li');
+  item.className = 'approval';
+  const label = document.createElement('p');
+  label.textContent = payload.method || 'Codexが承認を求めています';
+  const detail = document.createElement('pre');
+  detail.textContent = JSON.stringify(payload.params || {}, null, 2);
+  const actions = document.createElement('div');
+  actions.className = 'approval-actions';
+  for (const [labelText, decision] of [['許可', 'accept'], ['拒否', 'decline']]) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = labelText;
+    button.addEventListener('click', async () => {
+      button.disabled = true;
+      try {
+        await request(`/v1/approvals/${runID}/${payload.requestId}`, {
+          method: 'POST',
+          body: JSON.stringify({response: {decision}}),
+        });
+        item.remove();
+        setStatus('承認結果を送信しました');
+      } catch (error) {
+        button.disabled = false;
+        setStatus(`承認エラー: ${error.message}`);
+      }
+    });
+    actions.append(button);
+  }
+  item.append(label, detail, actions);
+  messages.append(item);
+}
+
 async function createConversation() {
   saveSettings();
   const conversation = await request('/v1/conversations', {method: 'POST', body: JSON.stringify({mode: 'chat'})});
@@ -78,6 +111,11 @@ async function streamEvents(runID, assistantItem) {
       if (data) {
         try {
           const payload = JSON.parse(data.slice(6));
+          if (eventType === 'approval/requested') {
+            addApproval(runID, payload);
+            setStatus('承認待ちです');
+            continue;
+          }
           const text = payload.text || payload.delta || payload.content || '';
           if (text) assistantItem.textContent += text;
         } catch (_) {

@@ -16,6 +16,11 @@ button:disabled { opacity: .5; cursor: wait; }
 .message { max-width: 90%; padding: 12px 14px; border-radius: 14px; white-space: pre-wrap; line-height: 1.55; }
 .message.user { justify-self: end; background: #1d4ed8; }
 .message.assistant { justify-self: start; background: #1f2937; }
+.approval { justify-self: start; width: min(100%, 600px); border: 1px solid #f59e0b; border-radius: 14px; padding: 12px 14px; background: #292524; }
+.approval p { margin: 0 0 8px; color: #fbbf24; }
+.approval pre { max-height: 180px; overflow: auto; white-space: pre-wrap; color: #e7e5e4; }
+.approval-actions { display: flex; gap: 8px; }
+.approval-actions button:last-child { background: #57534e; }
 .composer { display: grid; gap: 10px; margin-top: 14px; }
 .composer button { justify-self: end; }
 @media (min-width: 640px) { .settings { grid-template-columns: 1fr 1fr auto; align-items: end; } }
