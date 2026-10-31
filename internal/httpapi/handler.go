@@ -14,7 +14,7 @@ import (
 const maxRequestBodyBytes = 1 << 20
 
 type Server struct {
-	store *Store
+	store ConversationRepository
 }
 
 type Store struct {
@@ -46,13 +46,24 @@ type createConversationRequest struct {
 	Mode string `json:"mode"`
 }
 
-type createMessageRequest struct {
+type MessageInput struct {
 	Content         string `json:"content"`
 	ClientMessageID string `json:"clientMessageId"`
 }
 
+type ConversationRepository interface {
+	CreateConversation(mode string) *Conversation
+	GetConversation(id string) (*Conversation, bool)
+	ListMessages(id string) ([]Message, bool)
+	CreateMessage(id string, input MessageInput) (Message, bool, error)
+}
+
 func NewServer() *Server {
-	return &Server{store: &Store{conversations: make(map[string]*Conversation)}}
+	return NewServerWithRepository(&Store{conversations: make(map[string]*Conversation)})
+}
+
+func NewServerWithRepository(repository ConversationRepository) *Server {
+	return &Server{store: repository}
 }
 
 func (s *Server) Routes() http.Handler {
@@ -86,13 +97,7 @@ func (s *Server) handleConversations(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	now := time.Now().UTC()
-	id := s.store.newID("conversation")
-	conversation := &Conversation{ID: id, Mode: request.Mode, Status: "active", CreatedAt: now, UpdatedAt: now}
-
-	s.store.mu.Lock()
-	s.store.conversations[id] = conversation
-	s.store.mu.Unlock()
+	conversation := s.store.CreateConversation(request.Mode)
 
 	writeJSON(w, http.StatusCreated, conversation)
 }
@@ -119,12 +124,7 @@ func (s *Server) handleConversation(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getConversation(w http.ResponseWriter, id string) {
-	s.store.mu.RLock()
-	conversation, ok := s.store.conversations[id]
-	if ok {
-		conversation = cloneConversation(conversation)
-	}
-	s.store.mu.RUnlock()
+	conversation, ok := s.store.GetConversation(id)
 	if !ok {
 		writeError(w, http.StatusNotFound, "conversation not found")
 		return
@@ -133,9 +133,7 @@ func (s *Server) getConversation(w http.ResponseWriter, id string) {
 }
 
 func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request, conversationID string) {
-	s.store.mu.RLock()
-	conversation, ok := s.store.conversations[conversationID]
-	s.store.mu.RUnlock()
+	_, ok := s.store.GetConversation(conversationID)
 	if !ok {
 		writeError(w, http.StatusNotFound, "conversation not found")
 		return
@@ -143,9 +141,7 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request, conversa
 
 	switch r.Method {
 	case http.MethodGet:
-		s.store.mu.RLock()
-		messages := append([]Message(nil), conversation.Messages...)
-		s.store.mu.RUnlock()
+		messages, _ := s.store.ListMessages(conversationID)
 		writeJSON(w, http.StatusOK, map[string]any{"messages": messages})
 	case http.MethodPost:
 		s.createMessage(w, r, conversationID)
@@ -155,7 +151,7 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request, conversa
 }
 
 func (s *Server) createMessage(w http.ResponseWriter, r *http.Request, conversationID string) {
-	var request createMessageRequest
+	var request MessageInput
 	if err := decodeJSON(w, r, &request); err != nil {
 		return
 	}
@@ -165,35 +161,79 @@ func (s *Server) createMessage(w http.ResponseWriter, r *http.Request, conversat
 		return
 	}
 
-	s.store.mu.Lock()
-	defer s.store.mu.Unlock()
-	conversation, ok := s.store.conversations[conversationID]
-	if !ok {
+	message, created, err := s.store.CreateMessage(conversationID, request)
+	if err != nil {
 		writeError(w, http.StatusNotFound, "conversation not found")
 		return
 	}
-	if request.ClientMessageID != "" {
+	if created {
+		writeJSON(w, http.StatusAccepted, message)
+		return
+	}
+	writeJSON(w, http.StatusOK, message)
+}
+
+func (s *Store) CreateConversation(mode string) *Conversation {
+	now := time.Now().UTC()
+	id := s.newID("conversation")
+	conversation := &Conversation{ID: id, Mode: mode, Status: "active", CreatedAt: now, UpdatedAt: now}
+
+	s.mu.Lock()
+	s.conversations[id] = conversation
+	s.mu.Unlock()
+	return conversation
+}
+
+func (s *Store) GetConversation(id string) (*Conversation, bool) {
+	s.mu.RLock()
+	conversation, ok := s.conversations[id]
+	if ok {
+		conversation = cloneConversation(conversation)
+	}
+	s.mu.RUnlock()
+	return conversation, ok
+}
+
+func (s *Store) ListMessages(id string) ([]Message, bool) {
+	s.mu.RLock()
+	conversation, ok := s.conversations[id]
+	if ok {
+		messages := append([]Message(nil), conversation.Messages...)
+		s.mu.RUnlock()
+		return messages, true
+	}
+	s.mu.RUnlock()
+	return nil, false
+}
+
+func (s *Store) CreateMessage(id string, input MessageInput) (Message, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	conversation, ok := s.conversations[id]
+	if !ok {
+		return Message{}, false, fmt.Errorf("conversation %q not found", id)
+	}
+	if input.ClientMessageID != "" {
 		for _, message := range conversation.Messages {
-			if message.ClientMessageID == request.ClientMessageID {
-				writeJSON(w, http.StatusOK, message)
-				return
+			if message.ClientMessageID == input.ClientMessageID {
+				return message, false, nil
 			}
 		}
 	}
 
 	now := time.Now().UTC()
 	message := Message{
-		ID:              s.store.newID("message"),
-		ConversationID:  conversationID,
+		ID:              s.newID("message"),
+		ConversationID:  id,
 		Role:            "user",
-		Content:         request.Content,
-		ClientMessageID: request.ClientMessageID,
+		Content:         input.Content,
+		ClientMessageID: input.ClientMessageID,
 		Status:          "queued",
 		CreatedAt:       now,
 	}
 	conversation.Messages = append(conversation.Messages, message)
 	conversation.UpdatedAt = now
-	writeJSON(w, http.StatusAccepted, message)
+	return message, true, nil
 }
 
 func (s *Store) newID(prefix string) string {
