@@ -32,3 +32,16 @@ func (t *RunTracker) Current() string {
 	t.mu.RUnlock()
 	return runID
 }
+
+// Clear removes the active run only when it still matches runID. This avoids
+// a late terminal notification from an older turn clearing a newer turn.
+func (t *RunTracker) Clear(runID string) {
+	if t == nil {
+		return
+	}
+	t.mu.Lock()
+	if t.runID == runID {
+		t.runID = ""
+	}
+	t.mu.Unlock()
+}
