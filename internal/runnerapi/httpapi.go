@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	v1alpha1 "github.com/kimata1007/codex-runner-controller/api/v1alpha1"
 	"github.com/kimata1007/codex-runner-controller/internal/conversation"
 	"github.com/kimata1007/codex-runner-controller/internal/events"
 	"github.com/kimata1007/codex-runner-controller/internal/runs"
@@ -25,6 +26,7 @@ type Handler struct {
 	approvalResponder ApprovalResponder
 	activator         session.Activator
 	activity          session.ActivityRecorder
+	phase             SessionPhaseRecorder
 	eventStore        RunEventStore
 	eventProjector    RunEventProjector
 	eventHub          RunEventHub
@@ -45,6 +47,7 @@ func NewHandler(dependencies HandlerDependencies) *Handler {
 	eventProjector, _ := dependencies.Repository.(RunEventProjector)
 	approvalResponder, _ := dependencies.Dispatcher.(ApprovalResponder)
 	activity, _ := dependencies.Activator.(session.ActivityRecorder)
+	phase, _ := dependencies.Activator.(SessionPhaseRecorder)
 	return &Handler{
 		repository:        dependencies.Repository,
 		statusStore:       statusStore,
@@ -52,6 +55,7 @@ func NewHandler(dependencies HandlerDependencies) *Handler {
 		approvalResponder: approvalResponder,
 		activator:         dependencies.Activator,
 		activity:          activity,
+		phase:             phase,
 		eventStore:        dependencies.EventStore,
 		eventProjector:    eventProjector,
 		eventHub:          dependencies.EventHub,
@@ -73,6 +77,9 @@ type MessageStatusStore interface {
 	SetMessageStatus(context.Context, string, string) error
 }
 
+type SessionPhaseRecorder interface {
+	SetPhase(context.Context, string, string) error
+}
 type RunEventProjector interface {
 	ApplyAppServerEvent(context.Context, string, string, string) error
 }
@@ -148,8 +155,37 @@ func (h *Handler) receiveAppServerRunEvent(c echo.Context) error {
 			return writeError(c, http.StatusBadGateway, "failed to update run status")
 		}
 	}
+	h.projectSessionPhase(c.Request().Context(), event.RunID, event.EventType)
 	h.eventHub.Publish(event)
 	return writeJSON(c, http.StatusAccepted, event)
+}
+
+func (h *Handler) projectSessionPhase(ctx context.Context, runID, eventType string) {
+	if h.phase == nil {
+		return
+	}
+	status, ok := runs.StatusForEvent(eventType)
+	if !ok {
+		return
+	}
+	runStore, ok := h.repository.(interface {
+		GetRun(context.Context, string) (runs.Run, bool, error)
+	})
+	if !ok {
+		return
+	}
+	run, found, err := runStore.GetRun(ctx, runID)
+	if err != nil || !found {
+		return
+	}
+	phase := v1alpha1.PhaseReady
+	switch status {
+	case runs.StatusWaitingApproval:
+		phase = v1alpha1.PhaseWaitingForApproval
+	case runs.StatusFailed, runs.StatusInterrupted:
+		phase = v1alpha1.PhaseFailed
+	}
+	_ = h.phase.SetPhase(ctx, run.ConversationID, phase)
 }
 
 func (h *Handler) checkHealth(c echo.Context) error {
@@ -296,8 +332,15 @@ func (h *Handler) createMessage(c echo.Context) error {
 		run, err := h.dispatcher.Dispatch(c.Request().Context(), message.ConversationID, message.ID, request.ThreadID, message.Content)
 		if err != nil {
 			h.resetQueuedMessage(c, message.ID)
+			if h.phase != nil {
+				_ = h.phase.SetPhase(c.Request().Context(), message.ConversationID, v1alpha1.PhaseFailed)
+			}
 			return writeError(c, http.StatusBadGateway, "failed to start run")
 		}
+		if h.phase != nil {
+			_ = h.phase.SetPhase(c.Request().Context(), message.ConversationID, v1alpha1.PhaseBusy)
+		}
+		message.Status = "running"
 		return writeJSON(c, http.StatusAccepted, map[string]any{
 			"message": messageResponseFrom(message),
 			"run":     run,

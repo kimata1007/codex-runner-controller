@@ -153,3 +153,14 @@ func TestReconcilerDoesNotSuspendActiveRun(t *testing.T) {
 		t.Fatalf("active run was suspended: result=%+v deleted=%d", result, client.deletedPod)
 	}
 }
+
+func TestReadyPodPreservesBusyPhase(t *testing.T) {
+	client := &fakeResourceClient{pod: &corev1.Pod{Status: corev1.PodStatus{Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}}}}}
+	result, err := (CodexSessionReconciler{Client: client}).ReconcileStatus(context.Background(), "codex-system", "session-1", reconcileSpec(), v1alpha1.CodexSessionStatus{Phase: v1alpha1.PhaseBusy})
+	if err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+	if result.Phase != v1alpha1.PhaseBusy {
+		t.Fatalf("phase = %q", result.Phase)
+	}
+}

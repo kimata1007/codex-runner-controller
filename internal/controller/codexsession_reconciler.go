@@ -103,9 +103,18 @@ func (r CodexSessionReconciler) ReconcileStatus(ctx context.Context, namespace, 
 	}
 	phase := v1alpha1.PhaseStarting
 	if podReady(pod) {
-		phase = v1alpha1.PhaseReady
+		phase = readyPhase(status.Phase)
 	}
 	return Result{Phase: phase, PodName: name, WorkspaceClaim: name, RequeueAfter: requeueAfter}, nil
+}
+
+func readyPhase(current string) string {
+	switch current {
+	case v1alpha1.PhaseBusy, v1alpha1.PhaseWaitingForApproval:
+		return current
+	default:
+		return v1alpha1.PhaseReady
+	}
 }
 
 func idleState(spec v1alpha1.CodexSessionSpec, status v1alpha1.CodexSessionStatus, now time.Time) (bool, time.Duration, error) {
