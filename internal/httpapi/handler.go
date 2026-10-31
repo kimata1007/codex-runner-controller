@@ -52,9 +52,9 @@ type MessageInput struct {
 }
 
 type ConversationRepository interface {
-	CreateConversation(mode string) *Conversation
-	GetConversation(id string) (*Conversation, bool)
-	ListMessages(id string) ([]Message, bool)
+	CreateConversation(mode string) (*Conversation, error)
+	GetConversation(id string) (*Conversation, bool, error)
+	ListMessages(id string) ([]Message, bool, error)
 	CreateMessage(id string, input MessageInput) (Message, bool, error)
 }
 
@@ -97,7 +97,11 @@ func (s *Server) handleConversations(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	conversation := s.store.CreateConversation(request.Mode)
+	conversation, err := s.store.CreateConversation(request.Mode)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create conversation")
+		return
+	}
 
 	writeJSON(w, http.StatusCreated, conversation)
 }
@@ -124,7 +128,11 @@ func (s *Server) handleConversation(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getConversation(w http.ResponseWriter, id string) {
-	conversation, ok := s.store.GetConversation(id)
+	conversation, ok, err := s.store.GetConversation(id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to get conversation")
+		return
+	}
 	if !ok {
 		writeError(w, http.StatusNotFound, "conversation not found")
 		return
@@ -133,7 +141,11 @@ func (s *Server) getConversation(w http.ResponseWriter, id string) {
 }
 
 func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request, conversationID string) {
-	_, ok := s.store.GetConversation(conversationID)
+	_, ok, err := s.store.GetConversation(conversationID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to get conversation")
+		return
+	}
 	if !ok {
 		writeError(w, http.StatusNotFound, "conversation not found")
 		return
@@ -141,7 +153,11 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request, conversa
 
 	switch r.Method {
 	case http.MethodGet:
-		messages, _ := s.store.ListMessages(conversationID)
+		messages, _, err := s.store.ListMessages(conversationID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to list messages")
+			return
+		}
 		writeJSON(w, http.StatusOK, map[string]any{"messages": messages})
 	case http.MethodPost:
 		s.createMessage(w, r, conversationID)
@@ -173,7 +189,7 @@ func (s *Server) createMessage(w http.ResponseWriter, r *http.Request, conversat
 	writeJSON(w, http.StatusOK, message)
 }
 
-func (s *Store) CreateConversation(mode string) *Conversation {
+func (s *Store) CreateConversation(mode string) (*Conversation, error) {
 	now := time.Now().UTC()
 	id := s.newID("conversation")
 	conversation := &Conversation{ID: id, Mode: mode, Status: "active", CreatedAt: now, UpdatedAt: now}
@@ -181,29 +197,29 @@ func (s *Store) CreateConversation(mode string) *Conversation {
 	s.mu.Lock()
 	s.conversations[id] = conversation
 	s.mu.Unlock()
-	return conversation
+	return conversation, nil
 }
 
-func (s *Store) GetConversation(id string) (*Conversation, bool) {
+func (s *Store) GetConversation(id string) (*Conversation, bool, error) {
 	s.mu.RLock()
 	conversation, ok := s.conversations[id]
 	if ok {
 		conversation = cloneConversation(conversation)
 	}
 	s.mu.RUnlock()
-	return conversation, ok
+	return conversation, ok, nil
 }
 
-func (s *Store) ListMessages(id string) ([]Message, bool) {
+func (s *Store) ListMessages(id string) ([]Message, bool, error) {
 	s.mu.RLock()
 	conversation, ok := s.conversations[id]
 	if ok {
 		messages := append([]Message(nil), conversation.Messages...)
 		s.mu.RUnlock()
-		return messages, true
+		return messages, true, nil
 	}
 	s.mu.RUnlock()
-	return nil, false
+	return nil, false, nil
 }
 
 func (s *Store) CreateMessage(id string, input MessageInput) (Message, bool, error) {
