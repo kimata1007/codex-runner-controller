@@ -14,4 +14,4 @@
 
 PodとPVCにはCodexSessionをowner referenceとして設定する。これにより、Kubernetesの所有関係とControllerのwatchが一致し、作成した子リソースの変更で再concileできる。
 
-現時点ではidle timeoutやrunner-agentのReady通知は未接続であり、次の実装でstatusと再concile周期へ追加する。
+idle timeoutは`RequeueAfter`で期限まで再concileし、heartbeatで`lastActivityAt`を更新する。runner-agentのHTTP readinessはPod probeとSessionActivatorのReady待ちで利用する。Busy/WaitingForApproval phaseはRunner APIが投影し、ControllerはReady Podのreconcileで上書きしない。

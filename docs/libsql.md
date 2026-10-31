@@ -1,6 +1,6 @@
 # libSQL/sqld接続
 
-`internal/libsql` はRunner APIからsqldへHTTPで接続する小さなクライアントである。Hrana over HTTP v3を使い、`POST /v3/pipeline` にSQL実行を送る。接続先のsqldはHrana v3に対応したバージョンを固定して使用する。
+`internal/libsql` はRunner APIからsqldへHTTPで接続する小さなクライアントである。sqldのHrana over HTTP v2で、`POST /v2/pipeline` にSQL実行を送る。
 
 ## baton
 
@@ -19,4 +19,4 @@ LIBSQL_URL=http://libsql.codex-system.svc.cluster.local:8080
 LIBSQL_AUTH_TOKEN=...
 ```
 
-Runner APIは起動時にスキーマを適用し、libSQL RepositoryをHTTPルーターへ渡す。適用に失敗した場合は起動を中止する。`LIBSQL_URL`未設定時のみ開発用のメモリRepositoryを使用する。
+Runner APIは`LIBSQL_URL`が設定されている場合、起動時にスキーマを適用してlibSQL RepositoryをHTTPサーバーへ注入する。未設定時のメモリRepositoryはローカル開発用であり、再起動でデータが失われる。

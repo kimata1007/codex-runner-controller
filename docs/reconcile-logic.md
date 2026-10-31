@@ -9,4 +9,4 @@
 3. PodにReady条件があれば`Ready`を返す。未Readyなら次のwatch/reconcileを待つ。
 4. `Suspended`ならPodだけを削除し、PVCは残して`Suspended`を返す。
 
-この分離により、Kubernetes APIのwatchや再試行と、ビジネスルールである「Podは捨ててもセッションデータは残す」を別々にテストできる。次のPRでは`ResourceClient`をcontroller-runtimeのクライアントへ接続する。
+この分離により、Kubernetes APIのwatchや再試行と、ビジネスルールである「Podは捨ててもセッションデータは残す」を別々にテストできる。`KubernetesResourceClient`がcontroller-runtimeのClient、ownerReference、背景削除へ接続する。

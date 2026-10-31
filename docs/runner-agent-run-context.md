@@ -11,4 +11,4 @@ Content-Type: application/json
 {"text":"hello","runId":"run-1"}
 ```
 
-セッションPodは同時に複数turnを処理しない前提です。次のPRで、`RunTracker`を使ってApp ServerイベントをRunner APIのイベント受信エンドポイントへ転送します。
+セッションPodは同時に複数turnを処理しない前提です。`RunTracker`はApp Serverイベントへrun IDを付け、Runner APIのイベント受信エンドポイントへ転送します。turn完了・失敗・中断時にはtrackerをクリアし、heartbeatも停止します。
