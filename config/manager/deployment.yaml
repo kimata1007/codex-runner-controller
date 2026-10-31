@@ -22,6 +22,17 @@ spec:
           imagePullPolicy: IfNotPresent
           command: ["/runner-controller"]
           args: ["--metrics-bind-address=:8080"]
+          env:
+            - name: RUNNER_AGENT_IMAGE
+              value: ghcr.io/kimata1007/codex-runner-agent:latest
+            - name: RUNNER_EVENT_URL
+              value: http://runner-api.codex-system.svc.cluster.local:8080/internal/runs
+            - name: RUNNER_AGENT_TOKEN_SECRET_NAME
+              value: codex-runner-tokens
+            - name: RUNNER_AGENT_TOKEN_SECRET_KEY
+              value: token
+            - name: RUNNER_SERVICE_ACCOUNT_NAME
+              value: codex-runner-agent
           ports:
             - name: metrics
               containerPort: 8080

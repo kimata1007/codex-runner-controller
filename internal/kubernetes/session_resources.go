@@ -15,13 +15,18 @@ const (
 	SessionLabel = "codexrunner.io/session"
 	ManagedLabel = "codexrunner.io/managed-by"
 
-	DefaultVolumeName = "session-data"
-	DefaultMountPath  = "/var/lib/codex"
-	RunnerAgentPort   = 8081
+	DefaultVolumeName           = "session-data"
+	DefaultMountPath            = "/var/lib/codex"
+	DefaultRunnerServiceAccount = "codex-runner-agent"
+	RunnerAgentPort             = 8081
 )
 
 type ResourceBuilder struct {
-	RunnerImage string
+	RunnerImage                string
+	RunnerEventURL             string
+	RunnerAgentTokenSecretName string
+	RunnerAgentTokenSecretKey  string
+	RunnerServiceAccountName   string
 }
 
 func (b ResourceBuilder) BuildPVC(namespace, name string, spec v1alpha1.CodexSessionSpec) (*corev1.PersistentVolumeClaim, error) {
@@ -70,11 +75,27 @@ func (b ResourceBuilder) BuildPod(namespace, name string, spec v1alpha1.CodexSes
 			corev1.EnvVar{Name: "CODEX_REPOSITORY_REVISION", Value: spec.Repository.Revision},
 		)
 	}
+	if b.RunnerEventURL != "" {
+		env = append(env, corev1.EnvVar{Name: "RUNNER_EVENT_URL", Value: b.RunnerEventURL})
+	}
+	if b.RunnerAgentTokenSecretName != "" {
+		key := b.RunnerAgentTokenSecretKey
+		if key == "" {
+			key = "token"
+		}
+		env = append(env, corev1.EnvVar{Name: "RUNNER_AGENT_TOKEN", ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: b.RunnerAgentTokenSecretName}, Key: key}}})
+	}
+	serviceAccountName := b.RunnerServiceAccountName
+	if serviceAccountName == "" {
+		serviceAccountName = DefaultRunnerServiceAccount
+	}
 	return &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace, Labels: labels},
 		Spec: corev1.PodSpec{
 			RestartPolicy:                corev1.RestartPolicyAlways,
+			ServiceAccountName:           serviceAccountName,
 			AutomountServiceAccountToken: boolPtr(false),
+			SecurityContext:              &corev1.PodSecurityContext{RunAsNonRoot: boolPtr(true), SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault}},
 			Containers: []corev1.Container{{
 				Name:    "runner-agent",
 				Image:   runnerImage,
@@ -83,7 +104,7 @@ func (b ResourceBuilder) BuildPod(namespace, name string, spec v1alpha1.CodexSes
 				Env:     env,
 				VolumeMounts: []corev1.VolumeMount{{
 					Name: DefaultVolumeName, MountPath: DefaultMountPath,
-				}},
+				}, {Name: "tmp", MountPath: "/tmp"}},
 				ReadinessProbe: &corev1.Probe{ProbeHandler: corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{Path: "/readyz", Port: intstr.FromInt(RunnerAgentPort)}}},
 				LivenessProbe:  &corev1.Probe{ProbeHandler: corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{Path: "/healthz", Port: intstr.FromInt(RunnerAgentPort)}}},
 				SecurityContext: &corev1.SecurityContext{
@@ -93,8 +114,10 @@ func (b ResourceBuilder) BuildPod(namespace, name string, spec v1alpha1.CodexSes
 					Capabilities:             &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}},
 				},
 			}},
-			SecurityContext: &corev1.PodSecurityContext{SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault}},
-			Volumes:         []corev1.Volume{{Name: DefaultVolumeName, VolumeSource: corev1.VolumeSource{PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: name}}}},
+			Volumes: []corev1.Volume{
+				{Name: DefaultVolumeName, VolumeSource: corev1.VolumeSource{PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: name}}},
+				{Name: "tmp", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
+			},
 		},
 	}, nil
 }
