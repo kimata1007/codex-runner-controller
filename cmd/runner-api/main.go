@@ -82,8 +82,9 @@ func messageDispatcherFromEnvironment(repository conversation.Repository) (runne
 		CWD:            os.Getenv("CODEX_CWD"),
 		ApprovalPolicy: os.Getenv("CODEX_APPROVAL_POLICY"),
 	}
-	client := agentclient.NewRunAdapter(agentclient.NewClient(agentURL), params)
-	return runs.NewMessageDispatcher(runStore, client), nil
+	resolver := agentclient.StaticEndpointResolver{URL: agentURL}
+	factory := agentclient.NewRunClientFactory(resolver, params)
+	return runs.NewMessageDispatcherWithFactory(runStore, factory), nil
 }
 
 func repositoryFromEnvironment(ctx context.Context) (conversation.Repository, error) {
