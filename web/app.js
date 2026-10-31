@@ -7,6 +7,11 @@ const state = {
 
 const apiURL = document.querySelector('#api-url');
 const apiToken = document.querySelector('#api-token');
+const mode = document.querySelector('#mode');
+const repositoryFields = document.querySelector('#repository-fields');
+const revisionFields = document.querySelector('#revision-fields');
+const repositoryURL = document.querySelector('#repository-url');
+const repositoryRevision = document.querySelector('#repository-revision');
 const status = document.querySelector('#status');
 const conversationID = document.querySelector('#conversation-id');
 const messages = document.querySelector('#messages');
@@ -17,6 +22,12 @@ const sendButton = composer.querySelector('button');
 apiURL.value = state.apiURL;
 apiToken.value = state.token;
 conversationID.textContent = state.conversationID || '会話未作成';
+
+function updateModeFields() {
+  const implement = mode.value === 'implement';
+  repositoryFields.classList.toggle('hidden', !implement);
+  revisionFields.classList.toggle('hidden', !implement);
+}
 
 function setStatus(text) { status.textContent = text; }
 
@@ -81,7 +92,11 @@ function addApproval(runID, payload) {
 
 async function createConversation() {
   saveSettings();
-  const conversation = await request('/v1/conversations', {method: 'POST', body: JSON.stringify({mode: 'chat'})});
+  const body = {mode: mode.value};
+  if (mode.value === 'implement') {
+    body.repository = {url: repositoryURL.value.trim(), revision: repositoryRevision.value.trim()};
+  }
+  const conversation = await request('/v1/conversations', {method: 'POST', body: JSON.stringify(body)});
   state.conversationID = conversation.id;
   state.threadID = '';
   sessionStorage.setItem('codex.conversationID', state.conversationID);
@@ -89,6 +104,18 @@ async function createConversation() {
   conversationID.textContent = state.conversationID;
   messages.replaceChildren();
   setStatus('会話を作成しました');
+}
+
+async function loadHistory() {
+  if (!state.conversationID) return;
+  try {
+    const result = await request(`/v1/conversations/${state.conversationID}/messages`);
+    messages.replaceChildren();
+    for (const message of result.messages || []) addMessage(message.role === 'user' ? 'user' : 'assistant', message.content);
+    setStatus('会話を復元しました');
+  } catch (error) {
+    setStatus(`履歴復元エラー: ${error.message}`);
+  }
 }
 
 async function streamEvents(runID, assistantItem) {
@@ -162,5 +189,8 @@ async function sendMessage(event) {
 
 document.querySelector('#save-settings').addEventListener('click', saveSettings);
 document.querySelector('#new-conversation').addEventListener('click', createConversation);
+mode.addEventListener('change', updateModeFields);
+updateModeFields();
 composer.addEventListener('submit', sendMessage);
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
+loadHistory();

@@ -19,6 +19,14 @@
       <section class="settings" aria-label="接続設定">
         <label>API URL <input id="api-url" type="url" autocomplete="url"></label>
         <label>Bearer token <input id="api-token" type="password" autocomplete="off"></label>
+        <label>モード
+          <select id="mode">
+            <option value="chat">chat（相談）</option>
+            <option value="implement">implement（実装）</option>
+          </select>
+        </label>
+        <label id="repository-fields" class="hidden">リポジトリURL <input id="repository-url" type="url" placeholder="https://github.com/org/repo.git"></label>
+        <label id="revision-fields" class="hidden">リビジョン <input id="repository-revision" value="main"></label>
         <button id="save-settings" type="button">設定を保存</button>
       </section>
 

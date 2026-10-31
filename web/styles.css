@@ -9,6 +9,8 @@ h1 { margin: 0; font-size: clamp(1.7rem, 5vw, 2.5rem); }
 .settings { display: grid; gap: 12px; grid-template-columns: 1fr; }
 label { display: grid; gap: 5px; font-size: .85rem; color: #cbd5e1; }
 input, textarea { width: 100%; border: 1px solid #475569; border-radius: 10px; background: #0f172a; color: #f8fafc; padding: 10px 12px; font: inherit; }
+select { width: 100%; border: 1px solid #475569; border-radius: 10px; background: #0f172a; color: #f8fafc; padding: 10px 12px; font: inherit; }
+.hidden { display: none; }
 button { border: 0; border-radius: 10px; background: #2563eb; color: white; padding: 10px 15px; font: inherit; cursor: pointer; }
 button:disabled { opacity: .5; cursor: wait; }
 .conversation-toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
