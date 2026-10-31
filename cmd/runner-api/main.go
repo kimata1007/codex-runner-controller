@@ -14,6 +14,7 @@ import (
 	v1alpha1 "github.com/kimata1007/codex-runner-controller/api/v1alpha1"
 	"github.com/kimata1007/codex-runner-controller/internal/agent"
 	"github.com/kimata1007/codex-runner-controller/internal/agentclient"
+	"github.com/kimata1007/codex-runner-controller/internal/auth"
 	"github.com/kimata1007/codex-runner-controller/internal/conversation"
 	"github.com/kimata1007/codex-runner-controller/internal/events"
 	kube "github.com/kimata1007/codex-runner-controller/internal/kubernetes"
@@ -46,7 +47,7 @@ func main() {
 	}
 	server := &http.Server{
 		Addr:              addr,
-		Handler:           handlerFromRepositoryWithActivator(repository, dispatcher, sessionActivatorFromEnvironment()),
+		Handler:           auth.BearerToken(handlerFromRepositoryWithActivator(repository, dispatcher, sessionActivatorFromEnvironment()), os.Getenv("RUNNER_API_TOKEN")),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,
@@ -110,7 +111,8 @@ func messageDispatcherFromEnvironment(repository conversation.Repository) (runne
 	} else {
 		resolver = kube.SessionEndpointResolver{Namespace: namespace}
 	}
-	return runs.NewMessageDispatcherWithFactory(runStore, agentclient.NewRunClientFactory(resolver, params)), nil
+	factory := agentclient.NewRunClientFactoryWithToken(resolver, params, os.Getenv("RUNNER_AGENT_TOKEN"))
+	return runs.NewMessageDispatcherWithFactory(runStore, factory), nil
 }
 
 type apiSessionActivator struct {

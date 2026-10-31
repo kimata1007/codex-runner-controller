@@ -16,11 +16,14 @@ import (
 // It keeps the App Server protocol behind the Pod-local HTTP boundary.
 type Client struct {
 	baseURL    string
+	token      string
 	httpClient *http.Client
 }
 
-func NewClient(baseURL string) *Client {
-	return &Client{baseURL: strings.TrimRight(baseURL, "/"), httpClient: http.DefaultClient}
+func NewClient(baseURL string) *Client { return NewClientWithToken(baseURL, "") }
+
+func NewClientWithToken(baseURL, token string) *Client {
+	return &Client{baseURL: strings.TrimRight(baseURL, "/"), token: token, httpClient: http.DefaultClient}
 }
 
 func (c *Client) WithHTTPClient(client *http.Client) *Client {
@@ -98,6 +101,9 @@ func (c *Client) post(ctx context.Context, path string, requestBody any, respons
 		return fmt.Errorf("create request: %w", err)
 	}
 	request.Header.Set("Content-Type", "application/json")
+	if c.token != "" {
+		request.Header.Set("Authorization", "Bearer "+c.token)
+	}
 	response, err := c.httpClient.Do(request)
 	if err != nil {
 		return err

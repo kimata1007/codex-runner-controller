@@ -10,12 +10,9 @@ import (
 	"github.com/kimata1007/codex-runner-controller/internal/runs"
 )
 
-// EndpointResolver maps a conversation to its runner-agent endpoint.
 type EndpointResolver interface {
 	Resolve(context.Context, string) (string, error)
 }
-
-// StaticEndpointResolver keeps the single-agent development setup available.
 type StaticEndpointResolver struct{ URL string }
 
 func (r StaticEndpointResolver) Resolve(_ context.Context, conversationID string) (string, error) {
@@ -28,24 +25,25 @@ func (r StaticEndpointResolver) Resolve(_ context.Context, conversationID string
 	return strings.TrimRight(r.URL, "/"), nil
 }
 
-// RunClientFactory creates a runner-agent client for each conversation.
 type RunClientFactory struct {
 	resolver   EndpointResolver
 	params     agent.ThreadStartParams
+	token      string
 	httpClient *http.Client
 }
 
 func NewRunClientFactory(resolver EndpointResolver, params agent.ThreadStartParams) *RunClientFactory {
-	return &RunClientFactory{resolver: resolver, params: params}
+	return NewRunClientFactoryWithToken(resolver, params, "")
 }
-
+func NewRunClientFactoryWithToken(resolver EndpointResolver, params agent.ThreadStartParams, token string) *RunClientFactory {
+	return &RunClientFactory{resolver: resolver, params: params, token: token}
+}
 func (f *RunClientFactory) WithHTTPClient(client *http.Client) *RunClientFactory {
 	if f != nil && client != nil {
 		f.httpClient = client
 	}
 	return f
 }
-
 func (f *RunClientFactory) ClientFor(ctx context.Context, conversationID string) (runs.ThreadClient, error) {
 	if f == nil || f.resolver == nil {
 		return nil, fmt.Errorf("runner-agent endpoint resolver is required")
@@ -54,7 +52,7 @@ func (f *RunClientFactory) ClientFor(ctx context.Context, conversationID string)
 	if err != nil {
 		return nil, fmt.Errorf("resolve runner-agent endpoint: %w", err)
 	}
-	client := NewClient(endpoint)
+	client := NewClientWithToken(endpoint, f.token)
 	if f.httpClient != nil {
 		client.WithHTTPClient(f.httpClient)
 	}
