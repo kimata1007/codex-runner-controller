@@ -127,3 +127,28 @@ func containsTextValue(values []Value, want string) bool {
 	}
 	return false
 }
+
+func TestRepositoryLatestThreadID(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		var body pipelineRequest
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			t.Errorf("decode request: %v", err)
+			return
+		}
+		if len(body.Requests) != 1 || body.Requests[0].Stmt == nil || !strings.Contains(body.Requests[0].Stmt.SQL, "ORDER BY created_at DESC") {
+			t.Errorf("unexpected query: %+v", body.Requests)
+		}
+		response := json.RawMessage(`{"type":"execute","result":{"cols":[{"name":"thread_id"}],"rows":[[{"type":"text","value":"thread-1"}]],"affected_row_count":0}}`)
+		_ = json.NewEncoder(writer).Encode(pipelineResponse{Results: []streamResult{{Type: "ok", Response: response}}})
+	}))
+	defer server.Close()
+
+	repository := NewRepository(NewClient(server.URL, "").WithHTTPClient(server.Client()), "user-1")
+	threadID, found, err := repository.LatestThreadID(context.Background(), "conversation-1")
+	if err != nil {
+		t.Fatalf("latest thread: %v", err)
+	}
+	if !found || threadID != "thread-1" {
+		t.Fatalf("thread = %q, found=%v", threadID, found)
+	}
+}
