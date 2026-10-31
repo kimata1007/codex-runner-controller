@@ -23,7 +23,8 @@ func TestSessionActivatorCreatesSessionAndWaitsUntilReady(t *testing.T) {
 	activator := &SessionActivator{Client: kubeClient, Namespace: "sessions", ReadyPollInterval: time.Millisecond}
 
 	activityAt := time.Date(2026, 10, 31, 10, 20, 30, 0, time.FixedZone("JST", 9*60*60))
-	if err := activator.Activate(context.Background(), session.Activation{ConversationID: "conversation-1", RequestedAt: activityAt}); err != nil {
+	repository := &session.Repository{URL: "https://example.test/repo.git", Revision: "main"}
+	if err := activator.Activate(context.Background(), session.Activation{ConversationID: "conversation-1", RequestedAt: activityAt, Repository: repository}); err != nil {
 		t.Fatalf("Activate: %v", err)
 	}
 
@@ -36,6 +37,9 @@ func TestSessionActivatorCreatesSessionAndWaitsUntilReady(t *testing.T) {
 	}
 	if created.Spec.SessionData.Size != DefaultSessionDataSize || created.Spec.Execution.ApprovalPolicy != DefaultApprovalPolicy {
 		t.Fatalf("created session defaults = %+v", created.Spec)
+	}
+	if created.Spec.Repository == nil || created.Spec.Repository.URL != repository.URL || created.Spec.Repository.Revision != repository.Revision {
+		t.Fatalf("created session repository = %+v", created.Spec.Repository)
 	}
 	if created.Status.LastActivityAt != "2026-10-31T01:20:30Z" {
 		t.Fatalf("last activity = %q", created.Status.LastActivityAt)

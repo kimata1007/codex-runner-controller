@@ -9,6 +9,12 @@ import (
 type Activation struct {
 	ConversationID string
 	RequestedAt    time.Time
+	Repository     *Repository
+}
+
+type Repository struct {
+	URL      string
+	Revision string
 }
 
 // Activator makes a conversation's runner-agent reachable before a run starts.

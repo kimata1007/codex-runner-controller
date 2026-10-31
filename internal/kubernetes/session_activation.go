@@ -61,7 +61,7 @@ func (a *SessionActivator) Activate(ctx context.Context, activation session.Acti
 		session = &v1alpha1.CodexSession{
 			TypeMeta:   metav1.TypeMeta{APIVersion: v1alpha1.GroupVersion.String(), Kind: "CodexSession"},
 			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
-			Spec:       a.newSpec(conversationID),
+			Spec:       a.newSpec(conversationID, activation.Repository),
 		}
 		if err := a.Client.Create(ctx, session); err != nil {
 			if !apierrors.IsAlreadyExists(err) {
@@ -74,10 +74,15 @@ func (a *SessionActivator) Activate(ctx context.Context, activation session.Acti
 	} else if err != nil {
 		return fmt.Errorf("get CodexSession: %w", err)
 	}
-	if session.Spec.DesiredState != v1alpha1.DesiredStateActive {
+	repositoryChanged := activation.Repository != nil && (session.Spec.Repository == nil ||
+		session.Spec.Repository.URL != activation.Repository.URL || session.Spec.Repository.Revision != activation.Repository.Revision)
+	if session.Spec.DesiredState != v1alpha1.DesiredStateActive || repositoryChanged {
 		session.Spec.DesiredState = v1alpha1.DesiredStateActive
+		if activation.Repository != nil {
+			session.Spec.Repository = &v1alpha1.Repository{URL: activation.Repository.URL, Revision: activation.Repository.Revision}
+		}
 		if err := a.Client.Update(ctx, session); err != nil {
-			return fmt.Errorf("resume CodexSession: %w", err)
+			return fmt.Errorf("update CodexSession: %w", err)
 		}
 	}
 	if err := a.recordActivity(ctx, key, activation.RequestedAt); err != nil {
@@ -111,7 +116,7 @@ func (a *SessionActivator) Activate(ctx context.Context, activation session.Acti
 	}
 }
 
-func (a *SessionActivator) newSpec(conversationID string) v1alpha1.CodexSessionSpec {
+func (a *SessionActivator) newSpec(conversationID string, repository *session.Repository) v1alpha1.CodexSessionSpec {
 	size := a.SessionDataSize
 	if size == "" {
 		size = DefaultSessionDataSize
@@ -124,7 +129,7 @@ func (a *SessionActivator) newSpec(conversationID string) v1alpha1.CodexSessionS
 	if approvalPolicy == "" {
 		approvalPolicy = DefaultApprovalPolicy
 	}
-	return v1alpha1.CodexSessionSpec{
+	spec := v1alpha1.CodexSessionSpec{
 		ConversationID:     conversationID,
 		DesiredState:       v1alpha1.DesiredStateActive,
 		IdleTimeoutSeconds: idleTimeout,
@@ -135,6 +140,10 @@ func (a *SessionActivator) newSpec(conversationID string) v1alpha1.CodexSessionS
 		},
 		Execution: v1alpha1.Execution{Model: a.Model, ApprovalPolicy: approvalPolicy},
 	}
+	if repository != nil {
+		spec.Repository = &v1alpha1.Repository{URL: repository.URL, Revision: repository.Revision}
+	}
+	return spec
 }
 
 func (a *SessionActivator) recordActivity(ctx context.Context, key types.NamespacedName, at time.Time) error {
