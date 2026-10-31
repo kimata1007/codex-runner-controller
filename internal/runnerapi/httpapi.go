@@ -19,6 +19,7 @@ const maxRequestBodyBytes = 1 << 20
 type Handler struct {
 	repository conversation.Repository
 	dispatcher MessageDispatcher
+	activator  SessionActivator
 	eventStore RunEventStore
 	publisher  RunEventPublisher
 }
@@ -31,12 +32,22 @@ type MessageDispatcher interface {
 	Dispatch(context.Context, string, string, string, string) (runs.Run, error)
 }
 
+// SessionActivator makes a conversation's runner-agent reachable before its
+// first turn is dispatched.
+type SessionActivator interface {
+	Activate(context.Context, string) error
+}
+
 func NewHandlerWithDispatcher(repository conversation.Repository, dispatcher MessageDispatcher) *Handler {
 	return &Handler{repository: repository, dispatcher: dispatcher}
 }
 
 func NewHandlerWithDispatcherAndEvents(repository conversation.Repository, dispatcher MessageDispatcher, eventStore RunEventStore, publisher RunEventPublisher) *Handler {
 	return &Handler{repository: repository, dispatcher: dispatcher, eventStore: eventStore, publisher: publisher}
+}
+
+func NewHandlerWithDispatcherEventsAndActivator(repository conversation.Repository, dispatcher MessageDispatcher, eventStore RunEventStore, publisher RunEventPublisher, activator SessionActivator) *Handler {
+	return &Handler{repository: repository, dispatcher: dispatcher, eventStore: eventStore, publisher: publisher, activator: activator}
 }
 
 func NewRouter(handler *Handler) *echo.Echo {
@@ -103,6 +114,11 @@ func (h *Handler) createMessage(c echo.Context) error {
 	})
 	if err != nil {
 		return writeRepositoryError(c, err)
+	}
+	if created && h.activator != nil {
+		if err := h.activator.Activate(c.Request().Context(), message.ConversationID); err != nil {
+			return writeError(c, http.StatusServiceUnavailable, "failed to activate session")
+		}
 	}
 	if created && h.dispatcher != nil {
 		run, err := h.dispatcher.Dispatch(c.Request().Context(), message.ConversationID, message.ID, request.ThreadID, message.Content)
