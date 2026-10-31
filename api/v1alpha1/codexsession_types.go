@@ -3,6 +3,8 @@ package v1alpha1
 import "fmt"
 
 const (
+	DefaultIdleTimeoutSeconds int32 = 1800
+
 	DesiredStateActive    = "Active"
 	DesiredStateSuspended = "Suspended"
 
