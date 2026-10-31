@@ -4,7 +4,7 @@
 
 ## 初回起動
 
-ワークスペースが空なら、エントリポイントはリポジトリをcloneした後、指定リビジョンをcheckoutします。リビジョンはブランチ名、タグ、コミットSHAを指定できます。HTTPSリポジトリで `spec.credentialsRef` を指定した場合は、Secretの `token` キーを `GIT_AUTH_TOKEN` として参照し、Gitの一時的なAuthorizationヘッダーに使います。トークンをリポジトリURLへ連結したり、DB・CRDへコピーしたりはしません。
+エントリポイントは最初にworkspaceディレクトリを作成します。リポジトリ指定がある場合、ワークスペースが空ならリポジトリをcloneした後、指定リビジョンをcheckoutします。リビジョンはブランチ名、タグ、コミットSHAを指定できます。リポジトリ指定がないchatモードでも、空のworkspaceを`CODEX_CWD`として利用できます。HTTPSリポジトリで `spec.credentialsRef` を指定した場合は、Secretの `token` キーを `GIT_AUTH_TOKEN` として参照し、Gitの一時的なAuthorizationヘッダーに使います。トークンをリポジトリURLへ連結したり、DB・CRDへコピーしたりはしません。
 
 Secretの例:
 
