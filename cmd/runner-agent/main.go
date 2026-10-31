@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/kimata1007/codex-runner-controller/internal/agent"
+	"github.com/kimata1007/codex-runner-controller/internal/auth"
 )
 
 func main() {
@@ -69,7 +70,7 @@ func main() {
 	}
 	server := &http.Server{
 		Addr:              address,
-		Handler:           agent.NewHTTPHandlerWithTracker(session, tracker),
+		Handler:           auth.BearerToken(agent.NewHTTPHandlerWithTracker(session, tracker), os.Getenv("RUNNER_AGENT_TOKEN")),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,

@@ -32,20 +32,22 @@ func (r StaticEndpointResolver) Resolve(_ context.Context, conversationID string
 type RunClientFactory struct {
 	resolver   EndpointResolver
 	params     agent.ThreadStartParams
+	token      string
 	httpClient *http.Client
 }
 
 func NewRunClientFactory(resolver EndpointResolver, params agent.ThreadStartParams) *RunClientFactory {
-	return &RunClientFactory{resolver: resolver, params: params}
+	return NewRunClientFactoryWithToken(resolver, params, "")
 }
-
+func NewRunClientFactoryWithToken(resolver EndpointResolver, params agent.ThreadStartParams, token string) *RunClientFactory {
+	return &RunClientFactory{resolver: resolver, params: params, token: token}
+}
 func (f *RunClientFactory) WithHTTPClient(client *http.Client) *RunClientFactory {
 	if client != nil {
 		f.httpClient = client
 	}
 	return f
 }
-
 func (f *RunClientFactory) CreateClientForConversation(ctx context.Context, conversationID string) (runs.ThreadClient, error) {
 	if f == nil || f.resolver == nil {
 		return nil, fmt.Errorf("runner-agent endpoint resolver is required")
@@ -54,7 +56,7 @@ func (f *RunClientFactory) CreateClientForConversation(ctx context.Context, conv
 	if err != nil {
 		return nil, fmt.Errorf("resolve runner-agent endpoint: %w", err)
 	}
-	client := NewClient(endpoint)
+	client := NewClientWithToken(endpoint, f.token)
 	if f.httpClient != nil {
 		client.WithHTTPClient(f.httpClient)
 	}
