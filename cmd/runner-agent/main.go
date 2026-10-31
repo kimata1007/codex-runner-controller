@@ -32,6 +32,7 @@ func main() {
 	if eventURL := os.Getenv("RUNNER_EVENT_URL"); eventURL != "" {
 		runEventSender = agent.NewHTTPRunEventSender(eventURL).WithBearerToken(os.Getenv("RUNNER_API_TOKEN"))
 	}
+	approvals := agent.NewApprovalManager(runEventSender, tracker)
 	process, err := agent.StartProcess(ctx, command, args, func(notification agent.AppServerNotification) {
 		runID := tracker.Current()
 		log.Printf("app-server notification: run=%s method=%s", runID, notification.Method)
@@ -54,6 +55,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	process.Client.SetRequestHandler(approvals.Handle)
 
 	session := agent.NewSession(process.Client)
 	if err := session.Initialize(ctx, agent.ClientInfo{
@@ -70,7 +72,7 @@ func main() {
 	}
 	server := &http.Server{
 		Addr:              address,
-		Handler:           auth.BearerToken(agent.NewHTTPHandlerWithTracker(session, tracker), os.Getenv("RUNNER_AGENT_TOKEN")),
+		Handler:           auth.BearerToken(agent.NewHTTPHandlerWithTrackerAndApprovals(session, tracker, approvals), os.Getenv("RUNNER_AGENT_TOKEN")),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,

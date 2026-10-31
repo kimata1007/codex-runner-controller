@@ -20,8 +20,13 @@ type SessionAPI interface {
 }
 
 type HTTPServer struct {
-	session SessionAPI
-	tracker *RunTracker
+	session   SessionAPI
+	tracker   *RunTracker
+	approvals ApprovalResolver
+}
+
+type ApprovalResolver interface {
+	Resolve(string, any) error
 }
 
 func NewHTTPHandler(session SessionAPI) *echo.Echo {
@@ -29,10 +34,14 @@ func NewHTTPHandler(session SessionAPI) *echo.Echo {
 }
 
 func NewHTTPHandlerWithTracker(session SessionAPI, tracker *RunTracker) *echo.Echo {
+	return NewHTTPHandlerWithTrackerAndApprovals(session, tracker, nil)
+}
+
+func NewHTTPHandlerWithTrackerAndApprovals(session SessionAPI, tracker *RunTracker, approvals ApprovalResolver) *echo.Echo {
 	if tracker == nil {
 		tracker = NewRunTracker()
 	}
-	server := &HTTPServer{session: session, tracker: tracker}
+	server := &HTTPServer{session: session, tracker: tracker, approvals: approvals}
 	e := echo.New()
 	e.HideBanner = true
 	e.GET("/healthz", server.health)
@@ -40,6 +49,7 @@ func NewHTTPHandlerWithTracker(session SessionAPI, tracker *RunTracker) *echo.Ec
 	e.POST("/v1/threads", server.startThread)
 	e.POST("/v1/threads/:id/resume", server.resumeThread)
 	e.POST("/v1/threads/:id/turns", server.startTurn)
+	e.POST("/v1/approvals/:id", server.approval)
 	return e
 }
 
@@ -104,6 +114,34 @@ func (s *HTTPServer) startTurn(c echo.Context) error {
 	}
 	if err := s.session.StartTurn(c.Request().Context(), c.Param("id"), []TurnInput{{Type: "text", Text: request.Text}}); err != nil {
 		return writeError(c, http.StatusBadGateway, err.Error())
+	}
+	return writeJSON(c, http.StatusAccepted, map[string]string{"status": "accepted"})
+}
+
+func (s *HTTPServer) approval(c echo.Context) error {
+	requestID := strings.TrimSpace(c.Param("id"))
+	if requestID == "" {
+		return writeError(c, http.StatusBadRequest, "approval request id is required")
+	}
+	if s.approvals == nil {
+		return writeError(c, http.StatusServiceUnavailable, "approval resolver is not configured")
+	}
+	var request struct {
+		Response json.RawMessage `json:"response"`
+		Decision string          `json:"decision"`
+	}
+	if err := decodeJSON(c, &request); err != nil {
+		return err
+	}
+	response := request.Response
+	if len(response) == 0 && request.Decision != "" {
+		response, _ = json.Marshal(map[string]string{"decision": request.Decision})
+	}
+	if len(response) == 0 || !json.Valid(response) {
+		return writeError(c, http.StatusBadRequest, "response must be valid JSON")
+	}
+	if err := s.approvals.Resolve(requestID, response); err != nil {
+		return writeError(c, http.StatusNotFound, "approval request not found")
 	}
 	return writeJSON(c, http.StatusAccepted, map[string]string{"status": "accepted"})
 }
