@@ -36,6 +36,7 @@ func NewHTTPHandlerWithTracker(session SessionAPI, tracker *RunTracker) *echo.Ec
 	e := echo.New()
 	e.HideBanner = true
 	e.GET("/healthz", server.health)
+	e.GET("/readyz", server.health)
 	e.POST("/v1/threads", server.startThread)
 	e.POST("/v1/threads/:id/resume", server.resumeThread)
 	e.POST("/v1/threads/:id/turns", server.startTurn)

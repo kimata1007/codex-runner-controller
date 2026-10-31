@@ -68,3 +68,12 @@ func TestHTTPHandlerRejectsBlankTurn(t *testing.T) {
 		t.Fatalf("body = %s", response.Body.String())
 	}
 }
+
+func TestHTTPHandlerExposesReadinessProbe(t *testing.T) {
+	handler := NewHTTPHandler(new(fakeSession))
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusOK)
+	}
+}
