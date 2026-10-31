@@ -103,10 +103,9 @@ func (r *Repository) CreateMessage(id string, input httpapi.MessageInput) (httpa
 	}
 	result, err := r.client.Exec(context.Background(), `INSERT INTO messages
 		(id, conversation_id, role, content, sequence, status, client_message_id, created_at)
-		SELECT ?, ?, 'user', ?, COALESCE(MAX(sequence), 0) + 1, 'queued', ?, ?
-		FROM messages WHERE conversation_id = ?
+		VALUES (?, ?, 'user', ?, COALESCE((SELECT MAX(sequence) FROM messages WHERE conversation_id = ?), 0) + 1, 'queued', ?, ?)
 		ON CONFLICT(conversation_id, client_message_id) DO NOTHING`, []Value{
-		Text(messageID), Text(id), Text(input.Content), clientMessageID, Text(now), Text(id),
+		Text(messageID), Text(id), Text(input.Content), Text(id), clientMessageID, Text(now),
 	}, false)
 	if err != nil {
 		return httpapi.Message{}, false, err
