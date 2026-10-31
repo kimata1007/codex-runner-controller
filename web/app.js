@@ -1,0 +1,116 @@
+const state = {
+  apiURL: sessionStorage.getItem('codex.apiURL') || window.location.origin,
+  token: sessionStorage.getItem('codex.apiToken') || '',
+  conversationID: sessionStorage.getItem('codex.conversationID') || '',
+};
+
+const apiURL = document.querySelector('#api-url');
+const apiToken = document.querySelector('#api-token');
+const status = document.querySelector('#status');
+const conversationID = document.querySelector('#conversation-id');
+const messages = document.querySelector('#messages');
+const composer = document.querySelector('#message-form');
+const messageInput = document.querySelector('#message');
+const sendButton = composer.querySelector('button');
+
+apiURL.value = state.apiURL;
+apiToken.value = state.token;
+conversationID.textContent = state.conversationID || '会話未作成';
+
+function setStatus(text) { status.textContent = text; }
+
+function saveSettings() {
+  state.apiURL = apiURL.value.trim().replace(/\/$/, '');
+  state.token = apiToken.value.trim();
+  sessionStorage.setItem('codex.apiURL', state.apiURL);
+  sessionStorage.setItem('codex.apiToken', state.token);
+  setStatus('設定を保存しました');
+}
+
+async function request(path, options = {}) {
+  const headers = new Headers(options.headers || {});
+  headers.set('Content-Type', 'application/json');
+  if (state.token) headers.set('Authorization', `Bearer ${state.token}`);
+  const response = await fetch(`${state.apiURL}${path}`, {...options, headers});
+  if (!response.ok) throw new Error(`${response.status}: ${await response.text()}`);
+  return response.json();
+}
+
+function addMessage(role, content) {
+  const item = document.createElement('li');
+  item.className = `message ${role}`;
+  item.textContent = content;
+  messages.append(item);
+  item.scrollIntoView({block: 'nearest'});
+  return item;
+}
+
+async function createConversation() {
+  saveSettings();
+  const conversation = await request('/v1/conversations', {method: 'POST', body: JSON.stringify({mode: 'chat'})});
+  state.conversationID = conversation.id;
+  sessionStorage.setItem('codex.conversationID', state.conversationID);
+  conversationID.textContent = state.conversationID;
+  messages.replaceChildren();
+  setStatus('会話を作成しました');
+}
+
+async function streamEvents(runID, assistantItem) {
+  const headers = {};
+  if (state.token) headers.Authorization = `Bearer ${state.token}`;
+  const response = await fetch(`${state.apiURL}/v1/runs/${runID}/events`, {headers});
+  if (!response.ok || !response.body) throw new Error(`event stream: ${response.status}`);
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  while (true) {
+    const {value, done} = await reader.read();
+    buffer += decoder.decode(value || new Uint8Array(), {stream: !done});
+    const chunks = buffer.split('\n\n');
+    buffer = chunks.pop() || '';
+    for (const chunk of chunks) {
+      const data = chunk.split('\n').find((line) => line.startsWith('data: '));
+      if (!data) continue;
+      try {
+        const payload = JSON.parse(data.slice(6));
+        const text = payload.text || payload.delta || payload.content || '';
+        if (text) assistantItem.textContent += text;
+      } catch (_) {
+        // Event payloads that are not user-visible JSON are ignored by the UI.
+      }
+    }
+    if (done) break;
+  }
+}
+
+async function sendMessage(event) {
+  event.preventDefault();
+  const content = messageInput.value.trim();
+  if (!content) return;
+  if (!state.conversationID) await createConversation();
+  saveSettings();
+  addMessage('user', content);
+  messageInput.value = '';
+  sendButton.disabled = true;
+  setStatus('Codexを起動しています…');
+  try {
+    const result = await request(`/v1/conversations/${state.conversationID}/messages`, {
+      method: 'POST',
+      body: JSON.stringify({content, clientMessageId: crypto.randomUUID()}),
+    });
+    if (!result.run) { setStatus('メッセージを保存しました'); return; }
+    const assistant = addMessage('assistant', '');
+    setStatus('Codexが応答中…');
+    await streamEvents(result.run.id, assistant);
+    setStatus('完了');
+  } catch (error) {
+    setStatus(`エラー: ${error.message}`);
+  } finally {
+    sendButton.disabled = false;
+  }
+}
+
+document.querySelector('#save-settings').addEventListener('click', saveSettings);
+document.querySelector('#new-conversation').addEventListener('click', createConversation);
+composer.addEventListener('submit', sendMessage);
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
