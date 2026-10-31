@@ -41,6 +41,49 @@ func (r *Repository) SetRunStatus(ctx context.Context, runID, status, errorCode,
 	return err
 }
 
+func (r *Repository) GetRun(ctx context.Context, runID string) (runs.Run, bool, error) {
+	result, err := r.client.Exec(ctx, `SELECT id, conversation_id, message_id, thread_id, status, created_at, started_at, completed_at, error_code, error_message FROM runs WHERE id = ?`, []Value{Text(runID)}, true)
+	if err != nil {
+		return runs.Run{}, false, err
+	}
+	if len(result.Rows) == 0 {
+		return runs.Run{}, false, nil
+	}
+	row := result.Rows[0]
+	if len(row) < 10 {
+		return runs.Run{}, false, fmt.Errorf("libsql: run row has %d columns", len(row))
+	}
+	createdAt, err := parseTime(row[5])
+	if err != nil {
+		return runs.Run{}, false, err
+	}
+	run := runs.Run{ID: row[0].Value, ConversationID: row[1].Value, MessageID: row[2].Value, Status: row[4].Value, CreatedAt: createdAt}
+	if row[3].Type != "null" {
+		run.ThreadID = row[3].Value
+	}
+	if row[6].Type != "null" {
+		value, parseErr := parseTime(row[6])
+		if parseErr != nil {
+			return runs.Run{}, false, parseErr
+		}
+		run.StartedAt = &value
+	}
+	if row[7].Type != "null" {
+		value, parseErr := parseTime(row[7])
+		if parseErr != nil {
+			return runs.Run{}, false, parseErr
+		}
+		run.CompletedAt = &value
+	}
+	if row[8].Type != "null" {
+		run.ErrorCode = row[8].Value
+	}
+	if row[9].Type != "null" {
+		run.ErrorMessage = row[9].Value
+	}
+	return run, true, nil
+}
+
 func (r *Repository) ApplyAppServerEvent(ctx context.Context, runID, eventType, payload string) error {
 	status, ok := runs.StatusForEvent(eventType, payload)
 	if !ok {

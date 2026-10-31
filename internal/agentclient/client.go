@@ -62,6 +62,18 @@ func (c *Client) StartTurnForRun(ctx context.Context, threadID, runID string, in
 	return c.startTurn(ctx, threadID, runID, input)
 }
 
+func (c *Client) RespondApproval(ctx context.Context, requestID string, response any) error {
+	if strings.TrimSpace(requestID) == "" {
+		return fmt.Errorf("runner-agent respond approval: request id is required")
+	}
+	if err := c.post(ctx, "/v1/approvals/"+requestID, struct {
+		Response any `json:"response"`
+	}{Response: response}, nil); err != nil {
+		return fmt.Errorf("runner-agent respond approval: %w", err)
+	}
+	return nil
+}
+
 func (c *Client) startTurn(ctx context.Context, threadID, runID string, input []agent.TurnInput) error {
 	if threadID == "" {
 		return fmt.Errorf("runner-agent start turn: thread id is required")

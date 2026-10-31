@@ -19,13 +19,14 @@ import (
 const maxRequestBodyBytes = 1 << 20
 
 type Handler struct {
-	repository     conversation.Repository
-	statusStore    MessageStatusStore
-	dispatcher     MessageDispatcher
-	activator      session.Activator
-	eventStore     RunEventStore
-	eventProjector RunEventProjector
-	eventHub       RunEventHub
+	repository        conversation.Repository
+	statusStore       MessageStatusStore
+	dispatcher        MessageDispatcher
+	approvalResponder ApprovalResponder
+	activator         session.Activator
+	eventStore        RunEventStore
+	eventProjector    RunEventProjector
+	eventHub          RunEventHub
 }
 
 // HandlerDependencies groups the optional collaborators used by the HTTP API.
@@ -41,19 +42,25 @@ type HandlerDependencies struct {
 func NewHandler(dependencies HandlerDependencies) *Handler {
 	statusStore, _ := dependencies.Repository.(MessageStatusStore)
 	eventProjector, _ := dependencies.Repository.(RunEventProjector)
+	approvalResponder, _ := dependencies.Dispatcher.(ApprovalResponder)
 	return &Handler{
-		repository:     dependencies.Repository,
-		statusStore:    statusStore,
-		dispatcher:     dependencies.Dispatcher,
-		activator:      dependencies.Activator,
-		eventStore:     dependencies.EventStore,
-		eventProjector: eventProjector,
-		eventHub:       dependencies.EventHub,
+		repository:        dependencies.Repository,
+		statusStore:       statusStore,
+		dispatcher:        dependencies.Dispatcher,
+		approvalResponder: approvalResponder,
+		activator:         dependencies.Activator,
+		eventStore:        dependencies.EventStore,
+		eventProjector:    eventProjector,
+		eventHub:          dependencies.EventHub,
 	}
 }
 
 type MessageDispatcher interface {
 	Dispatch(context.Context, string, string, string, string) (runs.Run, error)
+}
+
+type ApprovalResponder interface {
+	RespondApproval(context.Context, string, string, any) error
 }
 
 // MessageStatusStore atomically claims queued messages before dispatch and
@@ -76,6 +83,9 @@ func NewRouter(handler *Handler) *echo.Echo {
 	e.GET("/v1/conversations/:id", handler.getConversation)
 	e.GET("/v1/conversations/:id/messages", handler.getMessages)
 	e.POST("/v1/conversations/:id/messages", handler.createMessage)
+	if handler.approvalResponder != nil {
+		e.POST("/v1/approvals/:runID/:requestID", handler.respondApproval)
+	}
 	if handler.eventStore != nil && handler.eventHub != nil {
 		e.POST("/internal/runs/:runID/events", handler.receiveAppServerRunEvent)
 		e.GET("/v1/runs/:runID/events", events.NewSSEHandler(handler.eventStore, handler.eventHub))
@@ -138,6 +148,26 @@ func (h *Handler) receiveAppServerRunEvent(c echo.Context) error {
 
 func (h *Handler) checkHealth(c echo.Context) error {
 	return writeJSON(c, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (h *Handler) respondApproval(c echo.Context) error {
+	var request struct {
+		Response json.RawMessage `json:"response"`
+	}
+	if err := decodeJSON(c, &request); err != nil {
+		return err
+	}
+	if len(request.Response) == 0 || !json.Valid(request.Response) {
+		return writeError(c, http.StatusBadRequest, "response must be valid JSON")
+	}
+	var response any
+	if err := json.Unmarshal(request.Response, &response); err != nil {
+		return writeError(c, http.StatusBadRequest, "response must be valid JSON")
+	}
+	if err := h.approvalResponder.RespondApproval(c.Request().Context(), c.Param("runID"), c.Param("requestID"), response); err != nil {
+		return writeError(c, http.StatusBadGateway, "failed to respond to approval")
+	}
+	return writeJSON(c, http.StatusAccepted, map[string]string{"status": "accepted"})
 }
 
 func (h *Handler) createConversation(c echo.Context) error {
