@@ -113,7 +113,6 @@ Rel(runnerAgent, sessionPvc, "CODEX_HOMEを読む、書く")
 Rel(workspaceAdapter, sessionPvc, "ワークツリーを読む、書く")
 Rel(workspaceAdapter, github, "clone、fetch、pushを実行する")
 Rel(codexAppServer, openai, "Responses APIへ推論を依頼する")
-Rel(runnerAgent, libsql, "実行状態を直接保存しない")
 ```
 ## C4 Level 3-B: Runner API Component View
 Level 3-Bは、Level 2のRunner APIという枠を維持し、その内部をComponentへ分解する。Session Podは外部のコンテキストとして残す。
@@ -208,4 +207,3 @@ sequenceDiagram
 - Session PodとRunner APIは責務が異なるため、Level 3を2枚に分ける。
 - 名前を変更して別の要素に見せない。責務を変更する場合は設計変更として記録する。
 - MermaidのC4図でレイアウトが崩れる場合も、要素を削除せず、境界の宣言順と関係の向きを調整する。
-
