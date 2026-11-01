@@ -22,7 +22,7 @@ Codex App Serverは、アプリケーションからCodexを組み込むため�
 Codex App Serverはrunner-agentと標準入出力で接続する。APIサーバーが直接Codexプロセスを操作するのではなく、runner-agentがPod内でApp Serverを起動して管理する。
 codex execは単発のスクリプトやCIジョブには適しているが、今回のような継続会話、ストリーミング、割り込み、ユーザー承認を必要とする用途にはApp Serverを採用する。
 ### 2.3 CRDはインフラの望ましい状態を表す
-メッセージ本文やストリーミングイベントをKubernetesのetcdやCRDに保存しない。CRDにはセッションの識別子、モード、リポジトリ、ライフサイクル、認証情報への参照など、ControllerがPodを管理するために必要な情報だけを保存する。
+メッセージ本文やストリーミングイベントをKubernetesのetcdやCRDに保存しない。CRDにはセッションの識別子、リポジトリ、ライフサイクル、認証情報への参照など、ControllerがPodを管理するために必要な情報だけを保存する。
 会話、メッセージ、ターン、イベント、承認要求はlibSQLに保存する。
 ## 3. コンポーネント
 ### 3.1 Mobile/Web Client
@@ -33,7 +33,7 @@ codex execは単発のスクリプトやCIジョブには適しているが、�
 - 会話履歴の表示
 - ストリーミング応答の表示
 - 承認要求の表示と回答
-- chatモードからimplementモードへの明示的な切り替え
+- 会話中の相談と実装作業の継続
 Codex公式モバイルアプリを任意のKubernetesバックエンドへ接続する設計にはしない。本システム用の薄いWebまたはモバイルクライアントを用意する。
 ### 3.2 API Server
 外部クライアントからの唯一の入口である。公開するのはAPI Serverだけで、runner PodやlibSQLを直接インターネットへ公開しない。
@@ -57,7 +57,7 @@ Goとcontroller-runtimeで実装するKubernetes Controllerである。CodexSess
 - Pod障害時の再作成とバックオフ
 - CodexSession.statusの更新
 - Podへの安全な設定・Secret・ServiceAccountの注入
-Controllerはユーザーのメッセージ本文を解釈しない。実行モードの判断はAPIとユーザー操作で確定し、ControllerはCRに記載された望ましい状態を実現する。
+Controllerはユーザーのメッセージ本文を解釈しない。リポジトリや実行権限などの実行条件はAPIとユーザー操作で確定し、ControllerはCRに記載された望ましい状態を実現する。
 ### 3.4 runner-agent
 runner Pod内で起動する小さなプロセスである。Controllerではなく、Pod内の実行責務を担当する。
 責務:
@@ -105,7 +105,6 @@ HTTPで接続できることはクライアントPodをステートレスにで�
     spec:
       conversationId: conversation-001
       desiredState: Active
-      mode: chat
       idleTimeoutSeconds: 1800
       sessionData:
         storageClassName: local-path
@@ -125,11 +124,10 @@ HTTPで接続できることはクライアントPodをステートレスにで�
       lastActivityAt: "2026-10-31T00:00:00Z"
       observedGeneration: 1
       conditions: []
-実際のCRDでは、repositoryはimplementモードでのみ必須とする。chatモードではリポジトリなしで作成できる。
+実際のCRDでは、repositoryは実装対象がある場合に指定する。会話開始時点でリポジトリなしでも作成できる。
 ### 4.2 spec
 - conversationId: libSQL上のConversation ID
 - desiredState: ActiveまたはSuspended
-- mode: chatまたはimplement
 - idleTimeoutSeconds: Podを停止するまでのアイドル時間
 - sessionData: Codex履歴とワークスペースを保持するPVCの設定
 - execution.model: 使用モデルの論理名
@@ -164,7 +162,7 @@ Pod削除後も会話を再開するため、セッションごとにPVCを保�
 PVCには少なくとも次を保存する。
 - Codexのローカルスレッド履歴
 - CODEX_HOME
-- 実装モードのGitワークツリー
+- 実装用のGitワークツリー
 - 途中生成物
 - 必要なセッション固有のキャッシュ
 PVCを削除すると、libSQL上の会話履歴は残っていても、App Serverのthread/resumeだけでは同じ実行状態を完全に復元できない場合がある。PVCの保持は、会話再開と実装途中状態の保持に必要である。
@@ -173,7 +171,6 @@ PVCを削除すると、libSQL上の会話履歴は残っていても、App Serv
 - id
 - user_id
 - title
-- mode
 - status
 - codex_session_name
 - created_at
@@ -240,10 +237,10 @@ conversation_idとsequenceに一意制約を置き、クライアント再送時
 7. 保存済みメッセージを二重に送らず、新しいユーザーメッセージだけをturn/startする。
 8. 実行中のRunとイベントを再接続する。
 thread IDはlibSQLとCodexSession.statusの両方に保持してもよいが、システム・オブ・レコードはlibSQLとする。statusはControllerや運用者が観測するための参照情報とする。
-### 6.3 chatからimplementへの切り替え
-自然言語だけで権限を自動的に拡張しない。クライアントでimplementモードへの切り替えを明示し、対象リポジトリ、ブランチ、GitHub権限、承認ポリシーを確定する。
-既存PodがchatモードでPVCを使っている場合でも、実装用のPod仕様へ変更するにはPod再作成が必要になることがある。Controllerはthread IDとPVCを維持したままPodを再作成し、runner-agentがthread/resumeを実行する。
-実装モードでは次を確認する。
+### 6.3 会話中に実装を開始する場合
+会話開始時に相談用と実装用を固定しない。自然言語だけで書き込み権限を自動的に拡張せず、実装操作が必要になった時点で対象リポジトリ、ブランチ、GitHub権限、承認ポリシーを確定する。
+既存の会話で実装を開始する場合も、thread IDとPVCを維持したまま、必要なワークスペースを用意する。
+実装を開始する前に次を確認する。
 - リポジトリとrevisionが明示されている
 - GitHub Secretが参照可能である
 - ワークスペースPVCがマウントされている
@@ -354,7 +351,7 @@ runner-agentは認証エラーを検出してAPI Serverへ通知する。API Ser
 - Pod削除とidle timeout
 - Pod再作成
 - ストリーミングイベント
-### Phase 3: 実装モード
+### Phase 3: リポジトリを使った実装
 - Gitリポジトリ取得
 - branchとworkspaceの管理
 - GitHub Secret
