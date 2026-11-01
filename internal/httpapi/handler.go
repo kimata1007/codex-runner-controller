@@ -9,6 +9,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/labstack/echo/v4"
 )
 
 const maxRequestBodyBytes = 1 << 20
@@ -56,34 +58,34 @@ func NewServer() *Server {
 }
 
 func (s *Server) Routes() http.Handler {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/healthz", s.handleHealth)
-	mux.HandleFunc("/readyz", s.handleHealth)
-	mux.HandleFunc("/v1/conversations", s.handleConversations)
-	mux.HandleFunc("/v1/conversations/", s.handleConversation)
-	return mux
+	e := echo.New()
+	e.HideBanner = true
+	e.Any("/healthz", s.handleHealth)
+	e.Any("/readyz", s.handleHealth)
+	e.Any("/v1/conversations", s.handleConversations)
+	e.Any("/v1/conversations/:id", s.handleConversation)
+	e.Any("/v1/conversations/:id/messages", s.handleMessages)
+	return e
 }
 
-func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+func (s *Server) handleHealth(c echo.Context) error {
+	return writeJSON(c, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-func (s *Server) handleConversations(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		methodNotAllowed(w, http.MethodPost)
-		return
+func (s *Server) handleConversations(c echo.Context) error {
+	if c.Request().Method != http.MethodPost {
+		return methodNotAllowed(c, http.MethodPost)
 	}
 
 	var request createConversationRequest
-	if err := decodeJSON(w, r, &request); err != nil {
-		return
+	if err := decodeJSON(c, &request); err != nil {
+		return err
 	}
 	if request.Mode == "" {
 		request.Mode = "chat"
 	}
 	if request.Mode != "chat" && request.Mode != "implement" {
-		writeError(w, http.StatusBadRequest, "mode must be chat or implement")
-		return
+		return writeError(c, http.StatusBadRequest, "mode must be chat or implement")
 	}
 
 	now := time.Now().UTC()
@@ -94,31 +96,17 @@ func (s *Server) handleConversations(w http.ResponseWriter, r *http.Request) {
 	s.store.conversations[id] = conversation
 	s.store.mu.Unlock()
 
-	writeJSON(w, http.StatusCreated, conversation)
+	return writeJSON(c, http.StatusCreated, conversation)
 }
 
-func (s *Server) handleConversation(w http.ResponseWriter, r *http.Request) {
-	path := strings.TrimPrefix(r.URL.Path, "/v1/conversations/")
-	parts := strings.Split(strings.Trim(path, "/"), "/")
-	if len(parts) == 0 || parts[0] == "" {
-		writeError(w, http.StatusNotFound, "conversation not found")
-		return
+func (s *Server) handleConversation(c echo.Context) error {
+	if c.Request().Method != http.MethodGet {
+		return methodNotAllowed(c, http.MethodGet)
 	}
-
-	id := parts[0]
-	if len(parts) == 1 && r.Method == http.MethodGet {
-		s.getConversation(w, id)
-		return
-	}
-	if len(parts) == 2 && parts[1] == "messages" {
-		s.handleMessages(w, r, id)
-		return
-	}
-
-	writeError(w, http.StatusNotFound, "route not found")
+	return s.getConversation(c, c.Param("id"))
 }
 
-func (s *Server) getConversation(w http.ResponseWriter, id string) {
+func (s *Server) getConversation(c echo.Context, id string) error {
 	s.store.mu.RLock()
 	conversation, ok := s.store.conversations[id]
 	if ok {
@@ -126,57 +114,53 @@ func (s *Server) getConversation(w http.ResponseWriter, id string) {
 	}
 	s.store.mu.RUnlock()
 	if !ok {
-		writeError(w, http.StatusNotFound, "conversation not found")
-		return
+		return writeError(c, http.StatusNotFound, "conversation not found")
 	}
-	writeJSON(w, http.StatusOK, conversation)
+	return writeJSON(c, http.StatusOK, conversation)
 }
 
-func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request, conversationID string) {
+func (s *Server) handleMessages(c echo.Context) error {
+	conversationID := c.Param("id")
 	s.store.mu.RLock()
 	conversation, ok := s.store.conversations[conversationID]
 	s.store.mu.RUnlock()
 	if !ok {
-		writeError(w, http.StatusNotFound, "conversation not found")
-		return
+		return writeError(c, http.StatusNotFound, "conversation not found")
 	}
 
-	switch r.Method {
+	switch c.Request().Method {
 	case http.MethodGet:
 		s.store.mu.RLock()
 		messages := append([]Message(nil), conversation.Messages...)
 		s.store.mu.RUnlock()
-		writeJSON(w, http.StatusOK, map[string]any{"messages": messages})
+		return writeJSON(c, http.StatusOK, map[string]any{"messages": messages})
 	case http.MethodPost:
-		s.createMessage(w, r, conversationID)
+		return s.createMessage(c, conversationID)
 	default:
-		methodNotAllowed(w, http.MethodGet, http.MethodPost)
+		return methodNotAllowed(c, http.MethodGet, http.MethodPost)
 	}
 }
 
-func (s *Server) createMessage(w http.ResponseWriter, r *http.Request, conversationID string) {
+func (s *Server) createMessage(c echo.Context, conversationID string) error {
 	var request createMessageRequest
-	if err := decodeJSON(w, r, &request); err != nil {
-		return
+	if err := decodeJSON(c, &request); err != nil {
+		return err
 	}
 	request.Content = strings.TrimSpace(request.Content)
 	if request.Content == "" {
-		writeError(w, http.StatusBadRequest, "content is required")
-		return
+		return writeError(c, http.StatusBadRequest, "content is required")
 	}
 
 	s.store.mu.Lock()
 	defer s.store.mu.Unlock()
 	conversation, ok := s.store.conversations[conversationID]
 	if !ok {
-		writeError(w, http.StatusNotFound, "conversation not found")
-		return
+		return writeError(c, http.StatusNotFound, "conversation not found")
 	}
 	if request.ClientMessageID != "" {
 		for _, message := range conversation.Messages {
 			if message.ClientMessageID == request.ClientMessageID {
-				writeJSON(w, http.StatusOK, message)
-				return
+				return writeJSON(c, http.StatusOK, message)
 			}
 		}
 	}
@@ -193,7 +177,7 @@ func (s *Server) createMessage(w http.ResponseWriter, r *http.Request, conversat
 	}
 	conversation.Messages = append(conversation.Messages, message)
 	conversation.UpdatedAt = now
-	writeJSON(w, http.StatusAccepted, message)
+	return writeJSON(c, http.StatusAccepted, message)
 }
 
 func (s *Store) newID(prefix string) string {
@@ -207,32 +191,30 @@ func cloneConversation(conversation *Conversation) *Conversation {
 	return &clone
 }
 
-func decodeJSON(w http.ResponseWriter, r *http.Request, destination any) error {
-	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)
+func decodeJSON(c echo.Context, destination any) error {
+	r := c.Request()
+	r.Body = http.MaxBytesReader(c.Response().Writer, r.Body, maxRequestBodyBytes)
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(destination); err != nil {
 		if err == io.EOF {
-			writeError(w, http.StatusBadRequest, "request body is required")
+			return writeError(c, http.StatusBadRequest, "request body is required")
 		} else {
-			writeError(w, http.StatusBadRequest, "invalid JSON request")
+			return writeError(c, http.StatusBadRequest, "invalid JSON request")
 		}
-		return err
 	}
 	return nil
 }
 
-func methodNotAllowed(w http.ResponseWriter, methods ...string) {
-	w.Header().Set("Allow", strings.Join(methods, ", "))
-	writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+func methodNotAllowed(c echo.Context, methods ...string) error {
+	c.Response().Header().Set("Allow", strings.Join(methods, ", "))
+	return writeError(c, http.StatusMethodNotAllowed, "method not allowed")
 }
 
-func writeJSON(w http.ResponseWriter, status int, value any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(value)
+func writeJSON(c echo.Context, status int, value any) error {
+	return c.JSON(status, value)
 }
 
-func writeError(w http.ResponseWriter, status int, message string) {
-	writeJSON(w, status, map[string]string{"error": message})
+func writeError(c echo.Context, status int, message string) error {
+	return writeJSON(c, status, map[string]string{"error": message})
 }
