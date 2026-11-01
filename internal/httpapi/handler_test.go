@@ -23,6 +23,35 @@ func TestHealth(t *testing.T) {
 	}
 }
 
+func TestRoutesUseExpectedHTTPMethods(t *testing.T) {
+	server := NewServer()
+	router := server.Routes()
+
+	tests := []struct {
+		name   string
+		method string
+		path   string
+	}{
+		{name: "health rejects post", method: http.MethodPost, path: "/healthz"},
+		{name: "conversation collection rejects get", method: http.MethodGet, path: "/v1/conversations"},
+		{name: "conversation rejects post", method: http.MethodPost, path: "/v1/conversations/conversation-1"},
+		{name: "messages rejects put", method: http.MethodPut, path: "/v1/conversations/conversation-1/messages"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequest(test.method, test.path, nil)
+			recorder := httptest.NewRecorder()
+
+			router.ServeHTTP(recorder, request)
+
+			if recorder.Code != http.StatusMethodNotAllowed {
+				t.Fatalf("status = %d, want %d", recorder.Code, http.StatusMethodNotAllowed)
+			}
+		})
+	}
+}
+
 func TestCreateConversationAndMessage(t *testing.T) {
 	server := NewServer()
 	router := server.Routes()

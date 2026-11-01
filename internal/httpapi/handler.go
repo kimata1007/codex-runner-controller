@@ -60,23 +60,20 @@ func NewServer() *Server {
 func (s *Server) Routes() http.Handler {
 	e := echo.New()
 	e.HideBanner = true
-	e.Any("/healthz", s.handleHealth)
-	e.Any("/readyz", s.handleHealth)
-	e.Any("/v1/conversations", s.handleConversations)
-	e.Any("/v1/conversations/:id", s.handleConversation)
-	e.Any("/v1/conversations/:id/messages", s.handleMessages)
+	e.GET("/healthz", s.checkHealth)
+	e.GET("/readyz", s.checkHealth)
+	e.POST("/v1/conversations", s.createConversation)
+	e.GET("/v1/conversations/:id", s.getConversation)
+	e.GET("/v1/conversations/:id/messages", s.getMessages)
+	e.POST("/v1/conversations/:id/messages", s.createMessage)
 	return e
 }
 
-func (s *Server) handleHealth(c echo.Context) error {
+func (s *Server) checkHealth(c echo.Context) error {
 	return writeJSON(c, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-func (s *Server) handleConversations(c echo.Context) error {
-	if c.Request().Method != http.MethodPost {
-		return methodNotAllowed(c, http.MethodPost)
-	}
-
+func (s *Server) createConversation(c echo.Context) error {
 	var request createConversationRequest
 	if err := decodeJSON(c, &request); err != nil {
 		return err
@@ -99,14 +96,8 @@ func (s *Server) handleConversations(c echo.Context) error {
 	return writeJSON(c, http.StatusCreated, conversation)
 }
 
-func (s *Server) handleConversation(c echo.Context) error {
-	if c.Request().Method != http.MethodGet {
-		return methodNotAllowed(c, http.MethodGet)
-	}
-	return s.getConversation(c, c.Param("id"))
-}
-
-func (s *Server) getConversation(c echo.Context, id string) error {
+func (s *Server) getConversation(c echo.Context) error {
+	id := c.Param("id")
 	s.store.mu.RLock()
 	conversation, ok := s.store.conversations[id]
 	if ok {
@@ -119,7 +110,7 @@ func (s *Server) getConversation(c echo.Context, id string) error {
 	return writeJSON(c, http.StatusOK, conversation)
 }
 
-func (s *Server) handleMessages(c echo.Context) error {
+func (s *Server) getMessages(c echo.Context) error {
 	conversationID := c.Param("id")
 	s.store.mu.RLock()
 	conversation, ok := s.store.conversations[conversationID]
@@ -128,20 +119,14 @@ func (s *Server) handleMessages(c echo.Context) error {
 		return writeError(c, http.StatusNotFound, "conversation not found")
 	}
 
-	switch c.Request().Method {
-	case http.MethodGet:
-		s.store.mu.RLock()
-		messages := append([]Message(nil), conversation.Messages...)
-		s.store.mu.RUnlock()
-		return writeJSON(c, http.StatusOK, map[string]any{"messages": messages})
-	case http.MethodPost:
-		return s.createMessage(c, conversationID)
-	default:
-		return methodNotAllowed(c, http.MethodGet, http.MethodPost)
-	}
+	s.store.mu.RLock()
+	messages := append([]Message(nil), conversation.Messages...)
+	s.store.mu.RUnlock()
+	return writeJSON(c, http.StatusOK, map[string]any{"messages": messages})
 }
 
-func (s *Server) createMessage(c echo.Context, conversationID string) error {
+func (s *Server) createMessage(c echo.Context) error {
+	conversationID := c.Param("id")
 	var request createMessageRequest
 	if err := decodeJSON(c, &request); err != nil {
 		return err
@@ -204,11 +189,6 @@ func decodeJSON(c echo.Context, destination any) error {
 		}
 	}
 	return nil
-}
-
-func methodNotAllowed(c echo.Context, methods ...string) error {
-	c.Response().Header().Set("Allow", strings.Join(methods, ", "))
-	return writeError(c, http.StatusMethodNotAllowed, "method not allowed")
 }
 
 func writeJSON(c echo.Context, status int, value any) error {
