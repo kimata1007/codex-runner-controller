@@ -56,7 +56,7 @@ func TestCreateConversationAndMessage(t *testing.T) {
 	server := NewServer()
 	router := server.Routes()
 
-	conversationResponse := serveJSON(t, router, http.MethodPost, "/v1/conversations", `{"mode":"chat"}`)
+	conversationResponse := serveJSON(t, router, http.MethodPost, "/v1/conversations", "")
 	if conversationResponse.Code != http.StatusCreated {
 		t.Fatalf("create conversation status = %d, want %d", conversationResponse.Code, http.StatusCreated)
 	}

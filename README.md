@@ -27,9 +27,7 @@ go run ./cmd/runner-api
 
 ```bash
 curl http://localhost:8080/healthz
-curl -X POST http://localhost:8080/v1/conversations \
-  -H 'Content-Type: application/json' \
-  -d '{"mode":"chat"}'
+curl -X POST http://localhost:8080/v1/conversations
 ```
 
 ## クライアント方針

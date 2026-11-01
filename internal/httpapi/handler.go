@@ -27,7 +27,6 @@ type Store struct {
 
 type Conversation struct {
 	ID        string    `json:"id"`
-	Mode      string    `json:"mode"`
 	Status    string    `json:"status"`
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
@@ -42,10 +41,6 @@ type Message struct {
 	ClientMessageID string    `json:"clientMessageId,omitempty"`
 	Status          string    `json:"status"`
 	CreatedAt       time.Time `json:"createdAt"`
-}
-
-type createConversationRequest struct {
-	Mode string `json:"mode"`
 }
 
 type createMessageRequest struct {
@@ -74,20 +69,9 @@ func (s *Server) checkHealth(c echo.Context) error {
 }
 
 func (s *Server) createConversation(c echo.Context) error {
-	var request createConversationRequest
-	if err := decodeJSON(c, &request); err != nil {
-		return err
-	}
-	if request.Mode == "" {
-		request.Mode = "chat"
-	}
-	if request.Mode != "chat" && request.Mode != "implement" {
-		return writeError(c, http.StatusBadRequest, "mode must be chat or implement")
-	}
-
 	now := time.Now().UTC()
 	id := s.store.newID("conversation")
-	conversation := &Conversation{ID: id, Mode: request.Mode, Status: "active", CreatedAt: now, UpdatedAt: now}
+	conversation := &Conversation{ID: id, Status: "active", CreatedAt: now, UpdatedAt: now}
 
 	s.store.mu.Lock()
 	s.store.conversations[id] = conversation
