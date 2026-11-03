@@ -49,7 +49,7 @@ func (r *Repository) CreateConversation(ctx context.Context) (conversation.Conve
 
 func (r *Repository) GetConversation(ctx context.Context, id string) (conversation.Conversation, error) {
 	result, err := r.client.Exec(ctx, `SELECT id, status, created_at, updated_at
-		FROM conversations WHERE id = ?`, []Value{Text(id)}, true)
+		FROM conversations WHERE id = ? AND user_id = ?`, []Value{Text(id), Text(r.userID)}, true)
 	if err != nil {
 		return conversation.Conversation{}, err
 	}
@@ -94,8 +94,12 @@ func (r *Repository) ListMessages(ctx context.Context, id string) ([]conversatio
 }
 
 func (r *Repository) listMessages(ctx context.Context, id string) ([]conversation.Message, error) {
-	result, err := r.client.Exec(ctx, `SELECT id, conversation_id, role, content, client_message_id, status, created_at
-		FROM messages WHERE conversation_id = ? ORDER BY sequence`, []Value{Text(id)}, true)
+	result, err := r.client.Exec(ctx, `SELECT messages.id, messages.conversation_id, messages.role, messages.content,
+		messages.client_message_id, messages.status, messages.created_at
+		FROM messages
+		JOIN conversations ON conversations.id = messages.conversation_id
+		WHERE messages.conversation_id = ? AND conversations.user_id = ?
+		ORDER BY messages.sequence`, []Value{Text(id), Text(r.userID)}, true)
 	if err != nil {
 		return nil, err
 	}
@@ -126,16 +130,16 @@ func (r *Repository) CreateMessage(ctx context.Context, id string, input convers
 		(id, conversation_id, role, content, sequence, status, client_message_id, created_at)
 		SELECT ?, ?, 'user', ?, COALESCE((SELECT MAX(sequence) FROM messages WHERE conversation_id = ?), 0) + 1,
 		       'queued', ?, ?
-		WHERE EXISTS (SELECT 1 FROM conversations WHERE id = ?)
+		WHERE EXISTS (SELECT 1 FROM conversations WHERE id = ? AND user_id = ?)
 		ON CONFLICT(conversation_id, client_message_id) DO NOTHING`, []Value{
-		Text(messageID), Text(id), Text(input.Content), Text(id), clientMessageID, Text(now.Format(time.RFC3339Nano)), Text(id),
+		Text(messageID), Text(id), Text(input.Content), Text(id), clientMessageID, Text(now.Format(time.RFC3339Nano)), Text(id), Text(r.userID),
 	}, false)
 	if err != nil {
 		return conversation.Message{}, false, err
 	}
 	if result.AffectedRowCount > 0 {
-		if _, err := r.client.Exec(ctx, `UPDATE conversations SET updated_at = ? WHERE id = ?`, []Value{
-			Text(now.Format(time.RFC3339Nano)), Text(id),
+		if _, err := r.client.Exec(ctx, `UPDATE conversations SET updated_at = ? WHERE id = ? AND user_id = ?`, []Value{
+			Text(now.Format(time.RFC3339Nano)), Text(id), Text(r.userID),
 		}, false); err != nil {
 			return conversation.Message{}, false, err
 		}
@@ -161,8 +165,11 @@ func (r *Repository) CreateMessage(ctx context.Context, id string, input convers
 		return conversation.Message{}, false, fmt.Errorf("libsql: message was not inserted")
 	}
 
-	duplicate, err := r.client.Exec(ctx, `SELECT id, conversation_id, role, content, client_message_id, status, created_at
-		FROM messages WHERE conversation_id = ? AND client_message_id = ?`, []Value{Text(id), Text(input.ClientMessageID)}, true)
+	duplicate, err := r.client.Exec(ctx, `SELECT messages.id, messages.conversation_id, messages.role, messages.content,
+		messages.client_message_id, messages.status, messages.created_at
+		FROM messages
+		JOIN conversations ON conversations.id = messages.conversation_id
+		WHERE messages.conversation_id = ? AND messages.client_message_id = ? AND conversations.user_id = ?`, []Value{Text(id), Text(input.ClientMessageID), Text(r.userID)}, true)
 	if err != nil {
 		return conversation.Message{}, false, err
 	}
@@ -177,7 +184,7 @@ func (r *Repository) CreateMessage(ctx context.Context, id string, input convers
 }
 
 func (r *Repository) conversationExists(ctx context.Context, id string) (bool, error) {
-	result, err := r.client.Exec(ctx, `SELECT id FROM conversations WHERE id = ?`, []Value{Text(id)}, true)
+	result, err := r.client.Exec(ctx, `SELECT id FROM conversations WHERE id = ? AND user_id = ?`, []Value{Text(id), Text(r.userID)}, true)
 	if err != nil {
 		return false, err
 	}

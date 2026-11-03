@@ -25,6 +25,25 @@ type Value struct {
 	Base64 string `json:"base64,omitempty"`
 }
 
+func (v Value) MarshalJSON() ([]byte, error) {
+	type wireValue struct {
+		Type   string  `json:"type"`
+		Value  *string `json:"value,omitempty"`
+		Base64 *string `json:"base64,omitempty"`
+	}
+
+	wire := wireValue{Type: v.Type}
+	switch v.Type {
+	case "text", "integer":
+		value := v.Value
+		wire.Value = &value
+	case "blob":
+		base64 := v.Base64
+		wire.Base64 = &base64
+	}
+	return json.Marshal(wire)
+}
+
 type ExecResult struct {
 	Columns          []string
 	Rows             [][]Value
@@ -163,6 +182,9 @@ func (c *Client) pipeline(ctx context.Context, requests []streamRequest) (pipeli
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		// A non-2xx response for a request carrying a baton invalidates the
+		// stream. The next request must open a new stream with a null baton.
+		c.baton = nil
 		return pipelineResponse{}, fmt.Errorf("libsql: pipeline returned HTTP %s", resp.Status)
 	}
 	var response pipelineResponse
