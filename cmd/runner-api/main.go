@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/kimata1007/codex-runner-controller/internal/httpapi"
+	"github.com/kimata1007/codex-runner-controller/internal/memory"
 )
 
 func main() {
@@ -19,9 +20,11 @@ func main() {
 		addr = ":8080"
 	}
 
+	repository := memory.NewRepository()
+	router := httpapi.NewRouter(httpapi.NewHandler(repository))
 	server := &http.Server{
 		Addr:              addr,
-		Handler:           httpapi.NewServer().Routes(),
+		Handler:           router,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,
