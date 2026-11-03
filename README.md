@@ -14,7 +14,7 @@ Kubernetes上で会話単位のCodexセッションを起動・停止・再開�
 - `GET /v1/conversations/{id}/messages`
 - `clientMessageId`によるメッセージ再送の冪等性
 
-現在のストアはプロセス内メモリです。これはAPI契約とテストを先に固定するための段階的実装であり、プロセス再起動でデータが消えるため本番利用はできません。次のPRでlibSQL永続化へ置き換えます。
+`LIBSQL_URL`を設定すると、起動時にlibSQL/sqldへスキーマを適用して永続Repositoryを使用します。未設定時はローカル開発用のプロセス内メモリRepositoryです。メモリのデータは再起動で消えるため、本番利用にはlibSQLを設定してください。
 
 ## ローカル実行
 
@@ -22,6 +22,16 @@ Kubernetes上で会話単位のCodexセッションを起動・停止・再開�
 go test ./...
 go run ./cmd/runner-api
 ```
+
+libSQL/sqldを使う場合:
+
+```bash
+LIBSQL_URL=http://localhost:8081 \
+LIBSQL_AUTH_TOKEN=... \
+go run ./cmd/runner-api
+```
+
+この例ではsqldがポート8081、Runner APIがポート8080で動いている前提です。認証なしのsqldなら`LIBSQL_AUTH_TOKEN`は省略できます。
 
 別のターミナルから確認できます。
 

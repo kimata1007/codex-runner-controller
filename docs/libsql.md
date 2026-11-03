@@ -19,4 +19,4 @@ LIBSQL_URL=http://libsql.codex-system.svc.cluster.local:8080
 LIBSQL_AUTH_TOKEN=...
 ```
 
-このPRではRunner APIの起動処理への接続はまだ行わない。次のPRで、起動時にスキーマを適用してRepositoryをHTTPサーバーへ注入する。
+Runner APIは起動時にスキーマを適用し、libSQL RepositoryをHTTPルーターへ渡す。適用に失敗した場合は起動を中止する。`LIBSQL_URL`未設定時のみ開発用のメモリRepositoryを使用する。
