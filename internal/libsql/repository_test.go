@@ -48,6 +48,33 @@ func TestRepositoryScopesConversationQueriesToUser(t *testing.T) {
 	}
 }
 
+func TestRepositoryCreateFirstMessage(t *testing.T) {
+	server, queries, args := newRepositoryTestServer(t)
+	defer server.Close()
+
+	repository := NewRepository(NewClient(server.URL, "").WithHTTPClient(server.Client()), "user-1")
+	message, inserted, err := repository.CreateMessage(context.Background(), "conversation-1", conversation.NewMessage{Content: "hello"})
+	if err != nil {
+		t.Fatalf("create first message: %v", err)
+	}
+	if !inserted || message.Content != "hello" || message.ConversationID != "conversation-1" {
+		t.Fatalf("unexpected first message: %+v, inserted=%v", message, inserted)
+	}
+	if len(*queries) != 2 {
+		t.Fatalf("got %d queries, want insert and timestamp update", len(*queries))
+	}
+	insert := (*queries)[0]
+	if !strings.Contains(insert, "COALESCE((SELECT MAX(sequence) FROM messages WHERE conversation_id = ?), 0) + 1") {
+		t.Errorf("first message sequence is not initialized to 1: %s", insert)
+	}
+	if !strings.Contains(insert, "WHERE EXISTS (SELECT 1 FROM conversations WHERE id = ? AND user_id = ?)") {
+		t.Errorf("insert is not scoped to the conversation owner: %s", insert)
+	}
+	if len((*args)[0]) != 8 || !containsTextValue((*args)[0], "user-1") {
+		t.Errorf("unexpected insert arguments: %+v", (*args)[0])
+	}
+}
+
 func newRepositoryTestServer(t *testing.T) (*httptest.Server, *[]string, *[][]Value) {
 	t.Helper()
 	queries := make([]string, 0, 8)
