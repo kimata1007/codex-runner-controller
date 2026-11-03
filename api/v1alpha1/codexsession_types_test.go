@@ -6,7 +6,6 @@ func validSpec() CodexSessionSpec {
 	return CodexSessionSpec{
 		ConversationID: "conversation-1",
 		DesiredState:   DesiredStateActive,
-		Mode:           ModeChat,
 		SessionData:    SessionData{Size: "10Gi", Retain: true},
 		Execution:      Execution{ApprovalPolicy: "user"},
 	}
@@ -18,9 +17,21 @@ func TestCodexSessionSpecValidate(t *testing.T) {
 		edit func(*CodexSessionSpec)
 		want bool
 	}{
-		{name: "valid chat", want: true},
-		{name: "implement requires repository", edit: func(spec *CodexSessionSpec) {
-			spec.Mode = ModeImplement
+		{name: "valid without repository", want: true},
+		{name: "valid with repository", edit: func(spec *CodexSessionSpec) {
+			spec.Repository = &Repository{URL: "https://github.com/example/repo.git", Revision: "main"}
+		}, want: true},
+		{name: "missing conversation", edit: func(spec *CodexSessionSpec) {
+			spec.ConversationID = ""
+		}, want: false},
+		{name: "invalid desired state", edit: func(spec *CodexSessionSpec) {
+			spec.DesiredState = "Paused"
+		}, want: false},
+		{name: "missing session size", edit: func(spec *CodexSessionSpec) {
+			spec.SessionData.Size = ""
+		}, want: false},
+		{name: "missing approval policy", edit: func(spec *CodexSessionSpec) {
+			spec.Execution.ApprovalPolicy = ""
 		}, want: false},
 		{name: "repository requires revision", edit: func(spec *CodexSessionSpec) {
 			spec.Repository = &Repository{URL: "https://github.com/example/repo.git"}

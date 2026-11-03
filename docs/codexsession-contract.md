@@ -8,3 +8,5 @@
 - `config/crd/bases/codex.example.com_codexsessions.yaml`: Kubernetes APIへ登録するCRDスキーマ
 
 ライフサイクルは`spec.desiredState`で表す。`Active`ならControllerはPVCとrunner Podを用意し、`Suspended`ならPodを削除して会話履歴とPVCを保持する。Pod作成や削除、idle timeoutの判定は次のPR以降で実装する。
+
+チャットと実装を分けるモードは設けない。会話中にリポジトリ作業が必要になった時点で、任意の`spec.repository`を設定する。

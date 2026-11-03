@@ -6,9 +6,6 @@ const (
 	DesiredStateActive    = "Active"
 	DesiredStateSuspended = "Suspended"
 
-	ModeChat      = "chat"
-	ModeImplement = "implement"
-
 	PhaseSuspended          = "Suspended"
 	PhaseStarting           = "Starting"
 	PhaseReady              = "Ready"
@@ -21,7 +18,6 @@ const (
 type CodexSessionSpec struct {
 	ConversationID     string           `json:"conversationId" yaml:"conversationId"`
 	DesiredState       string           `json:"desiredState" yaml:"desiredState"`
-	Mode               string           `json:"mode" yaml:"mode"`
 	IdleTimeoutSeconds int32            `json:"idleTimeoutSeconds,omitempty" yaml:"idleTimeoutSeconds,omitempty"`
 	SessionData        SessionData      `json:"sessionData" yaml:"sessionData"`
 	Execution          Execution        `json:"execution" yaml:"execution"`
@@ -65,9 +61,6 @@ func (s CodexSessionSpec) Validate() error {
 	if s.DesiredState != DesiredStateActive && s.DesiredState != DesiredStateSuspended {
 		return fmt.Errorf("desiredState must be %q or %q", DesiredStateActive, DesiredStateSuspended)
 	}
-	if s.Mode != ModeChat && s.Mode != ModeImplement {
-		return fmt.Errorf("mode must be %q or %q", ModeChat, ModeImplement)
-	}
 	if s.IdleTimeoutSeconds < 0 {
 		return fmt.Errorf("idleTimeoutSeconds must not be negative")
 	}
@@ -76,9 +69,6 @@ func (s CodexSessionSpec) Validate() error {
 	}
 	if s.Execution.ApprovalPolicy == "" {
 		return fmt.Errorf("execution.approvalPolicy is required")
-	}
-	if s.Mode == ModeImplement && s.Repository == nil {
-		return fmt.Errorf("repository is required in implement mode")
 	}
 	if s.Repository != nil && (s.Repository.URL == "" || s.Repository.Revision == "") {
 		return fmt.Errorf("repository.url and repository.revision are required together")

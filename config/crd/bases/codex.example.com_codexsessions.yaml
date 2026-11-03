@@ -28,7 +28,6 @@ spec:
               required:
                 - conversationId
                 - desiredState
-                - mode
                 - sessionData
                 - execution
               properties:
@@ -38,9 +37,6 @@ spec:
                 desiredState:
                   type: string
                   enum: [Active, Suspended]
-                mode:
-                  type: string
-                  enum: [chat, implement]
                 idleTimeoutSeconds:
                   type: integer
                   format: int32
