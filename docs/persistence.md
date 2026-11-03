@@ -1,10 +1,10 @@
 # 永続化境界
 
-Runner APIは、HTTPハンドラーからデータベース製品を直接参照しない。`httpapi.ConversationRepository`を境界として、会話とメッセージの保存処理を分離する。
+Runner APIは、HTTPハンドラーからデータベース製品を直接参照しない。`conversation.Repository`を境界として、会話とメッセージの保存処理を分離する。
 
 ```text
-HTTP handler -> ConversationRepository -> Memory Store (current)
-                                         libSQL Store (next PR)
+HTTP handler -> conversation.Repository -> memory.Repository (current)
+                                          libSQL Repository (next PR)
 ```
 
 この境界の目的は、次の2つである。
