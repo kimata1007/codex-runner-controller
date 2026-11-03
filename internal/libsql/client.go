@@ -103,7 +103,7 @@ func NewClient(baseURL, token string) *Client {
 	baseURL = strings.TrimRight(baseURL, "/")
 	return &Client{
 		httpClient:  http.DefaultClient,
-		pipelineURL: baseURL + "/v2/pipeline",
+		pipelineURL: baseURL + "/v3/pipeline",
 		token:       token,
 	}
 }
@@ -193,7 +193,7 @@ func (c *Client) pipeline(ctx context.Context, requests []streamRequest) (pipeli
 	}
 	c.baton = response.Baton
 	if response.BaseURL != "" {
-		c.pipelineURL = strings.TrimRight(response.BaseURL, "/") + "/v2/pipeline"
+		c.pipelineURL = strings.TrimRight(response.BaseURL, "/") + "/v3/pipeline"
 	}
 	return response, nil
 }

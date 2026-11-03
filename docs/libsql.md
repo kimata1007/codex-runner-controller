@@ -1,6 +1,6 @@
 # libSQL/sqld接続
 
-`internal/libsql` はRunner APIからsqldへHTTPで接続する小さなクライアントである。sqldのHrana over HTTP v2で、`POST /v2/pipeline` にSQL実行を送る。
+`internal/libsql` はRunner APIからsqldへHTTPで接続する小さなクライアントである。Hrana over HTTP v3を使い、`POST /v3/pipeline` にSQL実行を送る。接続先のsqldはHrana v3に対応したバージョンを固定して使用する。
 
 ## baton
 
