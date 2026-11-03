@@ -11,4 +11,7 @@ func TestInitialSchemaContainsCoreTables(t *testing.T) {
 			t.Fatalf("schema does not define %s", table)
 		}
 	}
+	if strings.Contains(InitialSchema, "mode") {
+		t.Fatal("schema must not reintroduce conversation modes")
+	}
 }

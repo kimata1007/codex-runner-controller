@@ -2,7 +2,6 @@ CREATE TABLE IF NOT EXISTS conversations (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,
     title TEXT NOT NULL DEFAULT '',
-    mode TEXT NOT NULL CHECK (mode IN ('chat', 'implement')),
     status TEXT NOT NULL CHECK (status IN ('active', 'idle', 'archived')),
     codex_session_name TEXT NOT NULL,
     created_at TEXT NOT NULL,

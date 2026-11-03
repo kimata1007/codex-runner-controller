@@ -10,6 +10,8 @@ libSQL/sqldをシステム・オブ・レコードとして使うための最初
 - `events`: ストリーミングや実行状態のイベント
 - `approvals`: Codexからの承認要求とユーザーの回答
 
+会話を `chat` と `implement` のモードには分けない。会話の種類が将来必要になった場合は、別の要件として改めて設計する。
+
 ## 冪等性
 
 クライアントは送信ごとに `clientMessageId` を生成する。`messages` の `(conversation_id, client_message_id)` 一意制約により、ネットワーク再送で同じユーザーメッセージが二重登録されないようにする。
