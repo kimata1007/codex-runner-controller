@@ -112,6 +112,9 @@ func (c *Client) Exec(ctx context.Context, sql string, args []Value, wantRows bo
 	}
 	result := response.Results[0]
 	if result.Type == "error" {
+		if result.Error == nil {
+			return ExecResult{}, fmt.Errorf("libsql: request failed")
+		}
 		return ExecResult{}, fmt.Errorf("libsql: %s", result.Error.Message)
 	}
 	var execute executeResponse
