@@ -5,7 +5,7 @@
 このPRでは、次の2つを同じ契約として固定する。
 
 - `api/v1alpha1`: ControllerやAPIが利用するGoのドメイン型と入力検証
-- `config/crd/bases/codex.example.com_codexsessions.yaml`: Kubernetes APIへ登録するCRDスキーマ
+- `config/crd/bases/codexrunner.io_codexsessions.yaml`: Kubernetes APIへ登録するCRDスキーマ
 
 ライフサイクルは`spec.desiredState`で表す。`Active`ならControllerはPVCとrunner Podを用意し、`Suspended`ならPodを削除して会話履歴とPVCを保持する。Pod作成や削除、idle timeoutの判定は次のPR以降で実装する。
 

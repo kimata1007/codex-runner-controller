@@ -97,7 +97,7 @@ HTTPで接続できることはクライアントPodをステートレスにで�
 ### 4.1 CodexSession CRD
 主リソースはCodexSessionとする。CodexRunは1ターンの実行記録としてlibSQL上の概念に留め、初期リリースではCRDとして作らない。
 例:
-    apiVersion: codex.example.com/v1alpha1
+    apiVersion: codexrunner.io/v1alpha1
     kind: CodexSession
     metadata:
       name: conversation-001
