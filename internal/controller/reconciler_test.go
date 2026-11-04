@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	v1alpha1 "github.com/kimata1007/codex-runner-controller/api/v1alpha1"
+	"github.com/kimata1007/codex-runner-controller/internal/kubernetes"
 	corev1 "k8s.io/api/core/v1"
 )
 
@@ -48,7 +49,6 @@ func reconcileSpec() v1alpha1.CodexSessionSpec {
 	return v1alpha1.CodexSessionSpec{
 		ConversationID: "conversation-1",
 		DesiredState:   v1alpha1.DesiredStateActive,
-		Mode:           v1alpha1.ModeChat,
 		SessionData:    v1alpha1.SessionData{Size: "1Gi", Retain: true},
 		Execution:      v1alpha1.Execution{ApprovalPolicy: "user"},
 	}
@@ -56,7 +56,7 @@ func reconcileSpec() v1alpha1.CodexSessionSpec {
 
 func TestReconcilerCreatesResourcesThenReportsReady(t *testing.T) {
 	client := &fakeResourceClient{}
-	r := Reconciler{Client: client}
+	r := Reconciler{Client: client, Builder: kubernetes.ResourceBuilder{RunnerImage: "runner:v1.0.0"}}
 	result, err := r.Reconcile(context.Background(), "codex-system", "session-1", reconcileSpec())
 	if err != nil {
 		t.Fatalf("first reconcile: %v", err)
@@ -76,7 +76,7 @@ func TestReconcilerCreatesResourcesThenReportsReady(t *testing.T) {
 
 func TestReconcilerSuspendedDeletesOnlyPod(t *testing.T) {
 	client := &fakeResourceClient{}
-	r := Reconciler{Client: client}
+	r := Reconciler{Client: client, Builder: kubernetes.ResourceBuilder{RunnerImage: "runner:v1.0.0"}}
 	_, err := r.Reconcile(context.Background(), "codex-system", "session-1", reconcileSpec())
 	if err != nil {
 		t.Fatal(err)

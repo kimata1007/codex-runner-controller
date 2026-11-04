@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	v1alpha1 "github.com/kimata1007/codex-runner-controller/api/v1alpha1"
-	"github.com/kimata1007/codex-runner-controller/internal/kube"
+	"github.com/kimata1007/codex-runner-controller/internal/kubernetes"
 	corev1 "k8s.io/api/core/v1"
 )
 
@@ -28,7 +28,7 @@ type Result struct {
 
 type Reconciler struct {
 	Client  ResourceClient
-	Builder kube.ResourceBuilder
+	Builder kubernetes.ResourceBuilder
 }
 
 func (r Reconciler) Reconcile(ctx context.Context, namespace, name string, spec v1alpha1.CodexSessionSpec) (Result, error) {
