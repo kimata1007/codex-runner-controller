@@ -1,6 +1,6 @@
 # セッションリソース生成
 
-`internal/kube`は`CodexSessionSpec`から、Controllerが作成するPVCとrunner Podの仕様を生成する。
+`internal/kubernetes`は`CodexSessionSpec`から、Controllerが作成するPVCとrunner Podの仕様を生成する。
 
 この段階ではKubernetes APIへ書き込まない。リソースを純粋な関数に近い形で組み立ててテストし、次のController PRでCreate/Get/Delete処理とowner referenceを接続する。
 
