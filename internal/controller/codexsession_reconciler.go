@@ -45,11 +45,11 @@ func (r CodexSessionReconciler) Reconcile(ctx context.Context, namespace, name s
 		return Result{Phase: v1alpha1.PhaseSuspended, WorkspaceClaim: name}, nil
 	}
 
-	pvc, err := r.Builder.BuildPVC(namespace, name, spec)
-	if err != nil {
-		return Result{}, err
-	}
 	if _, err := r.Client.GetPVC(ctx, namespace, name); errors.Is(err, ErrNotFound) {
+		pvc, err := r.Builder.BuildPVC(namespace, name, spec)
+		if err != nil {
+			return Result{}, err
+		}
 		if err := r.Client.CreatePVC(ctx, pvc); err != nil {
 			return Result{}, fmt.Errorf("create pvc: %w", err)
 		}
