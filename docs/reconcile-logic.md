@@ -1,6 +1,6 @@
 # Reconcileロジック
 
-`internal/controller.Reconciler`は、KubernetesのAPIクライアントを直接呼び出さず、リソースの取得・作成・削除を抽象化した`ResourceClient`だけに依存する。
+`internal/controller.CodexSessionReconciler`は、KubernetesのAPIクライアントを直接呼び出さず、リソースの取得・作成・削除を抽象化した`ResourceClient`だけに依存する。
 
 状態の収束は次のとおり。
 

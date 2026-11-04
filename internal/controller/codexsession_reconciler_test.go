@@ -54,9 +54,9 @@ func reconcileSpec() v1alpha1.CodexSessionSpec {
 	}
 }
 
-func TestReconcilerCreatesResourcesThenReportsReady(t *testing.T) {
+func TestCodexSessionReconcilerCreatesResourcesThenReportsReady(t *testing.T) {
 	client := &fakeResourceClient{}
-	r := Reconciler{Client: client, Builder: kubernetes.ResourceBuilder{RunnerImage: "runner:v1.0.0"}}
+	r := CodexSessionReconciler{Client: client, Builder: kubernetes.ResourceBuilder{RunnerImage: "runner:v1.0.0"}}
 	result, err := r.Reconcile(context.Background(), "codex-system", "session-1", reconcileSpec())
 	if err != nil {
 		t.Fatalf("first reconcile: %v", err)
@@ -74,9 +74,9 @@ func TestReconcilerCreatesResourcesThenReportsReady(t *testing.T) {
 	}
 }
 
-func TestReconcilerSuspendedDeletesOnlyPod(t *testing.T) {
+func TestCodexSessionReconcilerSuspendedDeletesOnlyPod(t *testing.T) {
 	client := &fakeResourceClient{}
-	r := Reconciler{Client: client, Builder: kubernetes.ResourceBuilder{RunnerImage: "runner:v1.0.0"}}
+	r := CodexSessionReconciler{Client: client, Builder: kubernetes.ResourceBuilder{RunnerImage: "runner:v1.0.0"}}
 	_, err := r.Reconcile(context.Background(), "codex-system", "session-1", reconcileSpec())
 	if err != nil {
 		t.Fatal(err)

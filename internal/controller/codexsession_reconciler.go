@@ -26,12 +26,12 @@ type Result struct {
 	WorkspaceClaim string
 }
 
-type Reconciler struct {
+type CodexSessionReconciler struct {
 	Client  ResourceClient
 	Builder kubernetes.ResourceBuilder
 }
 
-func (r Reconciler) Reconcile(ctx context.Context, namespace, name string, spec v1alpha1.CodexSessionSpec) (Result, error) {
+func (r CodexSessionReconciler) Reconcile(ctx context.Context, namespace, name string, spec v1alpha1.CodexSessionSpec) (Result, error) {
 	if r.Client == nil {
 		return Result{}, fmt.Errorf("resource client is required")
 	}
@@ -78,7 +78,7 @@ func (r Reconciler) Reconcile(ctx context.Context, namespace, name string, spec 
 	return Result{Phase: phase, PodName: name, WorkspaceClaim: name}, nil
 }
 
-func (r Reconciler) deletePodIfPresent(ctx context.Context, namespace, name string) error {
+func (r CodexSessionReconciler) deletePodIfPresent(ctx context.Context, namespace, name string) error {
 	_, err := r.Client.GetPod(ctx, namespace, name)
 	if errors.Is(err, ErrNotFound) {
 		return nil
