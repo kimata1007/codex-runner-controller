@@ -26,8 +26,9 @@ func main() {
 		args = []string{"app-server", "--listen", "stdio://"}
 	}
 
+	tracker := agent.NewRunTracker()
 	process, err := agent.StartProcess(ctx, command, args, func(message agent.Message) {
-		log.Printf("app-server event: %s", message.Method)
+		log.Printf("app-server event: run=%s method=%s", tracker.Current(), message.Method)
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -48,7 +49,7 @@ func main() {
 	}
 	server := &http.Server{
 		Addr:              address,
-		Handler:           agent.NewHTTPHandler(session),
+		Handler:           agent.NewHTTPHandlerWithTracker(session, tracker),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,
