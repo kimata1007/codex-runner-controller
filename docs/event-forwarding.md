@@ -1,0 +1,14 @@
+# runner-agentからのイベント転送
+
+Codex App Serverは、要求と応答に使う標準入出力の接続を通じて、JSON-RPC通知 (`AppServerNotification`) を非同期に送ります。runner-agentは通知を受け取り、実行IDに紐付けたイベント (`AppServerRunEvent`) としてRunner APIの内部イベントエンドポイントへ送信します。通知の `method` はイベントの `eventType` に、`params` は `payload` に対応します。
+
+```text
+POST {RUNNER_EVENT_URL}/{runId}/events
+Content-Type: application/json
+
+{"eventType":"item/updated","payload":{...}}
+```
+
+`RUNNER_EVENT_URL`は省略可能です。未設定の場合、agentは通知をログに記録しますが、ネットワーク要求は送りません。これにより、ローカル開発やプロトコルのテストをRunner APIから独立して行えます。
+
+コールバックは短いタイムアウトを設定して非同期にイベントを送信します。そのため、APIが遅い場合や一時的に利用できない場合も、App ServerのJSON-RPC読み取りを妨げません。次の層では、受信エンドポイントを実装し、libSQLへの保存とSSEによる配信を接続します。

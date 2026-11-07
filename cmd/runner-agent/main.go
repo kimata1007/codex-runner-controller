@@ -27,8 +27,28 @@ func main() {
 	}
 
 	tracker := agent.NewRunTracker()
-	process, err := agent.StartProcess(ctx, command, args, func(message agent.Message) {
-		log.Printf("app-server event: run=%s method=%s", tracker.Current(), message.Method)
+	var runEventSender agent.RunEventSender
+	if eventURL := os.Getenv("RUNNER_EVENT_URL"); eventURL != "" {
+		runEventSender = agent.NewHTTPRunEventSender(eventURL)
+	}
+	process, err := agent.StartProcess(ctx, command, args, func(notification agent.AppServerNotification) {
+		runID := tracker.Current()
+		log.Printf("app-server notification: run=%s method=%s", runID, notification.Method)
+		if runEventSender == nil || runID == "" {
+			return
+		}
+		// Notification handling must not block the JSON-RPC reader. A short
+		// timeout bounds delivery while the durable event store remains the
+		// source of truth for replay.
+		go func() {
+			eventCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := runEventSender.Send(eventCtx, agent.AppServerRunEvent{
+				RunID: runID, EventType: notification.Method, Payload: notification.Params,
+			}); err != nil {
+				log.Printf("send App Server run event: %v", err)
+			}
+		}()
 	})
 	if err != nil {
 		log.Fatal(err)
