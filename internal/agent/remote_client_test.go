@@ -33,6 +33,9 @@ func TestRemoteClientCallsRunnerAgent(t *testing.T) {
 			if payload["text"] != "hello" {
 				t.Errorf("text = %v", payload["text"])
 			}
+			if payload["runId"] != "run-1" {
+				t.Errorf("runId = %v", payload["runId"])
+			}
 			writeTestJSON(w, http.StatusAccepted, map[string]string{"status": "accepted"})
 		default:
 			http.NotFound(w, r)
@@ -48,7 +51,7 @@ func TestRemoteClientCallsRunnerAgent(t *testing.T) {
 	if _, err := client.ResumeThread(context.Background(), thread.ID, ThreadStartParams{}); err != nil {
 		t.Fatalf("resume thread: %v", err)
 	}
-	if err := client.StartTurn(context.Background(), thread.ID, []TurnInput{{Type: "text", Text: "hello"}}); err != nil {
+	if err := client.StartTurnForRun(context.Background(), thread.ID, "run-1", []TurnInput{{Type: "text", Text: "hello"}}); err != nil {
 		t.Fatalf("start turn: %v", err)
 	}
 }
