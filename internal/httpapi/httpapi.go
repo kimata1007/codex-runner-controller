@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/kimata1007/codex-runner-controller/internal/conversation"
+	"github.com/kimata1007/codex-runner-controller/internal/runs"
 	"github.com/labstack/echo/v4"
 )
 
@@ -16,10 +18,19 @@ const maxRequestBodyBytes = 1 << 20
 
 type Handler struct {
 	repository conversation.Repository
+	dispatcher MessageDispatcher
 }
 
 func NewHandler(repository conversation.Repository) *Handler {
-	return &Handler{repository: repository}
+	return NewHandlerWithDispatcher(repository, nil)
+}
+
+type MessageDispatcher interface {
+	Dispatch(context.Context, string, string, string, string) (runs.Run, error)
+}
+
+func NewHandlerWithDispatcher(repository conversation.Repository, dispatcher MessageDispatcher) *Handler {
+	return &Handler{repository: repository, dispatcher: dispatcher}
 }
 
 func NewRouter(handler *Handler) *echo.Echo {
@@ -84,6 +95,16 @@ func (h *Handler) createMessage(c echo.Context) error {
 	if err != nil {
 		return writeRepositoryError(c, err)
 	}
+	if created && h.dispatcher != nil {
+		run, err := h.dispatcher.Dispatch(c.Request().Context(), message.ConversationID, message.ID, request.ThreadID, message.Content)
+		if err != nil {
+			return writeError(c, http.StatusBadGateway, "failed to start run")
+		}
+		return writeJSON(c, http.StatusAccepted, map[string]any{
+			"message": messageResponseFrom(message),
+			"run":     run,
+		})
+	}
 	status := http.StatusOK
 	if created {
 		status = http.StatusAccepted
@@ -94,6 +115,7 @@ func (h *Handler) createMessage(c echo.Context) error {
 type createMessageRequest struct {
 	Content         string `json:"content"`
 	ClientMessageID string `json:"clientMessageId"`
+	ThreadID        string `json:"threadId,omitempty"`
 }
 
 type conversationResponse struct {
