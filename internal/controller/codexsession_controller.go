@@ -45,6 +45,7 @@ func (r *CodexSessionController) SetupWithManager(manager manager.Manager) error
 	return builder.ControllerManagedBy(manager).
 		For(&v1alpha1.CodexSession{}).
 		Owns(&corev1.Pod{}).
+		Owns(&corev1.Service{}).
 		Owns(&corev1.PersistentVolumeClaim{}).
 		Complete(r)
 }
