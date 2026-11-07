@@ -10,7 +10,7 @@ import (
 type ThreadClient interface {
 	StartThread(context.Context) (string, error)
 	ResumeThread(context.Context, string) error
-	StartTurn(context.Context, string, string) error
+	StartTurn(context.Context, string, string, string) error
 }
 
 // Store persists the run lifecycle. Event persistence is handled by the App
@@ -90,7 +90,7 @@ func (d *MessageDispatcher) recordRun(ctx context.Context, conversationID, messa
 }
 
 func (d *MessageDispatcher) sendTurn(ctx context.Context, runID, threadID, text string) error {
-	if err := d.client.StartTurn(ctx, threadID, text); err != nil {
+	if err := d.client.StartTurn(ctx, threadID, runID, text); err != nil {
 		_ = d.store.SetRunStatus(ctx, runID, StatusFailed, "turn_start_failed", err.Error())
 		return fmt.Errorf("message dispatcher: send turn: %w", err)
 	}

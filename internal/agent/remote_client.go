@@ -48,6 +48,16 @@ func (c *RemoteClient) ResumeThread(ctx context.Context, threadID string, params
 }
 
 func (c *RemoteClient) StartTurn(ctx context.Context, threadID string, input []TurnInput) error {
+	return c.startTurn(ctx, threadID, "", input)
+}
+
+// StartTurnForRun starts a turn and attaches the Runner API run ID to the
+// request so asynchronous App Server notifications can be associated with it.
+func (c *RemoteClient) StartTurnForRun(ctx context.Context, threadID, runID string, input []TurnInput) error {
+	return c.startTurn(ctx, threadID, runID, input)
+}
+
+func (c *RemoteClient) startTurn(ctx context.Context, threadID, runID string, input []TurnInput) error {
 	if threadID == "" {
 		return fmt.Errorf("remote start turn: thread id is required")
 	}
@@ -65,8 +75,9 @@ func (c *RemoteClient) StartTurn(ctx context.Context, threadID string, input []T
 		return fmt.Errorf("remote start turn: text input is required")
 	}
 	if err := c.post(ctx, "/v1/threads/"+threadID+"/turns", struct {
-		Text string `json:"text"`
-	}{Text: text}, nil); err != nil {
+		Text  string `json:"text"`
+		RunID string `json:"runId,omitempty"`
+	}{Text: text, RunID: runID}, nil); err != nil {
 		return fmt.Errorf("remote start turn: %w", err)
 	}
 	return nil
