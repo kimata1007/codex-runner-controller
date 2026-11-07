@@ -8,7 +8,6 @@ import (
 	"io"
 	"os/exec"
 	"strconv"
-	"strings"
 	"sync"
 )
 
@@ -34,51 +33,73 @@ type JSONRPCClient struct {
 	writer  io.Writer
 	handler EventHandler
 
-	mu     sync.Mutex
-	nextID int64
+	callMu     sync.Mutex
+	writeMu    sync.Mutex
+	pendingMu  sync.Mutex
+	nextID     int64
+	pending    map[int64]chan callResult
+	readErr    error
+	readerOnce sync.Once
+}
+
+type callResult struct {
+	message Message
+	err     error
 }
 
 func NewJSONRPCClient(reader io.Reader, writer io.Writer, handler EventHandler) *JSONRPCClient {
-	return &JSONRPCClient{reader: bufio.NewReader(reader), writer: writer, handler: handler}
+	return &JSONRPCClient{
+		reader:  bufio.NewReader(reader),
+		writer:  writer,
+		handler: handler,
+		pending: make(map[int64]chan callResult),
+	}
 }
 
 func (c *JSONRPCClient) Call(ctx context.Context, method string, params any, result any) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.callMu.Lock()
+	defer c.callMu.Unlock()
 
 	id := c.nextRequestID()
-	if err := c.write(Message{JSONRPC: "2.0", ID: &id, Method: method, Params: mustRawJSON(params)}); err != nil {
+	responseCh := make(chan callResult, 1)
+	c.pendingMu.Lock()
+	if c.readErr != nil {
+		err := c.readErr
+		c.pendingMu.Unlock()
 		return err
 	}
-	for {
-		line, err := c.readLine(ctx)
-		if err != nil {
-			return err
-		}
-		var message Message
-		if err := json.Unmarshal(line, &message); err != nil {
-			return fmt.Errorf("jsonrpc: decode message: %w", err)
-		}
-		if message.ID == nil || *message.ID != id {
-			c.handleEvent(message)
-			continue
-		}
-		if message.Error != nil {
-			return fmt.Errorf("jsonrpc %d: %s", message.Error.Code, message.Error.Message)
-		}
-		if result == nil || len(message.Result) == 0 {
-			return nil
-		}
-		if err := json.Unmarshal(message.Result, result); err != nil {
-			return fmt.Errorf("jsonrpc: decode %s result: %w", method, err)
-		}
+	c.pending[id] = responseCh
+	c.pendingMu.Unlock()
+	c.readerOnce.Do(func() { go c.readLoop() })
+
+	if err := c.write(Message{JSONRPC: "2.0", ID: &id, Method: method, Params: mustRawJSON(params)}); err != nil {
+		c.removePending(id)
+		return err
+	}
+
+	var response callResult
+	select {
+	case <-ctx.Done():
+		c.removePending(id)
+		return ctx.Err()
+	case response = <-responseCh:
+	}
+	if response.err != nil {
+		return response.err
+	}
+	if response.message.Error != nil {
+		return fmt.Errorf("jsonrpc %d: %s", response.message.Error.Code, response.message.Error.Message)
+	}
+	if result == nil || len(response.message.Result) == 0 {
 		return nil
 	}
+	if err := json.Unmarshal(response.message.Result, result); err != nil {
+		return fmt.Errorf("jsonrpc: decode %s result: %w", method, err)
+	}
+	return nil
 }
 
 func (c *JSONRPCClient) Notify(method string, params any) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	return c.write(Message{JSONRPC: "2.0", Method: method, Params: mustRawJSON(params)})
 }
 
@@ -88,6 +109,9 @@ func (c *JSONRPCClient) nextRequestID() int64 {
 }
 
 func (c *JSONRPCClient) write(message Message) error {
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
+
 	payload, err := json.Marshal(message)
 	if err != nil {
 		return fmt.Errorf("jsonrpc: encode message: %w", err)
@@ -99,30 +123,51 @@ func (c *JSONRPCClient) write(message Message) error {
 	return nil
 }
 
-func (c *JSONRPCClient) readLine(ctx context.Context) ([]byte, error) {
-	lineCh := make(chan []byte, 1)
-	errCh := make(chan error, 1)
-	go func() {
+// readLoop runs for the lifetime of the App Server connection. JSON-RPC
+// responses complete a waiting Call; notifications are delivered separately
+// to the event handler, including notifications arriving after a Call returns.
+func (c *JSONRPCClient) readLoop() {
+	for {
 		line, err := c.reader.ReadBytes('\n')
 		if err != nil {
-			errCh <- err
+			c.failPending(fmt.Errorf("jsonrpc: read message: %w", err))
 			return
 		}
-		lineCh <- line
-	}()
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	case err := <-errCh:
-		return nil, fmt.Errorf("jsonrpc: read message: %w", err)
-	case line := <-lineCh:
-		return []byte(strings.TrimSpace(string(line))), nil
+		var message Message
+		if err := json.Unmarshal(line, &message); err != nil {
+			c.failPending(fmt.Errorf("jsonrpc: decode message: %w", err))
+			return
+		}
+		if message.ID == nil {
+			if c.handler != nil && message.Method != "" {
+				c.handler(message)
+			}
+			continue
+		}
+		c.pendingMu.Lock()
+		responseCh := c.pending[*message.ID]
+		delete(c.pending, *message.ID)
+		c.pendingMu.Unlock()
+		if responseCh != nil {
+			responseCh <- callResult{message: message}
+		}
 	}
 }
 
-func (c *JSONRPCClient) handleEvent(message Message) {
-	if c.handler != nil && message.Method != "" {
-		c.handler(message)
+func (c *JSONRPCClient) removePending(id int64) {
+	c.pendingMu.Lock()
+	delete(c.pending, id)
+	c.pendingMu.Unlock()
+}
+
+func (c *JSONRPCClient) failPending(err error) {
+	c.pendingMu.Lock()
+	c.readErr = err
+	pending := c.pending
+	c.pending = make(map[int64]chan callResult)
+	c.pendingMu.Unlock()
+	for _, responseCh := range pending {
+		responseCh <- callResult{err: err}
 	}
 }
 
