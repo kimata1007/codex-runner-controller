@@ -55,6 +55,9 @@ func TestResourceBuilderBuildsPodFromSession(t *testing.T) {
 	if pod.Spec.Containers[0].Env[2].Name != "CODEX_HOME" || pod.Spec.Containers[0].Env[2].Value != DefaultMountPath {
 		t.Fatal("CODEX_HOME must point to the persistent session volume")
 	}
+	if pod.Spec.Containers[0].Ports[0].ContainerPort != RunnerAgentPort {
+		t.Fatalf("container port = %d, want %d", pod.Spec.Containers[0].Ports[0].ContainerPort, RunnerAgentPort)
+	}
 }
 
 func TestResourceBuilderRequiresPinnedImage(t *testing.T) {
@@ -62,5 +65,18 @@ func TestResourceBuilderRequiresPinnedImage(t *testing.T) {
 		if _, err := (ResourceBuilder{RunnerImage: image}).BuildPod("codex-system", "session-1", testSessionSpec()); err == nil {
 			t.Errorf("BuildPod accepted unpinned image %q", image)
 		}
+	}
+}
+
+func TestResourceBuilderBuildsRunnerAgentService(t *testing.T) {
+	service, err := (ResourceBuilder{}).BuildService("codex-system", "session-1", testSessionSpec())
+	if err != nil {
+		t.Fatalf("build service: %v", err)
+	}
+	if service.Spec.Ports[0].Port != RunnerAgentPort || service.Spec.Ports[0].TargetPort.IntValue() != RunnerAgentPort {
+		t.Fatalf("service port = %+v", service.Spec.Ports[0])
+	}
+	if service.Spec.Selector[SessionLabel] != "session-1" {
+		t.Fatalf("service selector = %+v", service.Spec.Selector)
 	}
 }
