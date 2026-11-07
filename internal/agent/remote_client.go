@@ -29,26 +29,22 @@ func (c *RemoteClient) WithHTTPClient(client *http.Client) *RemoteClient {
 }
 
 func (c *RemoteClient) StartThread(ctx context.Context, params ThreadStartParams) (Thread, error) {
-	var response threadStartResult
+	var response Thread
 	if err := c.post(ctx, "/v1/threads", params, &response); err != nil {
 		return Thread{}, fmt.Errorf("remote start thread: %w", err)
 	}
-	return response.Thread, nil
+	return response, nil
 }
 
 func (c *RemoteClient) ResumeThread(ctx context.Context, threadID string, params ThreadStartParams) (Thread, error) {
 	if threadID == "" {
 		return Thread{}, fmt.Errorf("remote resume thread: thread id is required")
 	}
-	request := struct {
-		ThreadID string `json:"threadId"`
-		ThreadStartParams
-	}{ThreadID: threadID, ThreadStartParams: params}
-	var response threadStartResult
-	if err := c.post(ctx, "/v1/threads/"+threadID+"/resume", request, &response); err != nil {
+	var response Thread
+	if err := c.post(ctx, "/v1/threads/"+threadID+"/resume", params, &response); err != nil {
 		return Thread{}, fmt.Errorf("remote resume thread: %w", err)
 	}
-	return response.Thread, nil
+	return response, nil
 }
 
 func (c *RemoteClient) StartTurn(ctx context.Context, threadID string, input []TurnInput) error {
