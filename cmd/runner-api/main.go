@@ -11,10 +11,12 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/kimata1007/codex-runner-controller/internal/agent"
 	"github.com/kimata1007/codex-runner-controller/internal/conversation"
 	"github.com/kimata1007/codex-runner-controller/internal/httpapi"
 	"github.com/kimata1007/codex-runner-controller/internal/libsql"
 	"github.com/kimata1007/codex-runner-controller/internal/memory"
+	"github.com/kimata1007/codex-runner-controller/internal/runs"
 )
 
 func main() {
@@ -29,7 +31,11 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	router := httpapi.NewRouter(httpapi.NewHandler(repository))
+	dispatcher, err := messageDispatcherFromEnvironment(repository)
+	if err != nil {
+		log.Fatal(err)
+	}
+	router := httpapi.NewRouter(httpapi.NewHandlerWithDispatcher(repository, dispatcher))
 	server := &http.Server{
 		Addr:              addr,
 		Handler:           router,
@@ -55,6 +61,24 @@ func main() {
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatal(err)
 	}
+}
+
+func messageDispatcherFromEnvironment(repository conversation.Repository) (httpapi.MessageDispatcher, error) {
+	agentURL := os.Getenv("RUNNER_AGENT_URL")
+	if agentURL == "" {
+		return nil, nil
+	}
+	runStore, ok := repository.(runs.Store)
+	if !ok {
+		return nil, errors.New("RUNNER_AGENT_URL requires a run-capable libSQL repository")
+	}
+	params := agent.ThreadStartParams{
+		Model:          os.Getenv("CODEX_MODEL"),
+		CWD:            os.Getenv("CODEX_CWD"),
+		ApprovalPolicy: os.Getenv("CODEX_APPROVAL_POLICY"),
+	}
+	client := agent.NewRunClient(agent.NewRemoteClient(agentURL), params)
+	return runs.NewMessageDispatcher(runStore, client), nil
 }
 
 func repositoryFromEnvironment(ctx context.Context) (conversation.Repository, error) {
