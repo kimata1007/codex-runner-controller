@@ -1,4 +1,4 @@
-package agent
+package agentclient
 
 import (
 	"context"
@@ -7,9 +7,11 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/kimata1007/codex-runner-controller/internal/agent"
 )
 
-func TestRemoteClientCallsRunnerAgent(t *testing.T) {
+func TestClientCallsRunnerAgent(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			t.Errorf("method = %s", r.Method)
@@ -43,26 +45,26 @@ func TestRemoteClientCallsRunnerAgent(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewRemoteClient(server.URL)
-	thread, err := client.StartThread(context.Background(), ThreadStartParams{CWD: "/workspace"})
+	client := NewClient(server.URL)
+	thread, err := client.StartThread(context.Background(), agent.ThreadStartParams{CWD: "/workspace"})
 	if err != nil || thread.ID != "thread-1" {
 		t.Fatalf("start thread = %+v, err=%v", thread, err)
 	}
 	if _, err := client.ResumeThread(context.Background(), thread.ID, ThreadStartParams{}); err != nil {
 		t.Fatalf("resume thread: %v", err)
 	}
-	if err := client.StartTurnForRun(context.Background(), thread.ID, "run-1", []TurnInput{{Type: "text", Text: "hello"}}); err != nil {
+	if err := client.StartTurnForRun(context.Background(), thread.ID, "run-1", []agent.TurnInput{{Type: "text", Text: "hello"}}); err != nil {
 		t.Fatalf("start turn: %v", err)
 	}
 }
 
-func TestRemoteClientReturnsAgentError(t *testing.T) {
+func TestClientReturnsRunnerAgentError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, `{"error":"bad request"}`, http.StatusBadRequest)
 	}))
 	defer server.Close()
 
-	_, err := NewRemoteClient(server.URL).StartThread(context.Background(), ThreadStartParams{})
+	_, err := NewClient(server.URL).StartThread(context.Background(), agent.ThreadStartParams{})
 	if err == nil || !strings.Contains(err.Error(), "400 Bad Request") {
 		t.Fatalf("err = %v", err)
 	}

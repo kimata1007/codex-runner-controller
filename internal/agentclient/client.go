@@ -1,4 +1,4 @@
-package agent
+package agentclient
 
 import (
 	"bytes"
@@ -8,61 +8,63 @@ import (
 	"io"
 	"net/http"
 	"strings"
+
+	"github.com/kimata1007/codex-runner-controller/internal/agent"
 )
 
-// RemoteClient calls the runner-agent HTTP API from Runner API or a controller.
+// Client calls the runner-agent HTTP API from the Runner API.
 // It keeps the App Server protocol behind the Pod-local HTTP boundary.
-type RemoteClient struct {
+type Client struct {
 	baseURL    string
 	httpClient *http.Client
 }
 
-func NewRemoteClient(baseURL string) *RemoteClient {
-	return &RemoteClient{baseURL: strings.TrimRight(baseURL, "/"), httpClient: http.DefaultClient}
+func NewClient(baseURL string) *Client {
+	return &Client{baseURL: strings.TrimRight(baseURL, "/"), httpClient: http.DefaultClient}
 }
 
-func (c *RemoteClient) WithHTTPClient(client *http.Client) *RemoteClient {
+func (c *Client) WithHTTPClient(client *http.Client) *Client {
 	if client != nil {
 		c.httpClient = client
 	}
 	return c
 }
 
-func (c *RemoteClient) StartThread(ctx context.Context, params ThreadStartParams) (Thread, error) {
-	var response Thread
+func (c *Client) StartThread(ctx context.Context, params agent.ThreadStartParams) (agent.Thread, error) {
+	var response agent.Thread
 	if err := c.post(ctx, "/v1/threads", params, &response); err != nil {
-		return Thread{}, fmt.Errorf("remote start thread: %w", err)
+		return agent.Thread{}, fmt.Errorf("runner-agent start thread: %w", err)
 	}
 	return response, nil
 }
 
-func (c *RemoteClient) ResumeThread(ctx context.Context, threadID string, params ThreadStartParams) (Thread, error) {
+func (c *Client) ResumeThread(ctx context.Context, threadID string, params agent.ThreadStartParams) (agent.Thread, error) {
 	if threadID == "" {
-		return Thread{}, fmt.Errorf("remote resume thread: thread id is required")
+		return agent.Thread{}, fmt.Errorf("runner-agent resume thread: thread id is required")
 	}
-	var response Thread
+	var response agent.Thread
 	if err := c.post(ctx, "/v1/threads/"+threadID+"/resume", params, &response); err != nil {
-		return Thread{}, fmt.Errorf("remote resume thread: %w", err)
+		return agent.Thread{}, fmt.Errorf("runner-agent resume thread: %w", err)
 	}
 	return response, nil
 }
 
-func (c *RemoteClient) StartTurn(ctx context.Context, threadID string, input []TurnInput) error {
+func (c *Client) StartTurn(ctx context.Context, threadID string, input []agent.TurnInput) error {
 	return c.startTurn(ctx, threadID, "", input)
 }
 
 // StartTurnForRun starts a turn and attaches the Runner API run ID to the
 // request so asynchronous App Server notifications can be associated with it.
-func (c *RemoteClient) StartTurnForRun(ctx context.Context, threadID, runID string, input []TurnInput) error {
+func (c *Client) StartTurnForRun(ctx context.Context, threadID, runID string, input []agent.TurnInput) error {
 	return c.startTurn(ctx, threadID, runID, input)
 }
 
-func (c *RemoteClient) startTurn(ctx context.Context, threadID, runID string, input []TurnInput) error {
+func (c *Client) startTurn(ctx context.Context, threadID, runID string, input []agent.TurnInput) error {
 	if threadID == "" {
-		return fmt.Errorf("remote start turn: thread id is required")
+		return fmt.Errorf("runner-agent start turn: thread id is required")
 	}
 	if len(input) == 0 {
-		return fmt.Errorf("remote start turn: input is required")
+		return fmt.Errorf("runner-agent start turn: input is required")
 	}
 	text := ""
 	for _, item := range input {
@@ -72,20 +74,20 @@ func (c *RemoteClient) startTurn(ctx context.Context, threadID, runID string, in
 		}
 	}
 	if strings.TrimSpace(text) == "" {
-		return fmt.Errorf("remote start turn: text input is required")
+		return fmt.Errorf("runner-agent start turn: text input is required")
 	}
 	if err := c.post(ctx, "/v1/threads/"+threadID+"/turns", struct {
 		Text  string `json:"text"`
 		RunID string `json:"runId,omitempty"`
 	}{Text: text, RunID: runID}, nil); err != nil {
-		return fmt.Errorf("remote start turn: %w", err)
+		return fmt.Errorf("runner-agent start turn: %w", err)
 	}
 	return nil
 }
 
-func (c *RemoteClient) post(ctx context.Context, path string, requestBody any, responseBody any) error {
+func (c *Client) post(ctx context.Context, path string, requestBody any, responseBody any) error {
 	if c == nil || c.baseURL == "" {
-		return fmt.Errorf("remote client: base URL is required")
+		return fmt.Errorf("runner-agent client: base URL is required")
 	}
 	payload, err := json.Marshal(requestBody)
 	if err != nil {
@@ -103,7 +105,7 @@ func (c *RemoteClient) post(ctx context.Context, path string, requestBody any, r
 	defer response.Body.Close()
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
 		body, _ := io.ReadAll(io.LimitReader(response.Body, 4<<10))
-		return fmt.Errorf("agent returned %s: %s", response.Status, strings.TrimSpace(string(body)))
+		return fmt.Errorf("runner-agent returned %s: %s", response.Status, strings.TrimSpace(string(body)))
 	}
 	if responseBody == nil || response.StatusCode == http.StatusNoContent {
 		return nil
@@ -114,4 +116,4 @@ func (c *RemoteClient) post(ctx context.Context, path string, requestBody any, r
 	return nil
 }
 
-var _ SessionAPI = (*RemoteClient)(nil)
+var _ agent.SessionAPI = (*Client)(nil)

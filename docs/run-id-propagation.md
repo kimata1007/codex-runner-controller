@@ -7,8 +7,8 @@ Runner APIはCodexのターン開始をrunner-agentに依頼する前に、run�
 ```text
 MessageDispatcherがRunを作成（run.ID）
   -> ThreadClient.StartTurn(threadID, run.ID, text)
-  -> RunClient
-  -> RemoteClientがPOST /v1/threads/{threadID}/turnsを送信
+  -> agentclient.RunAdapter
+  -> agentclient.ClientがPOST /v1/threads/{threadID}/turnsを送信
      {"text":"...","runId":"run-..."}
   -> runner-agentのHTTPハンドラーがrunIdをRunTrackerに保存
 ```

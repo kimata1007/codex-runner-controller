@@ -12,10 +12,11 @@ import (
 	"time"
 
 	"github.com/kimata1007/codex-runner-controller/internal/agent"
+	"github.com/kimata1007/codex-runner-controller/internal/agentclient"
 	"github.com/kimata1007/codex-runner-controller/internal/conversation"
-	"github.com/kimata1007/codex-runner-controller/internal/httpapi"
 	"github.com/kimata1007/codex-runner-controller/internal/libsql"
 	"github.com/kimata1007/codex-runner-controller/internal/memory"
+	"github.com/kimata1007/codex-runner-controller/internal/runnerapi"
 	"github.com/kimata1007/codex-runner-controller/internal/runs"
 )
 
@@ -35,7 +36,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	router := httpapi.NewRouter(httpapi.NewHandlerWithDispatcher(repository, dispatcher))
+	router := runnerapi.NewRouter(runnerapi.NewHandlerWithDispatcher(repository, dispatcher))
 	server := &http.Server{
 		Addr:              addr,
 		Handler:           router,
@@ -63,7 +64,7 @@ func main() {
 	}
 }
 
-func messageDispatcherFromEnvironment(repository conversation.Repository) (httpapi.MessageDispatcher, error) {
+func messageDispatcherFromEnvironment(repository conversation.Repository) (runnerapi.MessageDispatcher, error) {
 	agentURL := os.Getenv("RUNNER_AGENT_URL")
 	if agentURL == "" {
 		return nil, nil
@@ -77,7 +78,7 @@ func messageDispatcherFromEnvironment(repository conversation.Repository) (httpa
 		CWD:            os.Getenv("CODEX_CWD"),
 		ApprovalPolicy: os.Getenv("CODEX_APPROVAL_POLICY"),
 	}
-	client := agent.NewRunClient(agent.NewRemoteClient(agentURL), params)
+	client := agentclient.NewRunAdapter(agentclient.NewClient(agentURL), params)
 	return runs.NewMessageDispatcher(runStore, client), nil
 }
 
