@@ -34,7 +34,8 @@ func (f *fakeSession) StartTurn(_ context.Context, id string, input []TurnInput)
 
 func TestHTTPHandlerCreatesResumesAndStartsTurn(t *testing.T) {
 	fake := new(fakeSession)
-	handler := NewHTTPHandler(fake)
+	tracker := NewRunTracker()
+	handler := NewHTTPHandlerWithTracker(fake, tracker)
 
 	create := httptest.NewRecorder()
 	handler.ServeHTTP(create, httptest.NewRequest(http.MethodPost, "/v1/threads", strings.NewReader(`{"model":"default"}`)))
@@ -49,8 +50,8 @@ func TestHTTPHandlerCreatesResumesAndStartsTurn(t *testing.T) {
 	}
 
 	turn := httptest.NewRecorder()
-	handler.ServeHTTP(turn, httptest.NewRequest(http.MethodPost, "/v1/threads/thread-old/turns", strings.NewReader(`{"text":"hello"}`)))
-	if turn.Code != http.StatusAccepted || fake.turnID != "thread-old" || fake.turnText != "hello" {
+	handler.ServeHTTP(turn, httptest.NewRequest(http.MethodPost, "/v1/threads/thread-old/turns", strings.NewReader(`{"text":"hello","runId":"run-1"}`)))
+	if turn.Code != http.StatusAccepted || fake.turnID != "thread-old" || fake.turnText != "hello" || tracker.Current() != "run-1" {
 		t.Fatalf("turn status=%d id=%q text=%q", turn.Code, fake.turnID, fake.turnText)
 	}
 }

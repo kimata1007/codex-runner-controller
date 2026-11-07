@@ -21,10 +21,18 @@ type SessionAPI interface {
 
 type HTTPServer struct {
 	session SessionAPI
+	tracker *RunTracker
 }
 
 func NewHTTPHandler(session SessionAPI) *echo.Echo {
-	server := &HTTPServer{session: session}
+	return NewHTTPHandlerWithTracker(session, NewRunTracker())
+}
+
+func NewHTTPHandlerWithTracker(session SessionAPI, tracker *RunTracker) *echo.Echo {
+	if tracker == nil {
+		tracker = NewRunTracker()
+	}
+	server := &HTTPServer{session: session, tracker: tracker}
 	e := echo.New()
 	e.HideBanner = true
 	e.GET("/healthz", server.health)
@@ -41,7 +49,8 @@ type threadRequest struct {
 }
 
 type turnRequest struct {
-	Text string `json:"text"`
+	Text  string `json:"text"`
+	RunID string `json:"runId,omitempty"`
 }
 
 func (s *HTTPServer) health(c echo.Context) error {
@@ -88,6 +97,9 @@ func (s *HTTPServer) startTurn(c echo.Context) error {
 	request.Text = strings.TrimSpace(request.Text)
 	if request.Text == "" {
 		return writeError(c, http.StatusBadRequest, "text is required")
+	}
+	if request.RunID != "" {
+		s.tracker.Set(request.RunID)
 	}
 	if err := s.session.StartTurn(c.Request().Context(), c.Param("id"), []TurnInput{{Type: "text", Text: request.Text}}); err != nil {
 		return writeError(c, http.StatusBadGateway, err.Error())
