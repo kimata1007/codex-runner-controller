@@ -2,7 +2,7 @@
 
 `runner-agent`はPod内でCodex App Serverを管理します。Runner APIやControllerは、App ServerのstdioやJSON-RPCを直接扱わず、Pod内HTTP APIを呼び出します。
 
-`internal/agent.RemoteClient`は、次の3つの操作を`agent.SessionAPI`に適合させます。
+`internal/agentclient.Client`は、次の3つの操作をrunner-agentのHTTP API経由で呼び出し、`agent.SessionAPI`と同じ操作を提供します。
 
 - `POST /v1/threads` — 新しいthreadを作成
 - `POST /v1/threads/{threadId}/resume` — PVC上のthreadを再開
