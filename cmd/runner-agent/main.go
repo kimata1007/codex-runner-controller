@@ -3,10 +3,12 @@ package main
 import (
 	"context"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/kimata1007/codex-runner-controller/internal/agent"
 )
@@ -30,22 +32,50 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer process.Close()
 
-	var initializeResult map[string]any
-	if err := process.Client.Call(ctx, "initialize", map[string]any{
-		"clientInfo": map[string]string{
-			"name":    "codex-runner-controller",
-			"title":   "Codex Runner Controller",
-			"version": "0.1.0",
-		},
-	}, &initializeResult); err != nil {
+	session := agent.NewSession(process.Client)
+	if err := session.Initialize(ctx, agent.ClientInfo{
+		Name:    "codex-runner-controller",
+		Title:   "Codex Runner Controller",
+		Version: "0.1.0",
+	}); err != nil {
 		log.Fatal(err)
 	}
-	if err := process.Client.Notify("initialized", map[string]any{}); err != nil {
-		log.Fatal(err)
+
+	address := os.Getenv("RUNNER_AGENT_ADDR")
+	if address == "" {
+		address = ":8081"
 	}
-	if err := process.Wait(); err != nil && ctx.Err() == nil {
+	server := &http.Server{
+		Addr:              address,
+		Handler:           agent.NewHTTPHandler(session),
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
+	serverErr := make(chan error, 1)
+	go func() {
+		log.Printf("runner-agent listening on %s", address)
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			serverErr <- err
+		}
+	}()
+
+	processErr := make(chan error, 1)
+	go func() { processErr <- process.Wait() }()
+	select {
+	case err := <-serverErr:
+		_ = process.Close()
 		log.Fatal(err)
+	case err := <-processErr:
+		if ctx.Err() == nil {
+			log.Fatalf("app-server exited: %v", err)
+		}
+	case <-ctx.Done():
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = server.Shutdown(shutdownCtx)
+		_ = process.Close()
 	}
 }
