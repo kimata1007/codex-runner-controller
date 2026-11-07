@@ -12,16 +12,16 @@ const (
 )
 
 type Run struct {
-	ID             string
-	ConversationID string
-	MessageID      string
-	ThreadID       string
-	Status         string
-	StartedAt      *time.Time
-	CompletedAt    *time.Time
-	ErrorCode      string
-	ErrorMessage   string
-	CreatedAt      time.Time
+	ID             string     `json:"id"`
+	ConversationID string     `json:"conversation_id"`
+	MessageID      string     `json:"message_id"`
+	ThreadID       string     `json:"thread_id"`
+	Status         string     `json:"status"`
+	StartedAt      *time.Time `json:"started_at,omitempty"`
+	CompletedAt    *time.Time `json:"completed_at,omitempty"`
+	ErrorCode      string     `json:"error_code,omitempty"`
+	ErrorMessage   string     `json:"error_message,omitempty"`
+	CreatedAt      time.Time  `json:"created_at"`
 }
 
 type Event struct {
