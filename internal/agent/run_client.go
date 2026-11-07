@@ -30,8 +30,8 @@ func (c *RunClient) ResumeThread(ctx context.Context, threadID string) error {
 	return err
 }
 
-func (c *RunClient) StartTurn(ctx context.Context, threadID, runID, text string) error {
-	return c.client.StartTurnForRun(ctx, threadID, runID, []TurnInput{{Type: "text", Text: text}})
+func (c *RunClient) StartTurn(ctx context.Context, threadID, text string) error {
+	return c.client.StartTurn(ctx, threadID, []TurnInput{{Type: "text", Text: text}})
 }
 
 var _ runs.ThreadClient = (*RunClient)(nil)
