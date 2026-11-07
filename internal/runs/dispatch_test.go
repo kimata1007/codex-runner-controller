@@ -7,12 +7,13 @@ import (
 )
 
 type fakeThreadClient struct {
-	started  bool
-	resumed  string
-	turnID   string
-	turnText string
-	startErr error
-	turnErr  error
+	started   bool
+	resumed   string
+	turnID    string
+	turnRunID string
+	turnText  string
+	startErr  error
+	turnErr   error
 }
 
 func (f *fakeThreadClient) StartThread(context.Context) (string, error) {
@@ -25,8 +26,8 @@ func (f *fakeThreadClient) ResumeThread(_ context.Context, threadID string) erro
 	return nil
 }
 
-func (f *fakeThreadClient) StartTurn(_ context.Context, threadID, text string) error {
-	f.turnID, f.turnText = threadID, text
+func (f *fakeThreadClient) StartTurn(_ context.Context, threadID, runID, text string) error {
+	f.turnID, f.turnRunID, f.turnText = threadID, runID, text
 	return f.turnErr
 }
 
@@ -58,8 +59,8 @@ func TestMessageDispatcherStartsNewThreadAndSendsTurn(t *testing.T) {
 	if run.ThreadID != "thread-new" || run.Status != StatusRunning {
 		t.Fatalf("run = %+v", run)
 	}
-	if client.turnID != "thread-new" || client.turnText != "hello" {
-		t.Fatalf("turn = %q %q", client.turnID, client.turnText)
+	if client.turnID != "thread-new" || client.turnRunID != "run-1" || client.turnText != "hello" {
+		t.Fatalf("turn = %q %q %q", client.turnID, client.turnRunID, client.turnText)
 	}
 	if strings.Join(store.statuses, ",") != StatusRunning {
 		t.Fatalf("statuses = %v", store.statuses)
