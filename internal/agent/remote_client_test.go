@@ -23,12 +23,12 @@ func TestRemoteClientCallsRunnerAgent(t *testing.T) {
 			if payload["cwd"] != "/workspace" {
 				t.Errorf("cwd = %v", payload["cwd"])
 			}
-			writeTestJSON(w, http.StatusCreated, map[string]any{"thread": map[string]string{"id": "thread-1"}})
+			writeTestJSON(w, http.StatusCreated, map[string]string{"id": "thread-1"})
 		case "/v1/threads/thread-1/resume":
-			if payload["threadId"] != "thread-1" {
-				t.Errorf("threadId = %v", payload["threadId"])
+			if _, exists := payload["threadId"]; exists {
+				t.Errorf("threadId should come from the URL path, payload = %v", payload)
 			}
-			writeTestJSON(w, http.StatusOK, map[string]any{"thread": map[string]string{"id": "thread-1"}})
+			writeTestJSON(w, http.StatusOK, map[string]string{"id": "thread-1"})
 		case "/v1/threads/thread-1/turns":
 			if payload["text"] != "hello" {
 				t.Errorf("text = %v", payload["text"])

@@ -16,6 +16,8 @@ Kubernetes上で会話単位のCodexセッションを起動・停止・再開�
 
 `LIBSQL_URL`を設定すると、起動時にlibSQL/sqldへスキーマを適用して永続Repositoryを使用します。未設定時はローカル開発用のプロセス内メモリRepositoryです。メモリのデータは再起動で消えるため、本番利用にはlibSQLを設定してください。
 
+`RUNNER_AGENT_URL`を設定すると、Runner APIは指定されたrunner-agentへ接続してrunを開始します。この設定にはlibSQL repositoryが必要です。`CODEX_MODEL`、`CODEX_CWD`、`CODEX_APPROVAL_POLICY`はthread作成/再開時のオプションです。
+
 ## ローカル実行
 
 ```bash
