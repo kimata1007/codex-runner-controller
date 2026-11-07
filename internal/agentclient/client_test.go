@@ -50,7 +50,7 @@ func TestClientCallsRunnerAgent(t *testing.T) {
 	if err != nil || thread.ID != "thread-1" {
 		t.Fatalf("start thread = %+v, err=%v", thread, err)
 	}
-	if _, err := client.ResumeThread(context.Background(), thread.ID, ThreadStartParams{}); err != nil {
+	if _, err := client.ResumeThread(context.Background(), thread.ID, agent.ThreadStartParams{}); err != nil {
 		t.Fatalf("resume thread: %v", err)
 	}
 	if err := client.StartTurnForRun(context.Background(), thread.ID, "run-1", []agent.TurnInput{{Type: "text", Text: "hello"}}); err != nil {
