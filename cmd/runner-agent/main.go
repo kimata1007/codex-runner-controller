@@ -46,7 +46,14 @@ func main() {
 	if address == "" {
 		address = ":8081"
 	}
-	server := &http.Server{Addr: address, Handler: agent.NewHTTPHandler(session)}
+	server := &http.Server{
+		Addr:              address,
+		Handler:           agent.NewHTTPHandler(session),
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
 	serverErr := make(chan error, 1)
 	go func() {
 		log.Printf("runner-agent listening on %s", address)

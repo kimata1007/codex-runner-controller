@@ -3,10 +3,14 @@ package agent
 import (
 	"context"
 	"encoding/json"
-	"fmt"
+	"io"
 	"net/http"
 	"strings"
+
+	"github.com/labstack/echo/v4"
 )
+
+const maxRequestBodyBytes = 1 << 20
 
 // SessionAPI is the small boundary exposed by the live App Server session.
 type SessionAPI interface {
@@ -19,13 +23,15 @@ type HTTPServer struct {
 	session SessionAPI
 }
 
-func NewHTTPHandler(session SessionAPI) http.Handler {
+func NewHTTPHandler(session SessionAPI) *echo.Echo {
 	server := &HTTPServer{session: session}
-	mux := http.NewServeMux()
-	mux.HandleFunc("/healthz", server.health)
-	mux.HandleFunc("/v1/threads", server.threads)
-	mux.HandleFunc("/v1/threads/", server.thread)
-	return mux
+	e := echo.New()
+	e.HideBanner = true
+	e.GET("/healthz", server.health)
+	e.POST("/v1/threads", server.startThread)
+	e.POST("/v1/threads/:id/resume", server.resumeThread)
+	e.POST("/v1/threads/:id/turns", server.startTurn)
+	return e
 }
 
 type threadRequest struct {
@@ -38,102 +44,77 @@ type turnRequest struct {
 	Text string `json:"text"`
 }
 
-func (s *HTTPServer) health(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+func (s *HTTPServer) health(c echo.Context) error {
+	return writeJSON(c, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-func (s *HTTPServer) threads(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
+func (s *HTTPServer) startThread(c echo.Context) error {
 	var request threadRequest
-	if err := decodeJSON(r, &request); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
+	if err := decodeJSON(c, &request); err != nil {
+		return err
 	}
-	thread, err := s.session.StartThread(r.Context(), ThreadStartParams{
+	thread, err := s.session.StartThread(c.Request().Context(), ThreadStartParams{
 		Model:          request.Model,
 		CWD:            request.CWD,
 		ApprovalPolicy: request.ApprovalPolicy,
 	})
 	if err != nil {
-		writeError(w, http.StatusBadGateway, err.Error())
-		return
+		return writeError(c, http.StatusBadGateway, err.Error())
 	}
-	writeJSON(w, http.StatusCreated, thread)
+	return writeJSON(c, http.StatusCreated, thread)
 }
 
-func (s *HTTPServer) thread(w http.ResponseWriter, r *http.Request) {
-	path := strings.TrimPrefix(r.URL.Path, "/v1/threads/")
-	parts := strings.Split(strings.Trim(path, "/"), "/")
-	if len(parts) != 2 {
-		writeError(w, http.StatusNotFound, "route not found")
-		return
+func (s *HTTPServer) resumeThread(c echo.Context) error {
+	var request threadRequest
+	if err := decodeJSON(c, &request); err != nil {
+		return err
 	}
-	threadID, action := parts[0], parts[1]
-	if threadID == "" {
-		writeError(w, http.StatusBadRequest, "thread id is required")
-		return
+	thread, err := s.session.ResumeThread(c.Request().Context(), c.Param("id"), ThreadStartParams{
+		Model:          request.Model,
+		CWD:            request.CWD,
+		ApprovalPolicy: request.ApprovalPolicy,
+	})
+	if err != nil {
+		return writeError(c, http.StatusBadGateway, err.Error())
 	}
-
-	switch {
-	case action == "resume" && r.Method == http.MethodPost:
-		var request threadRequest
-		if err := decodeJSON(r, &request); err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		thread, err := s.session.ResumeThread(r.Context(), threadID, ThreadStartParams{
-			Model:          request.Model,
-			CWD:            request.CWD,
-			ApprovalPolicy: request.ApprovalPolicy,
-		})
-		if err != nil {
-			writeError(w, http.StatusBadGateway, err.Error())
-			return
-		}
-		writeJSON(w, http.StatusOK, thread)
-	case action == "turns" && r.Method == http.MethodPost:
-		var request turnRequest
-		if err := decodeJSON(r, &request); err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		if strings.TrimSpace(request.Text) == "" {
-			writeError(w, http.StatusBadRequest, "text is required")
-			return
-		}
-		if err := s.session.StartTurn(r.Context(), threadID, []TurnInput{{Type: "text", Text: request.Text}}); err != nil {
-			writeError(w, http.StatusBadGateway, err.Error())
-			return
-		}
-		writeJSON(w, http.StatusAccepted, map[string]string{"status": "accepted"})
-	default:
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
-	}
+	return writeJSON(c, http.StatusOK, thread)
 }
 
-func decodeJSON(r *http.Request, target any) error {
+func (s *HTTPServer) startTurn(c echo.Context) error {
+	var request turnRequest
+	if err := decodeJSON(c, &request); err != nil {
+		return err
+	}
+	request.Text = strings.TrimSpace(request.Text)
+	if request.Text == "" {
+		return writeError(c, http.StatusBadRequest, "text is required")
+	}
+	if err := s.session.StartTurn(c.Request().Context(), c.Param("id"), []TurnInput{{Type: "text", Text: request.Text}}); err != nil {
+		return writeError(c, http.StatusBadGateway, err.Error())
+	}
+	return writeJSON(c, http.StatusAccepted, map[string]string{"status": "accepted"})
+}
+
+func decodeJSON(c echo.Context, destination any) error {
+	r := c.Request()
+	r.Body = http.MaxBytesReader(c.Response().Writer, r.Body, maxRequestBodyBytes)
 	decoder := json.NewDecoder(r.Body)
-	if err := decoder.Decode(target); err != nil {
-		return fmt.Errorf("decode request: %w", err)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(destination); err != nil {
+		if err == io.EOF {
+			return writeError(c, http.StatusBadRequest, "request body is required")
+		}
+		return writeError(c, http.StatusBadRequest, "invalid JSON request")
 	}
 	return nil
 }
 
-func writeJSON(w http.ResponseWriter, status int, value any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(value)
+func writeJSON(c echo.Context, status int, value any) error {
+	return c.JSON(status, value)
 }
 
-func writeError(w http.ResponseWriter, status int, message string) {
-	writeJSON(w, status, map[string]string{"error": message})
+func writeError(c echo.Context, status int, message string) error {
+	return writeJSON(c, status, map[string]string{"error": message})
 }
 
 var _ SessionAPI = (*Session)(nil)
