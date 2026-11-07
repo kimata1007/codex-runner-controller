@@ -19,6 +19,8 @@ const maxRequestBodyBytes = 1 << 20
 type Handler struct {
 	repository conversation.Repository
 	dispatcher MessageDispatcher
+	eventStore RunEventStore
+	publisher  RunEventPublisher
 }
 
 func NewHandler(repository conversation.Repository) *Handler {
@@ -33,6 +35,10 @@ func NewHandlerWithDispatcher(repository conversation.Repository, dispatcher Mes
 	return &Handler{repository: repository, dispatcher: dispatcher}
 }
 
+func NewHandlerWithDispatcherAndEvents(repository conversation.Repository, dispatcher MessageDispatcher, eventStore RunEventStore, publisher RunEventPublisher) *Handler {
+	return &Handler{repository: repository, dispatcher: dispatcher, eventStore: eventStore, publisher: publisher}
+}
+
 func NewRouter(handler *Handler) *echo.Echo {
 	e := echo.New()
 	e.HideBanner = true
@@ -42,6 +48,7 @@ func NewRouter(handler *Handler) *echo.Echo {
 	e.GET("/v1/conversations/:id", handler.getConversation)
 	e.GET("/v1/conversations/:id/messages", handler.getMessages)
 	e.POST("/v1/conversations/:id/messages", handler.createMessage)
+	e.POST("/internal/runs/:runID/events", handler.receiveRunEvent)
 	return e
 }
 
