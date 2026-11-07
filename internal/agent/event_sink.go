@@ -11,39 +11,46 @@ import (
 	"strings"
 )
 
-// AppEvent is the subset of an App Server notification that the Runner API
-// needs to persist and stream to clients.
-type AppEvent struct {
+// AppServerNotification is a server-initiated JSON-RPC notification from the
+// Codex App Server.
+type AppServerNotification struct {
+	Method string
+	Params json.RawMessage
+}
+
+// AppServerRunEvent is an App Server notification associated with one run and
+// forwarded to the Runner API for persistence and streaming.
+type AppServerRunEvent struct {
 	RunID     string
 	EventType string
 	Payload   json.RawMessage
 }
 
-// EventSink forwards App Server notifications outside the session pod.
-type EventSink interface {
-	Report(context.Context, AppEvent) error
+// RunEventSink forwards run events outside the session pod.
+type RunEventSink interface {
+	Report(context.Context, AppServerRunEvent) error
 }
 
-// HTTPEventSink posts events to the Runner API's internal event endpoint.
+// HTTPRunEventSink posts run events to the Runner API's internal event endpoint.
 // The endpoint is intentionally configured separately from the public message
 // API because it is only reachable inside the cluster.
-type HTTPEventSink struct {
+type HTTPRunEventSink struct {
 	baseURL    string
 	httpClient *http.Client
 }
 
-func NewHTTPEventSink(baseURL string) *HTTPEventSink {
-	return &HTTPEventSink{baseURL: strings.TrimRight(baseURL, "/"), httpClient: http.DefaultClient}
+func NewHTTPRunEventSink(baseURL string) *HTTPRunEventSink {
+	return &HTTPRunEventSink{baseURL: strings.TrimRight(baseURL, "/"), httpClient: http.DefaultClient}
 }
 
-func (s *HTTPEventSink) WithHTTPClient(client *http.Client) *HTTPEventSink {
+func (s *HTTPRunEventSink) WithHTTPClient(client *http.Client) *HTTPRunEventSink {
 	if client != nil {
 		s.httpClient = client
 	}
 	return s
 }
 
-func (s *HTTPEventSink) Report(ctx context.Context, event AppEvent) error {
+func (s *HTTPRunEventSink) Report(ctx context.Context, event AppServerRunEvent) error {
 	if s == nil || s.baseURL == "" {
 		return fmt.Errorf("event sink: base URL is required")
 	}

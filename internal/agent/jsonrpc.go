@@ -11,7 +11,7 @@ import (
 	"sync"
 )
 
-type EventHandler func(Message)
+type NotificationHandler func(AppServerNotification)
 
 type Message struct {
 	JSONRPC string          `json:"jsonrpc"`
@@ -31,7 +31,7 @@ type RPCError struct {
 type JSONRPCClient struct {
 	reader  *bufio.Reader
 	writer  io.Writer
-	handler EventHandler
+	handler NotificationHandler
 
 	callMu     sync.Mutex
 	writeMu    sync.Mutex
@@ -47,7 +47,7 @@ type callResult struct {
 	err     error
 }
 
-func NewJSONRPCClient(reader io.Reader, writer io.Writer, handler EventHandler) *JSONRPCClient {
+func NewJSONRPCClient(reader io.Reader, writer io.Writer, handler NotificationHandler) *JSONRPCClient {
 	return &JSONRPCClient{
 		reader:  bufio.NewReader(reader),
 		writer:  writer,
@@ -124,8 +124,9 @@ func (c *JSONRPCClient) write(message Message) error {
 }
 
 // readLoop runs for the lifetime of the App Server connection. JSON-RPC
-// responses complete a waiting Call; notifications are delivered separately
-// to the event handler, including notifications arriving after a Call returns.
+// responses complete a waiting Call; server notifications are delivered
+// separately to the notification handler, including those arriving after a
+// Call returns.
 func (c *JSONRPCClient) readLoop() {
 	for {
 		line, err := c.reader.ReadBytes('\n')
@@ -140,7 +141,7 @@ func (c *JSONRPCClient) readLoop() {
 		}
 		if message.ID == nil {
 			if c.handler != nil && message.Method != "" {
-				c.handler(message)
+				c.handler(AppServerNotification{Method: message.Method, Params: message.Params})
 			}
 			continue
 		}
@@ -188,7 +189,7 @@ type Process struct {
 	waitErr chan error
 }
 
-func StartProcess(ctx context.Context, command string, args []string, handler EventHandler) (*Process, error) {
+func StartProcess(ctx context.Context, command string, args []string, handler NotificationHandler) (*Process, error) {
 	cmd := exec.CommandContext(ctx, command, args...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {

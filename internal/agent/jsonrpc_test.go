@@ -12,8 +12,8 @@ import (
 func TestJSONRPCClientCallHandlesEventsBeforeResponse(t *testing.T) {
 	clientReader, serverWriter := io.Pipe()
 	serverReader, clientWriter := io.Pipe()
-	var events []string
-	client := NewJSONRPCClient(clientReader, clientWriter, func(message Message) { events = append(events, message.Method) })
+	var notifications []AppServerNotification
+	client := NewJSONRPCClient(clientReader, clientWriter, func(notification AppServerNotification) { notifications = append(notifications, notification) })
 	serverDone := make(chan struct{})
 	go func() {
 		defer close(serverDone)
@@ -39,8 +39,8 @@ func TestJSONRPCClientCallHandlesEventsBeforeResponse(t *testing.T) {
 		t.Fatalf("call: %v", err)
 	}
 	<-serverDone
-	if result.Thread.ID != "thread-1" || len(events) != 1 || events[0] != "item/agentMessage/delta" {
-		t.Fatalf("result=%+v events=%v", result, events)
+	if result.Thread.ID != "thread-1" || len(notifications) != 1 || notifications[0].Method != "item/agentMessage/delta" {
+		t.Fatalf("result=%+v notifications=%v", result, notifications)
 	}
 }
 

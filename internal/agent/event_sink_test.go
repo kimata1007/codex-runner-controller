@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestHTTPEventSinkReportsAppServerEvent(t *testing.T) {
+func TestHTTPRunEventSinkReportsAppServerRunEvent(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost || r.URL.Path != "/internal/runs/run-1/events" {
 			t.Fatalf("request = %s %s", r.Method, r.URL.Path)
@@ -27,8 +27,8 @@ func TestHTTPEventSinkReportsAppServerEvent(t *testing.T) {
 	}))
 	defer server.Close()
 
-	sink := NewHTTPEventSink(server.URL + "/internal/runs")
-	if err := sink.Report(context.Background(), AppEvent{
+	sink := NewHTTPRunEventSink(server.URL + "/internal/runs")
+	if err := sink.Report(context.Background(), AppServerRunEvent{
 		RunID:     "run-1",
 		EventType: "item/updated",
 		Payload:   json.RawMessage(`{"item":"done"}`),
@@ -37,13 +37,13 @@ func TestHTTPEventSinkReportsAppServerEvent(t *testing.T) {
 	}
 }
 
-func TestHTTPEventSinkValidatesEvent(t *testing.T) {
-	sink := NewHTTPEventSink("")
-	if err := sink.Report(context.Background(), AppEvent{}); err == nil {
+func TestHTTPRunEventSinkValidatesEvent(t *testing.T) {
+	sink := NewHTTPRunEventSink("")
+	if err := sink.Report(context.Background(), AppServerRunEvent{}); err == nil {
 		t.Fatal("expected base URL error")
 	}
-	sink = NewHTTPEventSink("http://runner-api")
-	if err := sink.Report(context.Background(), AppEvent{EventType: "item/updated"}); err == nil {
+	sink = NewHTTPRunEventSink("http://runner-api")
+	if err := sink.Report(context.Background(), AppServerRunEvent{EventType: "item/updated"}); err == nil {
 		t.Fatal("expected run ID error")
 	}
 }
