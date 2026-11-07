@@ -14,6 +14,7 @@ import (
 	"github.com/kimata1007/codex-runner-controller/internal/agent"
 	"github.com/kimata1007/codex-runner-controller/internal/agentclient"
 	"github.com/kimata1007/codex-runner-controller/internal/conversation"
+	"github.com/kimata1007/codex-runner-controller/internal/events"
 	"github.com/kimata1007/codex-runner-controller/internal/libsql"
 	"github.com/kimata1007/codex-runner-controller/internal/memory"
 	"github.com/kimata1007/codex-runner-controller/internal/runnerapi"
@@ -36,10 +37,9 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	router := runnerapi.NewRouter(runnerapi.NewHandlerWithDispatcher(repository, dispatcher))
 	server := &http.Server{
 		Addr:              addr,
-		Handler:           router,
+		Handler:           handlerFromRepository(repository, dispatcher),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,
@@ -62,6 +62,25 @@ func main() {
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatal(err)
 	}
+}
+
+func handlerFromRepository(repository conversation.Repository, dispatcher runnerapi.MessageDispatcher) http.Handler {
+	eventStore, canAppend := repository.(runnerapi.RunEventStore)
+	if !canAppend {
+		return runnerapi.NewRouter(runnerapi.NewHandlerWithDispatcher(repository, dispatcher))
+	}
+
+	broker := events.NewBroker()
+	router := runnerapi.NewRouter(runnerapi.NewHandlerWithDispatcherAndEvents(repository, dispatcher, eventStore, broker))
+	listStore, canList := repository.(events.Store)
+	if !canList {
+		return router
+	}
+
+	mux := http.NewServeMux()
+	mux.Handle("/v1/runs/", events.NewSSEHandler(listStore, broker))
+	mux.Handle("/", router)
+	return mux
 }
 
 func messageDispatcherFromEnvironment(repository conversation.Repository) (runnerapi.MessageDispatcher, error) {
