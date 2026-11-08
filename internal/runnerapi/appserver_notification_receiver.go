@@ -28,7 +28,7 @@ type appServerRunEventRequest struct {
 	Payload   json.RawMessage `json:"payload"`
 }
 
-func (h *Handler) receiveRunEvent(c echo.Context) error {
+func (h *Handler) receiveAppServerRunEvent(c echo.Context) error {
 	if h.eventStore == nil || h.publisher == nil {
 		return writeError(c, http.StatusServiceUnavailable, "event receiver is not configured")
 	}

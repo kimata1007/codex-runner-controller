@@ -30,7 +30,7 @@ func (p *fakeRunEventPublisher) Publish(event runs.Event) {
 	p.events = append(p.events, event)
 }
 
-func TestReceiveRunEventPersistsAndPublishes(t *testing.T) {
+func TestReceiveAppServerRunEventPersistsAndPublishes(t *testing.T) {
 	store := &fakeRunEventStore{}
 	publisher := &fakeRunEventPublisher{}
 	handler := NewHandlerWithDispatcherAndEvents(memory.NewRepository(), nil, store, publisher)
@@ -57,7 +57,7 @@ func TestReceiveRunEventPersistsAndPublishes(t *testing.T) {
 	}
 }
 
-func TestReceiveRunEventRequiresEventType(t *testing.T) {
+func TestReceiveAppServerRunEventRequiresEventType(t *testing.T) {
 	handler := NewHandlerWithDispatcherAndEvents(memory.NewRepository(), nil, &fakeRunEventStore{}, &fakeRunEventPublisher{})
 	request := httptest.NewRequest(http.MethodPost, "/internal/runs/run-1/events", strings.NewReader(`{"payload":{}}`))
 	recorder := httptest.NewRecorder()

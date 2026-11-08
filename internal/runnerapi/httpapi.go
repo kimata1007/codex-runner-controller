@@ -48,7 +48,7 @@ func NewRouter(handler *Handler) *echo.Echo {
 	e.GET("/v1/conversations/:id", handler.getConversation)
 	e.GET("/v1/conversations/:id/messages", handler.getMessages)
 	e.POST("/v1/conversations/:id/messages", handler.createMessage)
-	e.POST("/internal/runs/:runID/events", handler.receiveRunEvent)
+	e.POST("/internal/runs/:runID/events", handler.receiveAppServerRunEvent)
 	return e
 }
 

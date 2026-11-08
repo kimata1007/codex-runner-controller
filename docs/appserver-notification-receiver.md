@@ -1,6 +1,6 @@
-# Codex App Server通知（実行イベント）の受信API
+# Runner APIでのApp Server通知受信
 
-ここで受信するのは、PR22で名前を分けた `AppServerNotification` 自体ではなく、runner-agentが実行IDを付けて送る `AppServerRunEvent` です。Codex App ServerのJSON-RPC通知はstdioでrunner-agentへ届きます。runner-agentは通知の `method` と `params` を、それぞれ `eventType` と `payload` に対応させ、現在の実行IDをURLに付けてRunner APIへ送信します。
+このファイルは[runner-agentの通知送信](appserver-notification-sender.md)に対応する受信側です。runner-agentはCodex App Serverからstdioで受け取った `AppServerNotification` にrun IDを結び付け、`AppServerRunEvent` としてRunner APIへ送ります。
 
 ```text
 Codex App Server --stdio JSON-RPC--> runner-agent
@@ -20,7 +20,7 @@ Content-Type: application/json
 {"eventType":"item/updated","payload":{...}}
 ```
 
-`runId`はApp Serverの通知に含まれていません。runner-agentが`turn/start`を受け付けたときに得たIDを保持し、後からstdioで届く通知に付けます。Runner APIはこのHTTPリクエストを受け取ると、次の順で処理します。
+`runId`はApp Serverの通知に含まれていません。runner-agentが`turn/start`を受け付けたときに得たIDを保持し、後からstdioで届く通知に付けます。Runner APIはHTTP POSTを受け取ると、次の順で処理します。
 
 1. `eventType`とJSON形式の`payload`を検証する
 2. `runId`に紐付けた実行イベントをイベントストアへ保存し、run内の連番を取得する
