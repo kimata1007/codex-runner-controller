@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/kimata1007/codex-runner-controller/internal/conversation"
+	"github.com/kimata1007/codex-runner-controller/internal/events"
 	"github.com/kimata1007/codex-runner-controller/internal/memory"
 	"github.com/kimata1007/codex-runner-controller/internal/runs"
 )
@@ -119,17 +120,26 @@ func (s *fakeRunEventStore) AppendEvent(_ context.Context, runID, eventType, pay
 	return s.event, nil
 }
 
+func (s *fakeRunEventStore) ListEvents(_ context.Context, runID string, after int64) ([]runs.Event, error) {
+	if s.event.RunID == runID && s.event.Sequence > after {
+		return []runs.Event{s.event}, nil
+	}
+	return nil, nil
+}
+
 type fakeRunEventPublisher struct {
+	*events.Broker
 	events []runs.Event
 }
 
 func (p *fakeRunEventPublisher) Publish(event runs.Event) {
 	p.events = append(p.events, event)
+	p.Broker.Publish(event)
 }
 
 func TestReceiveAppServerRunEventPersistsAndPublishes(t *testing.T) {
 	store := &fakeRunEventStore{}
-	publisher := &fakeRunEventPublisher{}
+	publisher := &fakeRunEventPublisher{Broker: events.NewBroker()}
 	handler := NewHandlerWithDispatcherAndEvents(memory.NewRepository(), nil, store, publisher)
 	request := httptest.NewRequest(http.MethodPost, "/internal/runs/run-1/events", strings.NewReader(`{"eventType":"item/updated","payload":{"text":"done"}}`))
 	request.Header.Set("Content-Type", "application/json")
@@ -155,7 +165,7 @@ func TestReceiveAppServerRunEventPersistsAndPublishes(t *testing.T) {
 }
 
 func TestReceiveAppServerRunEventRequiresEventType(t *testing.T) {
-	handler := NewHandlerWithDispatcherAndEvents(memory.NewRepository(), nil, &fakeRunEventStore{}, &fakeRunEventPublisher{})
+	handler := NewHandlerWithDispatcherAndEvents(memory.NewRepository(), nil, &fakeRunEventStore{}, &fakeRunEventPublisher{Broker: events.NewBroker()})
 	request := httptest.NewRequest(http.MethodPost, "/internal/runs/run-1/events", strings.NewReader(`{"payload":{}}`))
 	recorder := httptest.NewRecorder()
 

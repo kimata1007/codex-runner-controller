@@ -9,7 +9,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kimata1007/codex-runner-controller/internal/events"
 	"github.com/kimata1007/codex-runner-controller/internal/memory"
+	"github.com/kimata1007/codex-runner-controller/internal/runnerapi"
 	"github.com/kimata1007/codex-runner-controller/internal/runs"
 )
 
@@ -101,14 +103,19 @@ func TestRepositoryFromEnvironmentReturnsMigrationError(t *testing.T) {
 	}
 }
 
-func TestHandlerFromRepositoryWiresEventIngestAndSSE(t *testing.T) {
+func TestRouterWiresEventIngestAndSSE(t *testing.T) {
 	repository := newHandlerTestRepository()
-	handler := handlerFromRepository(repository, nil)
+	eventStore, ok := any(repository).(runnerapi.RunEventStore)
+	if !ok {
+		t.Fatal("test repository does not implement run event storage")
+	}
+	handler := runnerapi.NewHandlerWithDispatcherAndEvents(repository, nil, eventStore, events.NewBroker())
+	router := runnerapi.NewRouter(handler)
 
 	request := httptest.NewRequest(http.MethodPost, "/internal/runs/run-1/events", strings.NewReader(`{"eventType":"delta","payload":{"text":"hi"}}`))
 	request.Header.Set("Content-Type", "application/json")
 	recorder := httptest.NewRecorder()
-	handler.ServeHTTP(recorder, request)
+	router.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusAccepted {
 		t.Fatalf("event status = %d, body = %s", recorder.Code, recorder.Body.String())
 	}
@@ -117,7 +124,7 @@ func TestHandlerFromRepositoryWiresEventIngestAndSSE(t *testing.T) {
 	cancel()
 	sseRequest := httptest.NewRequestWithContext(ctx, http.MethodGet, "/v1/runs/run-1/events", nil)
 	sseRecorder := httptest.NewRecorder()
-	handler.ServeHTTP(sseRecorder, sseRequest)
+	router.ServeHTTP(sseRecorder, sseRequest)
 	if sseRecorder.Code != http.StatusOK {
 		t.Fatalf("SSE status = %d, body = %s", sseRecorder.Code, sseRecorder.Body.String())
 	}

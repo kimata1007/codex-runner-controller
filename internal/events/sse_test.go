@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/kimata1007/codex-runner-controller/internal/runs"
+	"github.com/labstack/echo/v4"
 )
 
 type fakeStore struct {
@@ -32,14 +33,15 @@ func (s *fakeStore) ListEvents(_ context.Context, runID string, after int64) ([]
 func TestSSEHandlerReplaysStoredEvents(t *testing.T) {
 	store := &fakeStore{events: []runs.Event{{RunID: "run-1", Sequence: 1, EventType: "delta", Payload: `{"text":"hello"}`}}}
 	broker := NewBroker()
-	handler := NewSSEHandler(store, broker)
+	router := echo.New()
+	router.GET("/v1/runs/:runID/events", NewSSEHandler(store, broker))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	request := httptest.NewRequestWithContext(ctx, http.MethodGet, "/v1/runs/run-1/events", nil)
 	response := newFlushRecorder()
 	done := make(chan struct{})
 	go func() {
-		handler.ServeHTTP(response, request)
+		router.ServeHTTP(response, request)
 		close(done)
 	}()
 

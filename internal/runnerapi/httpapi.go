@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/kimata1007/codex-runner-controller/internal/conversation"
+	"github.com/kimata1007/codex-runner-controller/internal/events"
 	"github.com/kimata1007/codex-runner-controller/internal/runs"
 	"github.com/labstack/echo/v4"
 )
@@ -20,7 +21,7 @@ type Handler struct {
 	repository conversation.Repository
 	dispatcher MessageDispatcher
 	eventStore RunEventStore
-	publisher  RunEventPublisher
+	eventHub   RunEventHub
 }
 
 func NewHandler(repository conversation.Repository) *Handler {
@@ -35,8 +36,8 @@ func NewHandlerWithDispatcher(repository conversation.Repository, dispatcher Mes
 	return &Handler{repository: repository, dispatcher: dispatcher}
 }
 
-func NewHandlerWithDispatcherAndEvents(repository conversation.Repository, dispatcher MessageDispatcher, eventStore RunEventStore, publisher RunEventPublisher) *Handler {
-	return &Handler{repository: repository, dispatcher: dispatcher, eventStore: eventStore, publisher: publisher}
+func NewHandlerWithDispatcherAndEvents(repository conversation.Repository, dispatcher MessageDispatcher, eventStore RunEventStore, eventHub RunEventHub) *Handler {
+	return &Handler{repository: repository, dispatcher: dispatcher, eventStore: eventStore, eventHub: eventHub}
 }
 
 func NewRouter(handler *Handler) *echo.Echo {
@@ -48,8 +49,9 @@ func NewRouter(handler *Handler) *echo.Echo {
 	e.GET("/v1/conversations/:id", handler.getConversation)
 	e.GET("/v1/conversations/:id/messages", handler.getMessages)
 	e.POST("/v1/conversations/:id/messages", handler.createMessage)
-	if handler.eventStore != nil && handler.publisher != nil {
+	if handler.eventStore != nil && handler.eventHub != nil {
 		e.POST("/internal/runs/:runID/events", handler.receiveAppServerRunEvent)
+		e.GET("/v1/runs/:runID/events", events.NewSSEHandler(handler.eventStore, handler.eventHub))
 	}
 	return e
 }
@@ -58,11 +60,13 @@ func NewRouter(handler *Handler) *echo.Echo {
 // with a run. The stored runs.Event can then be replayed after reconnection.
 type RunEventStore interface {
 	AppendEvent(context.Context, string, string, string) (runs.Event, error)
+	events.Store
 }
 
-// RunEventPublisher sends a persisted run event to connected stream subscribers.
-type RunEventPublisher interface {
+// RunEventHub sends persisted events to connected stream subscribers.
+type RunEventHub interface {
 	Publish(runs.Event)
+	Subscribe(string) (<-chan runs.Event, func())
 }
 
 // appServerRunEventRequest is the HTTP representation of an AppServerRunEvent:
@@ -73,7 +77,7 @@ type appServerRunEventRequest struct {
 }
 
 func (h *Handler) receiveAppServerRunEvent(c echo.Context) error {
-	if h.eventStore == nil || h.publisher == nil {
+	if h.eventStore == nil || h.eventHub == nil {
 		return writeError(c, http.StatusServiceUnavailable, "event receiver is not configured")
 	}
 
@@ -96,7 +100,7 @@ func (h *Handler) receiveAppServerRunEvent(c echo.Context) error {
 	if err != nil {
 		return writeError(c, http.StatusBadGateway, "failed to persist event")
 	}
-	h.publisher.Publish(event)
+	h.eventHub.Publish(event)
 	return writeJSON(c, http.StatusAccepted, event)
 }
 
