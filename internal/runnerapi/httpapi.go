@@ -19,6 +19,8 @@ const maxRequestBodyBytes = 1 << 20
 type Handler struct {
 	repository conversation.Repository
 	dispatcher MessageDispatcher
+	eventStore RunEventStore
+	publisher  RunEventPublisher
 }
 
 func NewHandler(repository conversation.Repository) *Handler {
@@ -33,6 +35,10 @@ func NewHandlerWithDispatcher(repository conversation.Repository, dispatcher Mes
 	return &Handler{repository: repository, dispatcher: dispatcher}
 }
 
+func NewHandlerWithDispatcherAndEvents(repository conversation.Repository, dispatcher MessageDispatcher, eventStore RunEventStore, publisher RunEventPublisher) *Handler {
+	return &Handler{repository: repository, dispatcher: dispatcher, eventStore: eventStore, publisher: publisher}
+}
+
 func NewRouter(handler *Handler) *echo.Echo {
 	e := echo.New()
 	e.HideBanner = true
@@ -42,7 +48,54 @@ func NewRouter(handler *Handler) *echo.Echo {
 	e.GET("/v1/conversations/:id", handler.getConversation)
 	e.GET("/v1/conversations/:id/messages", handler.getMessages)
 	e.POST("/v1/conversations/:id/messages", handler.createMessage)
+	e.POST("/internal/runs/:runID/events", handler.receiveAppServerRunEvent)
 	return e
+}
+
+// RunEventStore persists App Server notifications that runner-agent associates
+// with a run. The stored runs.Event can then be replayed after reconnection.
+type RunEventStore interface {
+	AppendEvent(context.Context, string, string, string) (runs.Event, error)
+}
+
+// RunEventPublisher sends a persisted run event to connected stream subscribers.
+type RunEventPublisher interface {
+	Publish(runs.Event)
+}
+
+// appServerRunEventRequest is the HTTP representation of an AppServerRunEvent:
+// eventType contains the JSON-RPC notification method, and payload its params.
+type appServerRunEventRequest struct {
+	EventType string          `json:"eventType"`
+	Payload   json.RawMessage `json:"payload"`
+}
+
+func (h *Handler) receiveAppServerRunEvent(c echo.Context) error {
+	if h.eventStore == nil || h.publisher == nil {
+		return writeError(c, http.StatusServiceUnavailable, "event receiver is not configured")
+	}
+
+	var request appServerRunEventRequest
+	if err := decodeJSON(c, &request); err != nil {
+		return err
+	}
+	request.EventType = strings.TrimSpace(request.EventType)
+	if request.EventType == "" {
+		return writeError(c, http.StatusBadRequest, "eventType is required")
+	}
+	if len(request.Payload) == 0 {
+		request.Payload = json.RawMessage(`{}`)
+	}
+	if !json.Valid(request.Payload) {
+		return writeError(c, http.StatusBadRequest, "payload must be valid JSON")
+	}
+
+	event, err := h.eventStore.AppendEvent(c.Request().Context(), c.Param("runID"), request.EventType, string(request.Payload))
+	if err != nil {
+		return writeError(c, http.StatusBadGateway, "failed to persist event")
+	}
+	h.publisher.Publish(event)
+	return writeJSON(c, http.StatusAccepted, event)
 }
 
 func (h *Handler) checkHealth(c echo.Context) error {
