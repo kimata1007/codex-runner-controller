@@ -17,13 +17,14 @@ import (
 const maxRequestBodyBytes = 1 << 20
 
 type Handler struct {
-	repository  conversation.Repository
-	statusStore MessageStatusStore
-	dispatcher  MessageDispatcher
-	activator   SessionActivator
-	activity    SessionActivityRecorder
-	eventStore  RunEventStore
-	publisher   RunEventPublisher
+	repository     conversation.Repository
+	statusStore    MessageStatusStore
+	dispatcher     MessageDispatcher
+	activator      SessionActivator
+	activity       SessionActivityRecorder
+	eventStore     RunEventStore
+	eventProjector RunEventProjector
+	publisher      RunEventPublisher
 }
 
 func NewHandler(repository conversation.Repository) *Handler {
@@ -52,12 +53,17 @@ type SessionActivityRecorder interface {
 	Touch(context.Context, string, time.Time) error
 }
 
+type RunEventProjector interface {
+	ApplyAppServerEvent(context.Context, string, string, string) error
+}
+
 func NewHandlerWithDispatcher(repository conversation.Repository, dispatcher MessageDispatcher) *Handler {
 	return &Handler{repository: repository, statusStore: messageStatusStore(repository), dispatcher: dispatcher}
 }
 
 func NewHandlerWithDispatcherAndEvents(repository conversation.Repository, dispatcher MessageDispatcher, eventStore RunEventStore, publisher RunEventPublisher) *Handler {
-	return &Handler{repository: repository, statusStore: messageStatusStore(repository), dispatcher: dispatcher, eventStore: eventStore, publisher: publisher}
+	projector, _ := repository.(RunEventProjector)
+	return &Handler{repository: repository, statusStore: messageStatusStore(repository), dispatcher: dispatcher, eventStore: eventStore, eventProjector: projector, publisher: publisher}
 }
 
 func NewHandlerWithDispatcherEventsAndActivator(repository conversation.Repository, dispatcher MessageDispatcher, eventStore RunEventStore, publisher RunEventPublisher, activator SessionActivator) *Handler {
@@ -65,7 +71,8 @@ func NewHandlerWithDispatcherEventsAndActivator(repository conversation.Reposito
 	if recorder, ok := activator.(SessionActivityRecorder); ok {
 		activity = recorder
 	}
-	return &Handler{repository: repository, statusStore: messageStatusStore(repository), dispatcher: dispatcher, eventStore: eventStore, publisher: publisher, activator: activator, activity: activity}
+	projector, _ := repository.(RunEventProjector)
+	return &Handler{repository: repository, statusStore: messageStatusStore(repository), dispatcher: dispatcher, eventStore: eventStore, eventProjector: projector, publisher: publisher, activator: activator, activity: activity}
 }
 
 func messageStatusStore(repository conversation.Repository) MessageStatusStore {

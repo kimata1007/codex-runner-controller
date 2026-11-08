@@ -50,6 +50,11 @@ func (h *Handler) receiveRunEvent(c echo.Context) error {
 	if err != nil {
 		return writeError(c, http.StatusBadGateway, "failed to persist event")
 	}
+	if h.eventProjector != nil {
+		if err := h.eventProjector.ApplyAppServerEvent(c.Request().Context(), event.RunID, event.EventType, event.Payload); err != nil {
+			return writeError(c, http.StatusBadGateway, "failed to update run status")
+		}
+	}
 	h.publisher.Publish(event)
 	return writeJSON(c, http.StatusAccepted, event)
 }

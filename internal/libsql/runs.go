@@ -41,6 +41,28 @@ func (r *Repository) SetRunStatus(ctx context.Context, runID, status, errorCode,
 	return err
 }
 
+func (r *Repository) ApplyAppServerEvent(ctx context.Context, runID, eventType, payload string) error {
+	status, ok := runs.StatusForEvent(eventType)
+	if !ok {
+		return nil
+	}
+	errorCode, errorMessage := "", ""
+	if status == runs.StatusFailed {
+		errorCode, errorMessage = eventType, payload
+	}
+	if err := r.SetRunStatus(ctx, runID, status, errorCode, errorMessage); err != nil {
+		return err
+	}
+	messageStatus := "running"
+	if status == runs.StatusCompleted {
+		messageStatus = "completed"
+	} else if status == runs.StatusFailed || status == runs.StatusInterrupted {
+		messageStatus = "failed"
+	}
+	_, err := r.client.Exec(ctx, `UPDATE messages SET status = ? WHERE id = (SELECT message_id FROM runs WHERE id = ?)`, []Value{Text(messageStatus), Text(runID)}, false)
+	return err
+}
+
 func (r *Repository) AppendEvent(ctx context.Context, runID, eventType, payload string) (runs.Event, error) {
 	now := time.Now().UTC()
 	event := runs.Event{ID: r.newID("event"), RunID: runID, EventType: eventType, Payload: payload, CreatedAt: now}
