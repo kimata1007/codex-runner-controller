@@ -15,6 +15,8 @@ var ErrNotFound = errors.New("resource not found")
 type ResourceClient interface {
 	GetPVC(context.Context, string, string) (*corev1.PersistentVolumeClaim, error)
 	CreatePVC(context.Context, *corev1.PersistentVolumeClaim) error
+	GetService(context.Context, string, string) (*corev1.Service, error)
+	CreateService(context.Context, *corev1.Service) error
 	GetPod(context.Context, string, string) (*corev1.Pod, error)
 	CreatePod(context.Context, *corev1.Pod) error
 	DeletePod(context.Context, string, string) error
@@ -55,6 +57,18 @@ func (r CodexSessionReconciler) Reconcile(ctx context.Context, namespace, name s
 		}
 	} else if err != nil {
 		return Result{}, fmt.Errorf("get pvc: %w", err)
+	}
+
+	service, err := r.Builder.BuildService(namespace, name, spec)
+	if err != nil {
+		return Result{}, err
+	}
+	if _, err := r.Client.GetService(ctx, namespace, name); errors.Is(err, ErrNotFound) {
+		if err := r.Client.CreateService(ctx, service); err != nil {
+			return Result{}, fmt.Errorf("create service: %w", err)
+		}
+	} else if err != nil {
+		return Result{}, fmt.Errorf("get service: %w", err)
 	}
 
 	pod, err := r.Client.GetPod(ctx, namespace, name)

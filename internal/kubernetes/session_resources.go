@@ -17,6 +17,7 @@ const (
 
 	DefaultVolumeName = "session-data"
 	DefaultMountPath  = "/var/lib/codex"
+	RunnerAgentPort   = 8081
 )
 
 type ResourceBuilder struct {
@@ -78,12 +79,13 @@ func (b ResourceBuilder) BuildPod(namespace, name string, spec v1alpha1.CodexSes
 				Name:    "runner-agent",
 				Image:   runnerImage,
 				Command: []string{"/runner-agent"},
+				Ports:   []corev1.ContainerPort{{Name: "http", ContainerPort: RunnerAgentPort}},
 				Env:     env,
 				VolumeMounts: []corev1.VolumeMount{{
 					Name: DefaultVolumeName, MountPath: DefaultMountPath,
 				}},
-				ReadinessProbe: &corev1.Probe{ProbeHandler: corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{Path: "/readyz", Port: intstr.FromInt(8080)}}},
-				LivenessProbe:  &corev1.Probe{ProbeHandler: corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{Path: "/healthz", Port: intstr.FromInt(8080)}}},
+				ReadinessProbe: &corev1.Probe{ProbeHandler: corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{Path: "/readyz", Port: intstr.FromInt(RunnerAgentPort)}}},
+				LivenessProbe:  &corev1.Probe{ProbeHandler: corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{Path: "/healthz", Port: intstr.FromInt(RunnerAgentPort)}}},
 				SecurityContext: &corev1.SecurityContext{
 					AllowPrivilegeEscalation: boolPtr(false),
 					ReadOnlyRootFilesystem:   boolPtr(true),
@@ -93,6 +95,19 @@ func (b ResourceBuilder) BuildPod(namespace, name string, spec v1alpha1.CodexSes
 			}},
 			SecurityContext: &corev1.PodSecurityContext{SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault}},
 			Volumes:         []corev1.Volume{{Name: DefaultVolumeName, VolumeSource: corev1.VolumeSource{PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: name}}}},
+		},
+	}, nil
+}
+
+func (b ResourceBuilder) BuildService(namespace, name string, spec v1alpha1.CodexSessionSpec) (*corev1.Service, error) {
+	if err := spec.Validate(); err != nil {
+		return nil, fmt.Errorf("build service: %w", err)
+	}
+	return &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace, Labels: sessionLabels(name)},
+		Spec: corev1.ServiceSpec{
+			Selector: sessionLabels(name),
+			Ports:    []corev1.ServicePort{{Name: "http", Port: RunnerAgentPort, TargetPort: intstr.FromInt(RunnerAgentPort)}},
 		},
 	}, nil
 }

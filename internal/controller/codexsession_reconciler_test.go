@@ -10,11 +10,13 @@ import (
 )
 
 type fakeResourceClient struct {
-	pvc        *corev1.PersistentVolumeClaim
-	pod        *corev1.Pod
-	createdPVC int
-	createdPod int
-	deletedPod int
+	pvc            *corev1.PersistentVolumeClaim
+	service        *corev1.Service
+	pod            *corev1.Pod
+	createdPVC     int
+	createdService int
+	createdPod     int
+	deletedPod     int
 }
 
 func (f *fakeResourceClient) GetPVC(context.Context, string, string) (*corev1.PersistentVolumeClaim, error) {
@@ -26,6 +28,17 @@ func (f *fakeResourceClient) GetPVC(context.Context, string, string) (*corev1.Pe
 func (f *fakeResourceClient) CreatePVC(_ context.Context, pvc *corev1.PersistentVolumeClaim) error {
 	f.pvc = pvc
 	f.createdPVC++
+	return nil
+}
+func (f *fakeResourceClient) GetService(context.Context, string, string) (*corev1.Service, error) {
+	if f.service == nil {
+		return nil, ErrNotFound
+	}
+	return f.service, nil
+}
+func (f *fakeResourceClient) CreateService(_ context.Context, service *corev1.Service) error {
+	f.service = service
+	f.createdService++
 	return nil
 }
 func (f *fakeResourceClient) GetPod(context.Context, string, string) (*corev1.Pod, error) {
@@ -61,16 +74,16 @@ func TestCodexSessionReconcilerCreatesResourcesThenReportsReady(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first reconcile: %v", err)
 	}
-	if result.Phase != v1alpha1.PhaseStarting || client.createdPVC != 1 || client.createdPod != 1 {
-		t.Fatalf("first reconcile = %+v, created pvc=%d pod=%d", result, client.createdPVC, client.createdPod)
+	if result.Phase != v1alpha1.PhaseStarting || client.createdPVC != 1 || client.createdService != 1 || client.createdPod != 1 {
+		t.Fatalf("first reconcile = %+v, created pvc=%d service=%d pod=%d", result, client.createdPVC, client.createdService, client.createdPod)
 	}
 	client.pod.Status.Conditions = []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}}
 	result, err = r.Reconcile(context.Background(), "codex-system", "session-1", reconcileSpec())
 	if err != nil {
 		t.Fatalf("second reconcile: %v", err)
 	}
-	if result.Phase != v1alpha1.PhaseReady || client.createdPVC != 1 || client.createdPod != 1 {
-		t.Fatalf("second reconcile = %+v, created pvc=%d pod=%d", result, client.createdPVC, client.createdPod)
+	if result.Phase != v1alpha1.PhaseReady || client.createdPVC != 1 || client.createdService != 1 || client.createdPod != 1 {
+		t.Fatalf("second reconcile = %+v, created pvc=%d service=%d pod=%d", result, client.createdPVC, client.createdService, client.createdPod)
 	}
 }
 

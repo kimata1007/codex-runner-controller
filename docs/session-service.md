@@ -1,0 +1,7 @@
+# セッションService
+
+アクティブな`CodexSession`ごとに、セッションと同じ名前のKubernetes `Service`を作成します。Serviceはsession labelでPodを選択し、runner-agentのHTTPポート`8081`を公開します。
+
+Serviceにより、ControllerがPodを再作成してもRunner APIは同じ接続先を使えます。セッションを停止するとPodは削除されますが、PVCとServiceは残ります。セッションを再開するまでServiceの接続先Podはなく、再作成されたPodは同じselectorに一致します。
+
+runner-agentのreadiness/liveness probeも、既定の待受ポート`:8081`を確認します。ポートはコンテナとServiceの両方に定義し、異なるポートを誤ってチェックしないようにします。
