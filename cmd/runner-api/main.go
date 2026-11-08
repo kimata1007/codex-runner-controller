@@ -14,6 +14,7 @@ import (
 	"github.com/kimata1007/codex-runner-controller/internal/agent"
 	"github.com/kimata1007/codex-runner-controller/internal/agentclient"
 	"github.com/kimata1007/codex-runner-controller/internal/conversation"
+	"github.com/kimata1007/codex-runner-controller/internal/events"
 	"github.com/kimata1007/codex-runner-controller/internal/libsql"
 	"github.com/kimata1007/codex-runner-controller/internal/memory"
 	"github.com/kimata1007/codex-runner-controller/internal/runnerapi"
@@ -36,10 +37,13 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	router := runnerapi.NewRouter(runnerapi.NewHandlerWithDispatcher(repository, dispatcher))
+	apiHandler := runnerapi.NewHandlerWithDispatcher(repository, dispatcher)
+	if eventStore, ok := repository.(runnerapi.RunEventStore); ok {
+		apiHandler = runnerapi.NewHandlerWithDispatcherAndEvents(repository, dispatcher, eventStore, events.NewBroker())
+	}
 	server := &http.Server{
 		Addr:              addr,
-		Handler:           router,
+		Handler:           runnerapi.NewRouter(apiHandler),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,
