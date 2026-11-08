@@ -108,7 +108,7 @@ func TestCodexSessionReconcilerSuspendedDeletesOnlyPod(t *testing.T) {
 
 func TestReconcilerDeletesIdlePodAndRetainsWorkspace(t *testing.T) {
 	client := &fakeResourceClient{}
-	r := CodexSessionReconciler{Client: client}
+	r := CodexSessionReconciler{Client: client, Builder: kubernetes.ResourceBuilder{RunnerImage: "runner:v1.0.0"}}
 	if _, err := r.Reconcile(context.Background(), "codex-system", "session-1", reconcileSpec()); err != nil {
 		t.Fatal(err)
 	}
@@ -128,7 +128,7 @@ func TestReconcilerRequeuesBeforeIdleDeadline(t *testing.T) {
 	status := v1alpha1.CodexSessionStatus{LastActivityAt: time.Now().UTC().Format(time.RFC3339Nano)}
 	spec := reconcileSpec()
 	spec.IdleTimeoutSeconds = 30
-	result, err := (CodexSessionReconciler{Client: &fakeResourceClient{}}).ReconcileStatus(context.Background(), "codex-system", "session-1", spec, status)
+	result, err := (CodexSessionReconciler{Client: &fakeResourceClient{}, Builder: kubernetes.ResourceBuilder{RunnerImage: "runner:v1.0.0"}}).ReconcileStatus(context.Background(), "codex-system", "session-1", spec, status)
 	if err != nil {
 		t.Fatalf("reconcile: %v", err)
 	}
