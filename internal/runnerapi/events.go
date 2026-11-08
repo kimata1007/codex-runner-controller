@@ -10,18 +10,20 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
-// RunEventStore persists runner-agent events before they are sent to live
-// subscribers, so clients can replay every published event after reconnecting.
+// RunEventStore persists App Server notifications that runner-agent associates
+// with a run. The stored runs.Event can then be replayed after reconnection.
 type RunEventStore interface {
 	AppendEvent(context.Context, string, string, string) (runs.Event, error)
 }
 
-// RunEventPublisher sends a persisted event to currently connected clients.
+// RunEventPublisher sends a persisted run event to connected stream subscribers.
 type RunEventPublisher interface {
 	Publish(runs.Event)
 }
 
-type runEventRequest struct {
+// appServerRunEventRequest is the HTTP representation of an AppServerRunEvent:
+// eventType contains the JSON-RPC notification method, and payload its params.
+type appServerRunEventRequest struct {
 	EventType string          `json:"eventType"`
 	Payload   json.RawMessage `json:"payload"`
 }
@@ -31,7 +33,7 @@ func (h *Handler) receiveRunEvent(c echo.Context) error {
 		return writeError(c, http.StatusServiceUnavailable, "event receiver is not configured")
 	}
 
-	var request runEventRequest
+	var request appServerRunEventRequest
 	if err := decodeJSON(c, &request); err != nil {
 		return err
 	}
