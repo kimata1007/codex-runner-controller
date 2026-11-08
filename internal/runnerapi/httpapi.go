@@ -17,12 +17,13 @@ import (
 const maxRequestBodyBytes = 1 << 20
 
 type Handler struct {
-	repository conversation.Repository
-	dispatcher MessageDispatcher
-	activator  SessionActivator
-	activity   SessionActivityRecorder
-	eventStore RunEventStore
-	publisher  RunEventPublisher
+	repository  conversation.Repository
+	statusStore MessageStatusStore
+	dispatcher  MessageDispatcher
+	activator   SessionActivator
+	activity    SessionActivityRecorder
+	eventStore  RunEventStore
+	publisher   RunEventPublisher
 }
 
 func NewHandler(repository conversation.Repository) *Handler {
@@ -31,6 +32,10 @@ func NewHandler(repository conversation.Repository) *Handler {
 
 type MessageDispatcher interface {
 	Dispatch(context.Context, string, string, string, string) (runs.Run, error)
+}
+
+type MessageStatusStore interface {
+	SetMessageStatus(context.Context, string, string) error
 }
 
 // SessionActivator makes a conversation's runner-agent reachable before its
@@ -44,11 +49,11 @@ type SessionActivityRecorder interface {
 }
 
 func NewHandlerWithDispatcher(repository conversation.Repository, dispatcher MessageDispatcher) *Handler {
-	return &Handler{repository: repository, dispatcher: dispatcher}
+	return &Handler{repository: repository, statusStore: messageStatusStore(repository), dispatcher: dispatcher}
 }
 
 func NewHandlerWithDispatcherAndEvents(repository conversation.Repository, dispatcher MessageDispatcher, eventStore RunEventStore, publisher RunEventPublisher) *Handler {
-	return &Handler{repository: repository, dispatcher: dispatcher, eventStore: eventStore, publisher: publisher}
+	return &Handler{repository: repository, statusStore: messageStatusStore(repository), dispatcher: dispatcher, eventStore: eventStore, publisher: publisher}
 }
 
 func NewHandlerWithDispatcherEventsAndActivator(repository conversation.Repository, dispatcher MessageDispatcher, eventStore RunEventStore, publisher RunEventPublisher, activator SessionActivator) *Handler {
@@ -56,7 +61,12 @@ func NewHandlerWithDispatcherEventsAndActivator(repository conversation.Reposito
 	if recorder, ok := activator.(SessionActivityRecorder); ok {
 		activity = recorder
 	}
-	return &Handler{repository: repository, dispatcher: dispatcher, eventStore: eventStore, publisher: publisher, activator: activator, activity: activity}
+	return &Handler{repository: repository, statusStore: messageStatusStore(repository), dispatcher: dispatcher, eventStore: eventStore, publisher: publisher, activator: activator, activity: activity}
+}
+
+func messageStatusStore(repository conversation.Repository) MessageStatusStore {
+	store, _ := repository.(MessageStatusStore)
+	return store
 }
 
 func NewRouter(handler *Handler) *echo.Echo {
@@ -124,21 +134,32 @@ func (h *Handler) createMessage(c echo.Context) error {
 	if err != nil {
 		return writeRepositoryError(c, err)
 	}
-	if created && h.activator != nil {
+	dispatchable := created || message.Status == "queued"
+	if dispatchable && h.dispatcher != nil && h.statusStore != nil {
+		if err := h.statusStore.SetMessageStatus(c.Request().Context(), message.ID, "running"); err != nil {
+			return writeError(c, http.StatusInternalServerError, "failed to mark message running")
+		}
+		message.Status = "running"
+	}
+	if dispatchable && h.activator != nil {
 		if err := h.activator.Activate(c.Request().Context(), message.ConversationID); err != nil {
+			h.resetQueuedMessage(c, message.ID)
 			return writeError(c, http.StatusServiceUnavailable, "failed to activate session")
 		}
 	}
-	if created && h.activity != nil {
+	if dispatchable && h.activity != nil {
 		if err := h.activity.Touch(c.Request().Context(), message.ConversationID, time.Now().UTC()); err != nil {
+			h.resetQueuedMessage(c, message.ID)
 			return writeError(c, http.StatusServiceUnavailable, "failed to record session activity")
 		}
 	}
-	if created && h.dispatcher != nil {
+	if dispatchable && h.dispatcher != nil {
 		run, err := h.dispatcher.Dispatch(c.Request().Context(), message.ConversationID, message.ID, request.ThreadID, message.Content)
 		if err != nil {
+			h.resetQueuedMessage(c, message.ID)
 			return writeError(c, http.StatusBadGateway, "failed to start run")
 		}
+		message.Status = "running"
 		return writeJSON(c, http.StatusAccepted, map[string]any{
 			"message": messageResponseFrom(message),
 			"run":     run,
@@ -149,6 +170,12 @@ func (h *Handler) createMessage(c echo.Context) error {
 		status = http.StatusAccepted
 	}
 	return writeJSON(c, status, messageResponseFrom(message))
+}
+
+func (h *Handler) resetQueuedMessage(c echo.Context, messageID string) {
+	if h.statusStore != nil {
+		_ = h.statusStore.SetMessageStatus(c.Request().Context(), messageID, "queued")
+	}
 }
 
 type createMessageRequest struct {

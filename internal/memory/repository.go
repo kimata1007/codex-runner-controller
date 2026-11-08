@@ -108,6 +108,24 @@ func (r *Repository) CreateMessage(ctx context.Context, id string, input convers
 	return message, true, nil
 }
 
+func (r *Repository) SetMessageStatus(ctx context.Context, id, status string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, value := range r.conversations {
+		for index := range value.Messages {
+			if value.Messages[index].ID == id {
+				value.Messages[index].Status = status
+				value.UpdatedAt = time.Now().UTC()
+				return nil
+			}
+		}
+	}
+	return fmt.Errorf("message %q not found", id)
+}
+
 func (r *Repository) newID(prefix string) string {
 	sequence := atomic.AddUint64(&r.sequence, 1)
 	return fmt.Sprintf("%s-%d", prefix, sequence)

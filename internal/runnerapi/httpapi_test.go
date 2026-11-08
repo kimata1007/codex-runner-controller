@@ -11,6 +11,7 @@ import (
 
 	"github.com/kimata1007/codex-runner-controller/internal/conversation"
 	"github.com/kimata1007/codex-runner-controller/internal/memory"
+	"github.com/kimata1007/codex-runner-controller/internal/runs"
 )
 
 func TestHealth(t *testing.T) {
@@ -120,6 +121,36 @@ func TestCreateMessageReturnsUnavailableWhenSessionActivationFails(t *testing.T)
 	if response.Code != http.StatusServiceUnavailable {
 		t.Fatalf("message status = %d, want %d", response.Code, http.StatusServiceUnavailable)
 	}
+}
+
+func TestCreateMessageRetryDoesNotStartDuplicateRun(t *testing.T) {
+	repository := memory.NewRepository()
+	dispatcher := &countingDispatcher{}
+	router := NewRouter(NewHandlerWithDispatcher(repository, dispatcher))
+	conversationRecorder := serveJSON(t, router, http.MethodPost, "/v1/conversations", "")
+	var value conversationResponse
+	decodeResponse(t, conversationRecorder, &value)
+	path := "/v1/conversations/" + value.ID + "/messages"
+	requestBody := `{"content":"hello","clientMessageId":"client-1"}`
+	first := serveJSON(t, router, http.MethodPost, path, requestBody)
+	second := serveJSON(t, router, http.MethodPost, path, requestBody)
+	if first.Code != http.StatusAccepted || second.Code != http.StatusOK {
+		t.Fatalf("statuses = %d, %d; want %d, %d", first.Code, second.Code, http.StatusAccepted, http.StatusOK)
+	}
+	if dispatcher.calls != 1 {
+		t.Fatalf("dispatch calls = %d, want 1", dispatcher.calls)
+	}
+	messages, err := repository.ListMessages(context.Background(), value.ID)
+	if err != nil || len(messages) != 1 || messages[0].Status != "running" {
+		t.Fatalf("messages = %+v, err = %v", messages, err)
+	}
+}
+
+type countingDispatcher struct{ calls int }
+
+func (d *countingDispatcher) Dispatch(_ context.Context, conversationID, messageID, threadID, text string) (runs.Run, error) {
+	d.calls++
+	return runs.Run{ID: "run-1", ConversationID: conversationID, MessageID: messageID, ThreadID: "thread-1", Status: runs.StatusRunning}, nil
 }
 
 type fakeSessionActivator struct {
