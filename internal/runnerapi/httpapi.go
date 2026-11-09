@@ -47,8 +47,8 @@ func NewHandlerWithDispatcherAndEvents(repository conversation.Repository, dispa
 	return &Handler{repository: repository, dispatcher: dispatcher, eventStore: eventStore, eventHub: eventHub}
 }
 
-func NewHandlerWithDispatcherEventsAndActivator(repository conversation.Repository, dispatcher MessageDispatcher, eventStore RunEventStore, publisher RunEventPublisher, activator SessionActivator) *Handler {
-	return &Handler{repository: repository, dispatcher: dispatcher, eventStore: eventStore, publisher: publisher, activator: activator}
+func NewHandlerWithDispatcherEventsAndActivator(repository conversation.Repository, dispatcher MessageDispatcher, eventStore RunEventStore, eventHub RunEventHub, activator SessionActivator) *Handler {
+	return &Handler{repository: repository, dispatcher: dispatcher, eventStore: eventStore, eventHub: eventHub, activator: activator}
 }
 
 func NewRouter(handler *Handler) *echo.Echo {
