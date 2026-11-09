@@ -21,7 +21,7 @@ func TestRunClientFactoryResolvesConversationEndpoint(t *testing.T) {
 			t.Errorf("decode thread request: %v", err)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"thread":{"id":"thread-1"}}`))
+		_, _ = w.Write([]byte(`{"id":"thread-1"}`))
 	}))
 	defer server.Close()
 
