@@ -25,8 +25,24 @@ type Handler struct {
 	eventHub   RunEventHub
 }
 
-func NewHandler(repository conversation.Repository) *Handler {
-	return NewHandlerWithDispatcher(repository, nil)
+// HandlerDependencies groups the optional collaborators used by the HTTP API.
+// Keeping the constructor stable avoids encoding every new dependency in its name.
+type HandlerDependencies struct {
+	Repository conversation.Repository
+	Dispatcher MessageDispatcher
+	Activator  SessionActivator
+	EventStore RunEventStore
+	EventHub   RunEventHub
+}
+
+func NewHandler(dependencies HandlerDependencies) *Handler {
+	return &Handler{
+		repository: dependencies.Repository,
+		dispatcher: dependencies.Dispatcher,
+		activator:  dependencies.Activator,
+		eventStore: dependencies.EventStore,
+		eventHub:   dependencies.EventHub,
+	}
 }
 
 type MessageDispatcher interface {
@@ -37,18 +53,6 @@ type MessageDispatcher interface {
 // first turn is dispatched.
 type SessionActivator interface {
 	Activate(context.Context, string) error
-}
-
-func NewHandlerWithDispatcher(repository conversation.Repository, dispatcher MessageDispatcher) *Handler {
-	return &Handler{repository: repository, dispatcher: dispatcher}
-}
-
-func NewHandlerWithDispatcherAndEvents(repository conversation.Repository, dispatcher MessageDispatcher, eventStore RunEventStore, eventHub RunEventHub) *Handler {
-	return &Handler{repository: repository, dispatcher: dispatcher, eventStore: eventStore, eventHub: eventHub}
-}
-
-func NewHandlerWithDispatcherEventsAndActivator(repository conversation.Repository, dispatcher MessageDispatcher, eventStore RunEventStore, eventHub RunEventHub, activator SessionActivator) *Handler {
-	return &Handler{repository: repository, dispatcher: dispatcher, eventStore: eventStore, eventHub: eventHub, activator: activator}
 }
 
 func NewRouter(handler *Handler) *echo.Echo {
@@ -157,18 +161,37 @@ func (h *Handler) createMessage(c echo.Context) error {
 	if request.Content == "" {
 		return writeError(c, http.StatusBadRequest, "content is required")
 	}
+	conversationID := c.Param("id")
+	if h.activator != nil {
+		if _, err := h.repository.GetConversation(c.Request().Context(), conversationID); err != nil {
+			return writeRepositoryError(c, err)
+		}
+		isDuplicate := false
+		if request.ClientMessageID != "" {
+			messages, err := h.repository.ListMessages(c.Request().Context(), conversationID)
+			if err != nil {
+				return writeRepositoryError(c, err)
+			}
+			for _, existing := range messages {
+				if existing.ClientMessageID == request.ClientMessageID {
+					isDuplicate = true
+					break
+				}
+			}
+		}
+		if !isDuplicate {
+			if err := h.activator.Activate(c.Request().Context(), conversationID); err != nil {
+				return writeError(c, http.StatusServiceUnavailable, "failed to activate session")
+			}
+		}
+	}
 
-	message, created, err := h.repository.CreateMessage(c.Request().Context(), c.Param("id"), conversation.NewMessage{
+	message, created, err := h.repository.CreateMessage(c.Request().Context(), conversationID, conversation.NewMessage{
 		Content:         request.Content,
 		ClientMessageID: request.ClientMessageID,
 	})
 	if err != nil {
 		return writeRepositoryError(c, err)
-	}
-	if created && h.activator != nil {
-		if err := h.activator.Activate(c.Request().Context(), message.ConversationID); err != nil {
-			return writeError(c, http.StatusServiceUnavailable, "failed to activate session")
-		}
 	}
 	if created && h.dispatcher != nil {
 		run, err := h.dispatcher.Dispatch(c.Request().Context(), message.ConversationID, message.ID, request.ThreadID, message.Content)

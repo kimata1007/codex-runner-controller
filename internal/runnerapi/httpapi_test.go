@@ -98,7 +98,7 @@ func TestCreateConversationAndMessage(t *testing.T) {
 
 func TestCreateMessageActivatesSessionBeforeRun(t *testing.T) {
 	activator := &fakeSessionActivator{}
-	router := NewRouter(NewHandlerWithDispatcherEventsAndActivator(memory.NewRepository(), nil, nil, nil, activator))
+	router := NewRouter(NewHandler(HandlerDependencies{Repository: memory.NewRepository(), Activator: activator}))
 	conversationRecorder := serveJSON(t, router, http.MethodPost, "/v1/conversations", "")
 	var value conversationResponse
 	decodeResponse(t, conversationRecorder, &value)
@@ -114,7 +114,8 @@ func TestCreateMessageActivatesSessionBeforeRun(t *testing.T) {
 
 func TestCreateMessageReturnsUnavailableWhenSessionActivationFails(t *testing.T) {
 	activator := &fakeSessionActivator{err: errors.New("activation failed")}
-	router := NewRouter(NewHandlerWithDispatcherEventsAndActivator(memory.NewRepository(), nil, nil, nil, activator))
+	repository := memory.NewRepository()
+	router := NewRouter(NewHandler(HandlerDependencies{Repository: repository, Activator: activator}))
 	conversationRecorder := serveJSON(t, router, http.MethodPost, "/v1/conversations", "")
 	var value conversationResponse
 	decodeResponse(t, conversationRecorder, &value)
@@ -143,7 +144,7 @@ func TestMissingConversationReturnsNotFound(t *testing.T) {
 }
 
 func TestRepositoryFailureReturnsInternalServerError(t *testing.T) {
-	router := NewRouter(NewHandler(failingRepository{}))
+	router := NewRouter(NewHandler(HandlerDependencies{Repository: failingRepository{}}))
 	response := serveJSON(t, router, http.MethodPost, "/v1/conversations", "")
 	if response.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want %d", response.Code, http.StatusInternalServerError)
@@ -179,7 +180,7 @@ func (p *fakeRunEventPublisher) Publish(event runs.Event) {
 func TestReceiveAppServerRunEventPersistsAndPublishes(t *testing.T) {
 	store := &fakeRunEventStore{}
 	publisher := &fakeRunEventPublisher{Broker: events.NewBroker()}
-	handler := NewHandlerWithDispatcherAndEvents(memory.NewRepository(), nil, store, publisher)
+	handler := NewHandler(HandlerDependencies{Repository: memory.NewRepository(), EventStore: store, EventHub: publisher})
 	request := httptest.NewRequest(http.MethodPost, "/internal/runs/run-1/events", strings.NewReader(`{"eventType":"item/updated","payload":{"text":"done"}}`))
 	request.Header.Set("Content-Type", "application/json")
 	recorder := httptest.NewRecorder()
@@ -204,7 +205,7 @@ func TestReceiveAppServerRunEventPersistsAndPublishes(t *testing.T) {
 }
 
 func TestReceiveAppServerRunEventRequiresEventType(t *testing.T) {
-	handler := NewHandlerWithDispatcherAndEvents(memory.NewRepository(), nil, &fakeRunEventStore{}, &fakeRunEventPublisher{Broker: events.NewBroker()})
+	handler := NewHandler(HandlerDependencies{Repository: memory.NewRepository(), EventStore: &fakeRunEventStore{}, EventHub: &fakeRunEventPublisher{Broker: events.NewBroker()}})
 	request := httptest.NewRequest(http.MethodPost, "/internal/runs/run-1/events", strings.NewReader(`{"payload":{}}`))
 	recorder := httptest.NewRecorder()
 
@@ -233,7 +234,7 @@ func (failingRepository) CreateMessage(context.Context, string, conversation.New
 }
 
 func newTestRouter() http.Handler {
-	return NewRouter(NewHandler(memory.NewRepository()))
+	return NewRouter(NewHandler(HandlerDependencies{Repository: memory.NewRepository()}))
 }
 
 func serveJSON(t *testing.T, handler http.Handler, method, path, body string) *httptest.ResponseRecorder {

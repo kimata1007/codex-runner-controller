@@ -109,7 +109,7 @@ func TestRouterWiresEventIngestAndSSE(t *testing.T) {
 	if !ok {
 		t.Fatal("test repository does not implement run event storage")
 	}
-	handler := runnerapi.NewHandlerWithDispatcherAndEvents(repository, nil, eventStore, events.NewBroker())
+	handler := runnerapi.NewHandler(runnerapi.HandlerDependencies{Repository: repository, EventStore: eventStore, EventHub: events.NewBroker()})
 	router := runnerapi.NewRouter(handler)
 
 	request := httptest.NewRequest(http.MethodPost, "/internal/runs/run-1/events", strings.NewReader(`{"eventType":"delta","payload":{"text":"hi"}}`))

@@ -19,6 +19,10 @@ import (
 	"github.com/kimata1007/codex-runner-controller/internal/memory"
 	"github.com/kimata1007/codex-runner-controller/internal/runnerapi"
 	"github.com/kimata1007/codex-runner-controller/internal/runs"
+	sessionruntime "github.com/kimata1007/codex-runner-controller/internal/session"
+	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/config"
 )
 
 func main() {
@@ -33,20 +37,22 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	dispatcher, err := messageDispatcherFromEnvironment(repository)
+	dispatcher, activator, err := runtimeFromEnvironment(repository)
 	if err != nil {
 		log.Fatal(err)
 	}
-	apiHandler := runnerapi.NewHandlerWithDispatcher(repository, dispatcher)
+	dependencies := runnerapi.HandlerDependencies{Repository: repository, Dispatcher: dispatcher, Activator: activator}
 	if eventStore, ok := repository.(runnerapi.RunEventStore); ok {
-		apiHandler = runnerapi.NewHandlerWithDispatcherAndEvents(repository, dispatcher, eventStore, events.NewBroker())
+		dependencies.EventStore = eventStore
+		dependencies.EventHub = events.NewBroker()
 	}
+	apiHandler := runnerapi.NewHandler(dependencies)
 	server := &http.Server{
 		Addr:              addr,
 		Handler:           runnerapi.NewRouter(apiHandler),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
-		WriteTimeout:      30 * time.Second,
+		WriteTimeout:      5 * time.Minute,
 		IdleTimeout:       60 * time.Second,
 	}
 
@@ -68,23 +74,56 @@ func main() {
 	}
 }
 
-func messageDispatcherFromEnvironment(repository conversation.Repository) (runnerapi.MessageDispatcher, error) {
+func runtimeFromEnvironment(repository conversation.Repository) (runnerapi.MessageDispatcher, runnerapi.SessionActivator, error) {
 	agentURL := os.Getenv("RUNNER_AGENT_URL")
-	if agentURL == "" {
-		return nil, nil
-	}
 	runStore, ok := repository.(runs.Store)
 	if !ok {
-		return nil, errors.New("RUNNER_AGENT_URL requires a run-capable libSQL repository")
+		if agentURL != "" {
+			return nil, nil, errors.New("RUNNER_AGENT_URL requires a run-capable libSQL repository")
+		}
+		return nil, nil, nil
 	}
 	params := agent.ThreadStartParams{
 		Model:          os.Getenv("CODEX_MODEL"),
 		CWD:            os.Getenv("CODEX_CWD"),
 		ApprovalPolicy: os.Getenv("CODEX_APPROVAL_POLICY"),
 	}
-	resolver := agentclient.StaticEndpointResolver{URL: agentURL}
+	if params.ApprovalPolicy == "" {
+		params.ApprovalPolicy = sessionruntime.DefaultApprovalPolicy
+	}
+	var resolver agentclient.EndpointResolver
+	var activator runnerapi.SessionActivator
+	if agentURL != "" {
+		resolver = agentclient.StaticEndpointResolver{URL: agentURL}
+	} else {
+		namespace := os.Getenv("RUNNER_SESSION_NAMESPACE")
+		if namespace == "" {
+			namespace = sessionruntime.DefaultNamespace
+		}
+		kubeScheme := runtime.NewScheme()
+		if err := sessionruntime.AddToScheme(kubeScheme); err != nil {
+			return nil, nil, fmt.Errorf("register Kubernetes types: %w", err)
+		}
+		kubeConfig, err := config.GetConfig()
+		if err != nil {
+			return nil, nil, fmt.Errorf("load Kubernetes configuration for session activation: %w", err)
+		}
+		kubeClient, err := client.New(kubeConfig, client.Options{Scheme: kubeScheme})
+		if err != nil {
+			return nil, nil, fmt.Errorf("create Kubernetes client for session activation: %w", err)
+		}
+		activator = &sessionruntime.Activator{
+			Client:           kubeClient,
+			Namespace:        namespace,
+			SessionDataSize:  os.Getenv("RUNNER_SESSION_DATA_SIZE"),
+			StorageClassName: os.Getenv("RUNNER_SESSION_STORAGE_CLASS"),
+			Model:            params.Model,
+			ApprovalPolicy:   params.ApprovalPolicy,
+		}
+		resolver = agentclient.ServiceEndpointResolver{Namespace: namespace}
+	}
 	factory := agentclient.NewRunClientFactory(resolver, params)
-	return runs.NewMessageDispatcherWithFactory(runStore, factory), nil
+	return runs.NewMessageDispatcherWithFactory(runStore, factory), activator, nil
 }
 
 func repositoryFromEnvironment(ctx context.Context) (conversation.Repository, error) {
