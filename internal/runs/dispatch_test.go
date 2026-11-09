@@ -16,6 +16,16 @@ type fakeThreadClient struct {
 	turnErr   error
 }
 
+type fakeThreadClientFactory struct {
+	client ThreadClient
+	seen   string
+}
+
+func (f *fakeThreadClientFactory) CreateClientForConversation(_ context.Context, conversationID string) (ThreadClient, error) {
+	f.seen = conversationID
+	return f.client, nil
+}
+
 func (f *fakeThreadClient) StartThread(context.Context) (string, error) {
 	f.started = true
 	return "thread-new", f.startErr
@@ -64,6 +74,18 @@ func TestMessageDispatcherStartsNewThreadAndSendsTurn(t *testing.T) {
 	}
 	if strings.Join(store.statuses, ",") != StatusRunning {
 		t.Fatalf("statuses = %v", store.statuses)
+	}
+}
+
+func TestMessageDispatcherSelectsClientByConversation(t *testing.T) {
+	client := &fakeThreadClient{}
+	factory := &fakeThreadClientFactory{client: client}
+	store := &fakeRunStore{}
+	if _, err := NewMessageDispatcherWithFactory(store, factory).Dispatch(context.Background(), "conversation-1", "message-1", "", "hello"); err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+	if factory.seen != "conversation-1" {
+		t.Fatalf("conversation = %q", factory.seen)
 	}
 }
 
