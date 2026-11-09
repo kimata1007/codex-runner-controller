@@ -21,7 +21,7 @@ type fakeThreadClientFactory struct {
 	seen   string
 }
 
-func (f *fakeThreadClientFactory) ClientFor(_ context.Context, conversationID string) (ThreadClient, error) {
+func (f *fakeThreadClientFactory) CreateClientForConversation(_ context.Context, conversationID string) (ThreadClient, error) {
 	f.seen = conversationID
 	return f.client, nil
 }

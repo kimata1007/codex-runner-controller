@@ -15,7 +15,7 @@ type ThreadClient interface {
 
 // ThreadClientFactory selects the runner-agent client for a conversation.
 type ThreadClientFactory interface {
-	ClientFor(context.Context, string) (ThreadClient, error)
+	CreateClientForConversation(context.Context, string) (ThreadClient, error)
 }
 
 // Store persists the run lifecycle. Event persistence is handled by the App
@@ -56,7 +56,7 @@ func (d *MessageDispatcher) Dispatch(ctx context.Context, conversationID, messag
 		return Run{}, fmt.Errorf("message dispatcher: text is required")
 	}
 
-	client, err := d.factory.ClientFor(ctx, conversationID)
+	client, err := d.factory.CreateClientForConversation(ctx, conversationID)
 	if err != nil {
 		return Run{}, fmt.Errorf("message dispatcher: select session client: %w", err)
 	}
@@ -116,7 +116,7 @@ func (d *MessageDispatcher) sendTurn(ctx context.Context, client ThreadClient, r
 
 type staticClientFactory struct{ client ThreadClient }
 
-func (f staticClientFactory) ClientFor(context.Context, string) (ThreadClient, error) {
+func (f staticClientFactory) CreateClientForConversation(context.Context, string) (ThreadClient, error) {
 	if f.client == nil {
 		return nil, fmt.Errorf("static session client is required")
 	}

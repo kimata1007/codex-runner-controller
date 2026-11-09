@@ -26,7 +26,7 @@ func TestRunClientFactoryResolvesConversationEndpoint(t *testing.T) {
 	defer server.Close()
 
 	factory := NewRunClientFactory(StaticEndpointResolver{URL: server.URL}, agent.ThreadStartParams{})
-	client, err := factory.ClientFor(context.Background(), "conversation-1")
+	client, err := factory.CreateClientForConversation(context.Background(), "conversation-1")
 	if err != nil {
 		t.Fatalf("client: %v", err)
 	}

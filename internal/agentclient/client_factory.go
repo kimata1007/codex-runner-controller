@@ -46,7 +46,7 @@ func (f *RunClientFactory) WithHTTPClient(client *http.Client) *RunClientFactory
 	return f
 }
 
-func (f *RunClientFactory) ClientFor(ctx context.Context, conversationID string) (runs.ThreadClient, error) {
+func (f *RunClientFactory) CreateClientForConversation(ctx context.Context, conversationID string) (runs.ThreadClient, error) {
 	if f == nil || f.resolver == nil {
 		return nil, fmt.Errorf("runner-agent endpoint resolver is required")
 	}
