@@ -14,6 +14,7 @@ import (
 	"github.com/kimata1007/codex-runner-controller/internal/events"
 	"github.com/kimata1007/codex-runner-controller/internal/memory"
 	"github.com/kimata1007/codex-runner-controller/internal/runs"
+	"github.com/kimata1007/codex-runner-controller/internal/session"
 )
 
 func TestHealth(t *testing.T) {
@@ -131,8 +132,8 @@ type fakeSessionActivator struct {
 	err            error
 }
 
-func (f *fakeSessionActivator) Activate(_ context.Context, conversationID string) error {
-	f.conversationID = conversationID
+func (f *fakeSessionActivator) Activate(_ context.Context, activation session.Activation) error {
+	f.conversationID = activation.ConversationID
 	return f.err
 }
 
