@@ -12,6 +12,7 @@ import (
 	"github.com/kimata1007/codex-runner-controller/internal/conversation"
 	"github.com/kimata1007/codex-runner-controller/internal/events"
 	"github.com/kimata1007/codex-runner-controller/internal/runs"
+	"github.com/kimata1007/codex-runner-controller/internal/session"
 	"github.com/labstack/echo/v4"
 )
 
@@ -20,7 +21,7 @@ const maxRequestBodyBytes = 1 << 20
 type Handler struct {
 	repository conversation.Repository
 	dispatcher MessageDispatcher
-	activator  SessionActivator
+	activator  session.Activator
 	eventStore RunEventStore
 	eventHub   RunEventHub
 }
@@ -30,7 +31,7 @@ type Handler struct {
 type HandlerDependencies struct {
 	Repository conversation.Repository
 	Dispatcher MessageDispatcher
-	Activator  SessionActivator
+	Activator  session.Activator
 	EventStore RunEventStore
 	EventHub   RunEventHub
 }
@@ -47,12 +48,6 @@ func NewHandler(dependencies HandlerDependencies) *Handler {
 
 type MessageDispatcher interface {
 	Dispatch(context.Context, string, string, string, string) (runs.Run, error)
-}
-
-// SessionActivator makes a conversation's runner-agent reachable before its
-// first turn is dispatched.
-type SessionActivator interface {
-	Activate(context.Context, string) error
 }
 
 func NewRouter(handler *Handler) *echo.Echo {
@@ -180,7 +175,7 @@ func (h *Handler) createMessage(c echo.Context) error {
 			}
 		}
 		if !isDuplicate {
-			if err := h.activator.Activate(c.Request().Context(), conversationID); err != nil {
+			if err := h.activator.Activate(c.Request().Context(), session.Activation{ConversationID: conversationID}); err != nil {
 				return writeError(c, http.StatusServiceUnavailable, "failed to activate session")
 			}
 		}

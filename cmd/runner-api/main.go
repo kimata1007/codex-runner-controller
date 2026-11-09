@@ -15,11 +15,12 @@ import (
 	"github.com/kimata1007/codex-runner-controller/internal/agentclient"
 	"github.com/kimata1007/codex-runner-controller/internal/conversation"
 	"github.com/kimata1007/codex-runner-controller/internal/events"
+	"github.com/kimata1007/codex-runner-controller/internal/kubernetes"
 	"github.com/kimata1007/codex-runner-controller/internal/libsql"
 	"github.com/kimata1007/codex-runner-controller/internal/memory"
 	"github.com/kimata1007/codex-runner-controller/internal/runnerapi"
 	"github.com/kimata1007/codex-runner-controller/internal/runs"
-	sessionruntime "github.com/kimata1007/codex-runner-controller/internal/session"
+	"github.com/kimata1007/codex-runner-controller/internal/session"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
@@ -74,7 +75,7 @@ func main() {
 	}
 }
 
-func runtimeFromEnvironment(repository conversation.Repository) (runnerapi.MessageDispatcher, runnerapi.SessionActivator, error) {
+func runtimeFromEnvironment(repository conversation.Repository) (runnerapi.MessageDispatcher, session.Activator, error) {
 	agentURL := os.Getenv("RUNNER_AGENT_URL")
 	runStore, ok := repository.(runs.Store)
 	if !ok {
@@ -89,19 +90,19 @@ func runtimeFromEnvironment(repository conversation.Repository) (runnerapi.Messa
 		ApprovalPolicy: os.Getenv("CODEX_APPROVAL_POLICY"),
 	}
 	if params.ApprovalPolicy == "" {
-		params.ApprovalPolicy = sessionruntime.DefaultApprovalPolicy
+		params.ApprovalPolicy = kubernetes.DefaultApprovalPolicy
 	}
 	var resolver agentclient.EndpointResolver
-	var activator runnerapi.SessionActivator
+	var activator session.Activator
 	if agentURL != "" {
 		resolver = agentclient.StaticEndpointResolver{URL: agentURL}
 	} else {
 		namespace := os.Getenv("RUNNER_SESSION_NAMESPACE")
 		if namespace == "" {
-			namespace = sessionruntime.DefaultNamespace
+			namespace = kubernetes.DefaultSessionNamespace
 		}
 		kubeScheme := runtime.NewScheme()
-		if err := sessionruntime.AddToScheme(kubeScheme); err != nil {
+		if err := kubernetes.AddToScheme(kubeScheme); err != nil {
 			return nil, nil, fmt.Errorf("register Kubernetes types: %w", err)
 		}
 		kubeConfig, err := config.GetConfig()
@@ -112,7 +113,7 @@ func runtimeFromEnvironment(repository conversation.Repository) (runnerapi.Messa
 		if err != nil {
 			return nil, nil, fmt.Errorf("create Kubernetes client for session activation: %w", err)
 		}
-		activator = &sessionruntime.Activator{
+		activator = &kubernetes.SessionActivator{
 			Client:           kubeClient,
 			Namespace:        namespace,
 			SessionDataSize:  os.Getenv("RUNNER_SESSION_DATA_SIZE"),
@@ -120,7 +121,7 @@ func runtimeFromEnvironment(repository conversation.Repository) (runnerapi.Messa
 			Model:            params.Model,
 			ApprovalPolicy:   params.ApprovalPolicy,
 		}
-		resolver = agentclient.ServiceEndpointResolver{Namespace: namespace}
+		resolver = kubernetes.SessionEndpointResolver{Namespace: namespace}
 	}
 	factory := agentclient.NewRunClientFactory(resolver, params)
 	return runs.NewMessageDispatcherWithFactory(runStore, factory), activator, nil

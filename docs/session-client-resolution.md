@@ -8,13 +8,13 @@
 
 ## 現在の実装
 
-`RUNNER_AGENT_URL`が設定されていれば`StaticEndpointResolver`を使う開発用の単一Agent経路になります。空の場合は、Runner APIが`CodexSession`のReadyを確認してから`ServiceEndpointResolver`で会話IDと同名のServiceを選びます。Kubernetes ServiceのDNS名は`<conversation-id>.<namespace>.svc:8081`です。
+`RUNNER_AGENT_URL`が設定されていれば`StaticEndpointResolver`を使う開発用の単一Agent経路になります。空の場合は、Runner APIが`CodexSession`のReadyを確認してから`kubernetes.SessionEndpointResolver`で会話IDをDNSラベルに変換し、対応するServiceを選びます。Kubernetes ServiceのDNS名は`<session-name>.<namespace>.svc:8081`です。
 
 ```text
 message API
   -> runs.MessageDispatcher(conversationID)
   -> ThreadClientFactory
-  -> EndpointResolver(conversationID)
+  -> kubernetes.SessionEndpointResolver(conversationID)
   -> runner-agent Service
 ```
 
@@ -22,4 +22,4 @@ Runner APIはApp Serverを起動しません。App Serverのプロセスとス�
 
 ## なぜFactoryを先に置くか
 
-Podの作成・起動待ちとService DNS解決は別々の責務です。`SessionActivator`がCodexSessionのReadyを待ち、`EndpointResolver`が会話IDから安定したService URLを返します。FactoryはURLをrunner-agent HTTP adapterへ接続し、dispatcherからHTTP詳細を隠します。
+Podの作成・起動待ちとService DNS解決は別々の責務です。`session.Activator`で定義した境界を`kubernetes.SessionActivator`が実装してCodexSessionのReadyを待ち、`kubernetes.SessionEndpointResolver`が会話IDから安定したService URLを返します。`agentclient.RunClientFactory`はURLをrunner-agent HTTP adapterへ接続し、dispatcherからHTTP詳細を隠します。
