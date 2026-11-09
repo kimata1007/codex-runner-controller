@@ -1,0 +1,14 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: runner-api-session-activator
+  namespace: codex-system
+rules:
+  - apiGroups:
+      - codexrunner.io
+    resources:
+      - codexsessions
+    verbs:
+      - get
+      - create
+      - update

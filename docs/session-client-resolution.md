@@ -8,7 +8,7 @@
 
 ## 現在の実装
 
-現段階では`RUNNER_AGENT_URL`を`StaticEndpointResolver`へ渡します。これは開発用および単一セッションの互換経路です。次の段階で、ResolverをKubernetes API経由の`CodexSession`/Service解決へ差し替えます。
+`RUNNER_AGENT_URL`が設定されていれば`StaticEndpointResolver`を使う開発用の単一Agent経路になります。空の場合は、Runner APIが`CodexSession`のReadyを確認してから`ServiceEndpointResolver`で会話IDと同名のServiceを選びます。Kubernetes ServiceのDNS名は`<conversation-id>.<namespace>.svc:8081`です。
 
 ```text
 message API
@@ -22,4 +22,4 @@ Runner APIはApp Serverを起動しません。App Serverのプロセスとス�
 
 ## なぜFactoryを先に置くか
 
-Podの作成・起動待ち・Service DNS解決をHTTPハンドラへ埋め込むと、会話保存やrun状態管理とKubernetes依存が混ざります。Factory/Resolver境界を先に固定すると、後続PRで起動処理を追加してもrunライフサイクルのテストを保てます。
+Podの作成・起動待ちとService DNS解決は別々の責務です。`SessionActivator`がCodexSessionのReadyを待ち、`EndpointResolver`が会話IDから安定したService URLを返します。FactoryはURLをrunner-agent HTTP adapterへ接続し、dispatcherからHTTP詳細を隠します。

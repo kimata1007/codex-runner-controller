@@ -28,6 +28,29 @@ func (r StaticEndpointResolver) Resolve(_ context.Context, conversationID string
 	return r.URL, nil
 }
 
+// ServiceEndpointResolver resolves the stable Kubernetes Service created for
+// each CodexSession. The corresponding CodexSession must be Ready first.
+type ServiceEndpointResolver struct {
+	Namespace string
+	Port      int
+}
+
+func (r ServiceEndpointResolver) Resolve(_ context.Context, conversationID string) (string, error) {
+	conversationID = strings.TrimSpace(conversationID)
+	if conversationID == "" {
+		return "", fmt.Errorf("conversation id is required")
+	}
+	namespace := strings.TrimSpace(r.Namespace)
+	if namespace == "" {
+		namespace = "codex-system"
+	}
+	port := r.Port
+	if port == 0 {
+		port = 8081
+	}
+	return fmt.Sprintf("http://%s.%s.svc:%d", conversationID, namespace, port), nil
+}
+
 // RunClientFactory creates a runner-agent HTTP adapter for each conversation.
 type RunClientFactory struct {
 	resolver   EndpointResolver

@@ -4,17 +4,23 @@
 
 ## 保存だけのローカルモード
 
-`RUNNER_AGENT_URL`が空の場合、Runner APIはメッセージをrepositoryへ保存します。libSQL未設定時はメモリrepositoryを使います。
+libSQLを設定せずに起動するとメモリrepositoryを使い、メッセージを保存します。メモリrepositoryはrunを保存しないため、Kubernetesセッションの起動やAgentへの送信は行いません。
 
-## libSQLとrunner-agentを使うモード
+## Kubernetesセッションを使うモード
 
-`LIBSQL_URL`と`RUNNER_AGENT_URL`を設定すると、次の依存が接続されます。
+libSQLを設定し、`RUNNER_AGENT_URL`を空にすると、Runner APIはKubernetes上の会話別セッションを使います。メッセージ送信時の順序は次の通りです。
 
-1. `runnerapi`がメッセージのHTTPリクエストを受け取り、repositoryがconversationとmessageを保存する。
-2. `runs.MessageDispatcher`が`agentclient.RunAdapter`を呼び、threadを作成または再開する。
-3. `agentclient.Client`がrunner-agentのHTTP APIを呼ぶ。
-4. `MessageDispatcher`がrunを作成して保存する。
-5. `RunAdapter`が`Client`経由でturnを送る。
+1. `runnerapi`が会話の存在を確認する。
+2. `session.Activator`が会話IDと同名の`CodexSession`を作成するか、SuspendedならActiveへ戻す。
+3. `CodexSession`コントローラーがPVC、Service、runner-agent Podを準備し、状態をReadyにする。
+4. `agentclient.ServiceEndpointResolver`が`http://<会話ID>.<namespace>.svc:8081`を選ぶ。
+5. `runs.MessageDispatcher`がメッセージを保存し、`agentclient.RunAdapter`経由でthreadを開始または再開してturnを送る。
 6. Runner APIがメッセージとrunを返す。
 
-`RUNNER_AGENT_URL`だけを設定した場合は、runを保存できるrepositoryがないため起動エラーにします。現段階ではrunner-agent URLは固定値です。会話ごとに異なるセッションPodのURLを解決する処理は、後続のsession routingで追加します。
+`RUNNER_SESSION_NAMESPACE`はセッションのnamespaceを指定し、省略時は`codex-system`です。`RUNNER_SESSION_DATA_SIZE`と`RUNNER_SESSION_STORAGE_CLASS`でPVC設定を指定できます。Codexのモデルと承認ポリシーは`CODEX_MODEL`と`CODEX_APPROVAL_POLICY`を使用します。承認ポリシーの既定値は`user`です。
+
+Runner APIのServiceAccountには、対象namespace内で`codexsessions`をget/create/updateする権限が必要です。`config/rbac/runner-api-role.yaml`にRoleの例があります。CRDとCodexSessionコントローラーも事前に稼働している必要があります。コントローラー側の`RUNNER_AGENT_IMAGE`設定は従来通り必要です。
+
+## 固定URLの開発モード
+
+`LIBSQL_URL`と`RUNNER_AGENT_URL`を設定すると、Kubernetesセッションを作らず、指定された単一のrunner-agentへ接続します。この場合もrunを保存できるrepositoryが必要です。
