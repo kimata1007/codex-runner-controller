@@ -2,6 +2,8 @@
 
 3つの実行単位を別イメージにします。
 
+ビルド用のGoイメージは`1.24.12-bookworm`、runner-agentのNode.jsイメージは`22.23.5-bookworm-slim`に固定しています。
+
 ```sh
 docker build -f Dockerfile.runner-api --tag ghcr.io/kimata1007/codex-runner-api:dev .
 docker build -f Dockerfile.runner-controller --tag ghcr.io/kimata1007/codex-runner-controller:dev .
