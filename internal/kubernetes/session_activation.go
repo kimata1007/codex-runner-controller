@@ -13,6 +13,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -79,6 +80,9 @@ func (a *SessionActivator) Activate(ctx context.Context, activation session.Acti
 			return fmt.Errorf("resume CodexSession: %w", err)
 		}
 	}
+	if err := a.recordActivity(ctx, key, activation.RequestedAt); err != nil {
+		return fmt.Errorf("record session activity: %w", err)
+	}
 
 	interval := a.ReadyPollInterval
 	if interval <= 0 {
@@ -131,6 +135,22 @@ func (a *SessionActivator) newSpec(conversationID string) v1alpha1.CodexSessionS
 		},
 		Execution: v1alpha1.Execution{Model: a.Model, ApprovalPolicy: approvalPolicy},
 	}
+}
+
+func (a *SessionActivator) recordActivity(ctx context.Context, key types.NamespacedName, at time.Time) error {
+	if at.IsZero() {
+		at = time.Now().UTC()
+	} else {
+		at = at.UTC()
+	}
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		resource := &v1alpha1.CodexSession{}
+		if err := a.Client.Get(ctx, key, resource); err != nil {
+			return err
+		}
+		resource.Status.LastActivityAt = at.Format(time.RFC3339Nano)
+		return a.Client.Status().Update(ctx, resource)
+	})
 }
 
 // SessionName maps a conversation ID to the Kubernetes DNS label used by its

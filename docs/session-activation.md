@@ -5,7 +5,7 @@
 ```text
 POST /v1/conversations/{conversationID}/messages
   -> conversation repository (existence and duplicate check)
-  -> session.Activator.Activate({ConversationID: conversationID})
+  -> session.Activator.Activate({ConversationID: conversationID, RequestedAt: now})
   -> message repository
   -> MessageRunner.Start(...)
 ```

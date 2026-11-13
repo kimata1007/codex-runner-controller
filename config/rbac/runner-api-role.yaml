@@ -12,3 +12,11 @@ rules:
       - get
       - create
       - update
+  - apiGroups:
+      - codexrunner.io
+    resources:
+      - codexsessions/status
+    verbs:
+      - get
+      - update
+      - patch

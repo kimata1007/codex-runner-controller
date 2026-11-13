@@ -175,7 +175,7 @@ func (h *Handler) createMessage(c echo.Context) error {
 			}
 		}
 		if !isDuplicate {
-			if err := h.activator.Activate(c.Request().Context(), session.Activation{ConversationID: conversationID}); err != nil {
+			if err := h.activator.Activate(c.Request().Context(), session.Activation{ConversationID: conversationID, RequestedAt: time.Now().UTC()}); err != nil {
 				return writeError(c, http.StatusServiceUnavailable, "failed to activate session")
 			}
 		}
