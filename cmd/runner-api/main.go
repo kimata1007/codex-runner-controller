@@ -13,6 +13,7 @@ import (
 
 	"github.com/kimata1007/codex-runner-controller/internal/agent"
 	"github.com/kimata1007/codex-runner-controller/internal/agentclient"
+	"github.com/kimata1007/codex-runner-controller/internal/auth"
 	"github.com/kimata1007/codex-runner-controller/internal/conversation"
 	"github.com/kimata1007/codex-runner-controller/internal/events"
 	"github.com/kimata1007/codex-runner-controller/internal/kubernetes"
@@ -50,7 +51,7 @@ func main() {
 	apiHandler := runnerapi.NewHandler(dependencies)
 	server := &http.Server{
 		Addr:              addr,
-		Handler:           runnerapi.NewRouter(apiHandler),
+		Handler:           auth.BearerToken(runnerapi.NewRouter(apiHandler), os.Getenv("RUNNER_API_TOKEN")),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      5 * time.Minute,
@@ -123,7 +124,7 @@ func runtimeFromEnvironment(repository conversation.Repository) (runnerapi.Messa
 		}
 		resolver = kubernetes.SessionEndpointResolver{Namespace: namespace}
 	}
-	factory := agentclient.NewRunClientFactory(resolver, params)
+	factory := agentclient.NewRunClientFactoryWithToken(resolver, params, os.Getenv("RUNNER_AGENT_TOKEN"))
 	return runs.NewMessageDispatcherWithFactory(runStore, factory), activator, nil
 }
 
