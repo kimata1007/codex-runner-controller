@@ -1,0 +1,20 @@
+FROM golang:1.24.12-bookworm AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/runner-agent ./cmd/runner-agent
+
+FROM node:22.23.5-bookworm-slim
+ARG CODEX_CLI_VERSION
+WORKDIR /app
+RUN test -n "$CODEX_CLI_VERSION" \
+  && npm install --global "@openai/codex@${CODEX_CLI_VERSION}" \
+  && npm cache clean --force
+COPY --from=build /out/runner-agent /runner-agent
+RUN useradd --create-home --uid 10001 codex \
+  && mkdir -p /var/lib/codex \
+  && chown -R codex:codex /var/lib/codex /app
+USER codex
+ENV CODEX_HOME=/var/lib/codex
+ENTRYPOINT ["/runner-agent"]
