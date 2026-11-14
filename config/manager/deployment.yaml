@@ -18,13 +18,13 @@ spec:
           type: RuntimeDefault
       containers:
         - name: controller
-          image: ghcr.io/kimata1007/codex-runner-controller:v0.1.0
+          image: ghcr.io/kimata1007/codex-runner-controller:v0.0.1
           imagePullPolicy: IfNotPresent
           command: ["/runner-controller"]
           args: ["--metrics-bind-address=:8080"]
           env:
             - name: RUNNER_AGENT_IMAGE
-              value: ghcr.io/kimata1007/codex-runner-agent:v0.1.0
+              value: ghcr.io/kimata1007/codex-runner-agent:v0.0.1
             - name: RUNNER_EVENT_URL
               value: http://runner-api.codex-system.svc.cluster.local:8080/internal/runs
             - name: RUNNER_HEARTBEAT_URL
