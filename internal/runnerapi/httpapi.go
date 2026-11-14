@@ -19,12 +19,13 @@ import (
 const maxRequestBodyBytes = 1 << 20
 
 type Handler struct {
-	repository  conversation.Repository
-	statusStore MessageStatusStore
-	dispatcher  MessageDispatcher
-	activator   session.Activator
-	eventStore  RunEventStore
-	eventHub    RunEventHub
+	repository     conversation.Repository
+	statusStore    MessageStatusStore
+	dispatcher     MessageDispatcher
+	activator      session.Activator
+	eventStore     RunEventStore
+	eventProjector RunEventProjector
+	eventHub       RunEventHub
 }
 
 // HandlerDependencies groups the optional collaborators used by the HTTP API.
@@ -39,13 +40,15 @@ type HandlerDependencies struct {
 
 func NewHandler(dependencies HandlerDependencies) *Handler {
 	statusStore, _ := dependencies.Repository.(MessageStatusStore)
+	eventProjector, _ := dependencies.Repository.(RunEventProjector)
 	return &Handler{
-		repository:  dependencies.Repository,
-		statusStore: statusStore,
-		dispatcher:  dependencies.Dispatcher,
-		activator:   dependencies.Activator,
-		eventStore:  dependencies.EventStore,
-		eventHub:    dependencies.EventHub,
+		repository:     dependencies.Repository,
+		statusStore:    statusStore,
+		dispatcher:     dependencies.Dispatcher,
+		activator:      dependencies.Activator,
+		eventStore:     dependencies.EventStore,
+		eventProjector: eventProjector,
+		eventHub:       dependencies.EventHub,
 	}
 }
 
@@ -58,6 +61,10 @@ type MessageDispatcher interface {
 type MessageStatusStore interface {
 	ClaimQueuedMessage(context.Context, string) (bool, error)
 	SetMessageStatus(context.Context, string, string) error
+}
+
+type RunEventProjector interface {
+	ApplyAppServerEvent(context.Context, string, string, string) error
 }
 
 func NewRouter(handler *Handler) *echo.Echo {
@@ -119,6 +126,11 @@ func (h *Handler) receiveAppServerRunEvent(c echo.Context) error {
 	event, err := h.eventStore.AppendEvent(c.Request().Context(), c.Param("runID"), request.EventType, string(request.Payload))
 	if err != nil {
 		return writeError(c, http.StatusBadGateway, "failed to persist event")
+	}
+	if h.eventProjector != nil {
+		if err := h.eventProjector.ApplyAppServerEvent(c.Request().Context(), event.RunID, event.EventType, event.Payload); err != nil {
+			return writeError(c, http.StatusBadGateway, "failed to update run status")
+		}
 	}
 	h.eventHub.Publish(event)
 	return writeJSON(c, http.StatusAccepted, event)
