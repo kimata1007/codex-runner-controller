@@ -183,6 +183,31 @@ func (r *Repository) CreateMessage(ctx context.Context, id string, input convers
 	return message, false, nil
 }
 
+func (r *Repository) ClaimQueuedMessage(ctx context.Context, id string) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	result, err := r.client.Exec(ctx, `UPDATE messages SET status = 'running' WHERE id = ? AND status = 'queued'`, []Value{Text(id)}, false)
+	if err != nil {
+		return false, err
+	}
+	return result.AffectedRowCount > 0, nil
+}
+
+func (r *Repository) SetMessageStatus(ctx context.Context, id, status string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	result, err := r.client.Exec(ctx, `UPDATE messages SET status = ? WHERE id = ?`, []Value{Text(status), Text(id)}, false)
+	if err != nil {
+		return err
+	}
+	if result.AffectedRowCount == 0 {
+		return fmt.Errorf("message %q not found", id)
+	}
+	return nil
+}
+
 func (r *Repository) conversationExists(ctx context.Context, id string) (bool, error) {
 	result, err := r.client.Exec(ctx, `SELECT id FROM conversations WHERE id = ? AND user_id = ?`, []Value{Text(id), Text(r.userID)}, true)
 	if err != nil {
