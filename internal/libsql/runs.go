@@ -9,6 +9,19 @@ import (
 	"github.com/kimata1007/codex-runner-controller/internal/runs"
 )
 
+func (r *Repository) LatestThreadID(ctx context.Context, conversationID string) (string, bool, error) {
+	result, err := r.client.Exec(ctx, `SELECT thread_id FROM runs
+		WHERE conversation_id = ? AND thread_id IS NOT NULL
+		ORDER BY created_at DESC LIMIT 1`, []Value{Text(conversationID)}, true)
+	if err != nil {
+		return "", false, err
+	}
+	if len(result.Rows) == 0 || len(result.Rows[0]) == 0 || result.Rows[0][0].Type == "null" || result.Rows[0][0].Value == "" {
+		return "", false, nil
+	}
+	return result.Rows[0][0].Value, true, nil
+}
+
 func (r *Repository) CreateRun(ctx context.Context, conversationID, messageID, threadID string) (runs.Run, error) {
 	now := time.Now().UTC()
 	run := runs.Run{

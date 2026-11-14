@@ -44,6 +44,11 @@ func (f *fakeThreadClient) StartTurn(_ context.Context, threadID, runID, text st
 type fakeRunStore struct {
 	run      Run
 	statuses []string
+	threadID string
+}
+
+func (f *fakeRunStore) LatestThreadID(context.Context, string) (string, bool, error) {
+	return f.threadID, f.threadID != "", nil
 }
 
 func (f *fakeRunStore) GetRun(_ context.Context, runID string) (Run, bool, error) {
@@ -108,5 +113,16 @@ func TestMessageDispatcherResumesThreadAndMarksSendFailure(t *testing.T) {
 	}
 	if strings.Join(store.statuses, ",") != StatusRunning+","+StatusFailed {
 		t.Fatalf("statuses = %v", store.statuses)
+	}
+}
+
+func TestMessageDispatcherResumesLatestStoredThread(t *testing.T) {
+	client, store := &fakeThreadClient{}, &fakeRunStore{threadID: "thread-stored"}
+	run, err := NewMessageDispatcher(store, client).Dispatch(context.Background(), "conversation-1", "message-1", "", "hello")
+	if err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+	if client.started || client.resumed != "thread-stored" || run.ThreadID != "thread-stored" {
+		t.Fatalf("thread lifecycle = started:%v resumed:%q run=%+v", client.started, client.resumed, run)
 	}
 }

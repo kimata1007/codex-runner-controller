@@ -30,6 +30,10 @@ type Store interface {
 	SetRunStatus(context.Context, string, string, string, string) error
 }
 
+type ThreadStore interface {
+	LatestThreadID(context.Context, string) (string, bool, error)
+}
+
 // MessageDispatcher sends one persisted user message as a Codex turn and
 // records the lifecycle of the corresponding Run. It uses an existing
 // runner-agent; it does not start a Pod or a Codex App Server process.
@@ -67,6 +71,17 @@ func (d *MessageDispatcher) Dispatch(ctx context.Context, conversationID, messag
 	}
 	if client == nil {
 		return Run{}, fmt.Errorf("message dispatcher: session client is required")
+	}
+	if threadID == "" {
+		if threadStore, ok := d.store.(ThreadStore); ok {
+			storedThreadID, found, err := threadStore.LatestThreadID(ctx, conversationID)
+			if err != nil {
+				return Run{}, fmt.Errorf("message dispatcher: find conversation thread: %w", err)
+			}
+			if found {
+				threadID = storedThreadID
+			}
+		}
 	}
 
 	threadID, err = d.prepareThread(ctx, client, threadID)
