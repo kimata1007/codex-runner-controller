@@ -120,6 +120,26 @@ func TestSessionEndpointResolverUsesSanitizedSessionName(t *testing.T) {
 	}
 }
 
+func TestSessionActivatorRecordsPhase(t *testing.T) {
+	existing := &v1alpha1.CodexSession{ObjectMeta: metav1.ObjectMeta{Name: "conversation-1", Namespace: "codex-system"}}
+	scheme := runtime.NewScheme()
+	if err := AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(existing).WithObjects(existing).Build()
+	activator := SessionActivator{Client: kubeClient, Namespace: "codex-system"}
+	if err := activator.SetPhase(context.Background(), "conversation-1", v1alpha1.PhaseBusy); err != nil {
+		t.Fatalf("set phase: %v", err)
+	}
+	updated := &v1alpha1.CodexSession{}
+	if err := kubeClient.Get(context.Background(), client.ObjectKey{Namespace: "codex-system", Name: "conversation-1"}, updated); err != nil {
+		t.Fatalf("get session: %v", err)
+	}
+	if updated.Status.Phase != v1alpha1.PhaseBusy {
+		t.Fatalf("phase = %q", updated.Status.Phase)
+	}
+}
+
 type readyOnWriteClient struct{ client.Client }
 
 func (c *readyOnWriteClient) Get(ctx context.Context, key client.ObjectKey, object client.Object, options ...client.GetOption) error {

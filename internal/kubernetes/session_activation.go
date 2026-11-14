@@ -194,6 +194,32 @@ func (a *SessionActivator) Touch(ctx context.Context, conversationID string, at 
 	return nil
 }
 
+func (a SessionActivator) SetPhase(ctx context.Context, conversationID, phase string) error {
+	if a.Client == nil {
+		return fmt.Errorf("session phase: client is required")
+	}
+	name, err := SessionName(conversationID)
+	if err != nil {
+		return err
+	}
+	namespace := a.Namespace
+	if namespace == "" {
+		namespace = DefaultSessionNamespace
+	}
+	resource := &v1alpha1.CodexSession{}
+	if err := a.Client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, resource); err != nil {
+		return fmt.Errorf("session phase: get session: %w", err)
+	}
+	if resource.Status.Phase == phase {
+		return nil
+	}
+	resource.Status.Phase = phase
+	if err := a.Client.Status().Update(ctx, resource); err != nil {
+		return fmt.Errorf("session phase: update status: %w", err)
+	}
+	return nil
+}
+
 // SessionName maps a conversation ID to the Kubernetes DNS label used by its
 // CodexSession and Service.
 func SessionName(conversationID string) (string, error) {
