@@ -6,6 +6,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
@@ -23,6 +24,12 @@ func main() {
 		os.Exit(1)
 	}
 
+	namespace := os.Getenv("KUBERNETES_NAMESPACE")
+	if namespace == "" {
+		logger.Error(nil, "KUBERNETES_NAMESPACE must be set")
+		os.Exit(1)
+	}
+
 	scheme := runtime.NewScheme()
 	if err := corev1.AddToScheme(scheme); err != nil {
 		logger.Error(err, "add core scheme")
@@ -32,7 +39,12 @@ func main() {
 		logger.Error(err, "add CodexSession scheme")
 		os.Exit(1)
 	}
-	mgr, err := manager.New(ctrl.GetConfigOrDie(), manager.Options{Scheme: scheme})
+	mgr, err := manager.New(ctrl.GetConfigOrDie(), manager.Options{
+		Scheme: scheme,
+		Cache: cache.Options{
+			DefaultNamespaces: map[string]cache.Config{namespace: {}},
+		},
+	})
 	if err != nil {
 		logger.Error(err, "create manager")
 		os.Exit(1)

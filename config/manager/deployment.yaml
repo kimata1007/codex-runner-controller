@@ -23,6 +23,10 @@ spec:
           command: ["/runner-controller"]
           args: ["--metrics-bind-address=:8080"]
           env:
+            - name: KUBERNETES_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
             - name: RUNNER_AGENT_IMAGE
               value: ghcr.io/kimata1007/codex-runner-agent:v0.0.1
             - name: RUNNER_EVENT_URL
