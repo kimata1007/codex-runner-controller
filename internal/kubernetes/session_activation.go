@@ -20,7 +20,6 @@ import (
 const (
 	DefaultSessionNamespace   = "codex-system"
 	DefaultSessionDataSize    = "10Gi"
-	DefaultIdleTimeoutSeconds = int32(1800)
 	DefaultApprovalPolicy     = "user"
 )
 
@@ -123,7 +122,7 @@ func (a *SessionActivator) newSpec(conversationID string, repository *session.Re
 	}
 	idleTimeout := a.IdleTimeoutSeconds
 	if idleTimeout == 0 {
-		idleTimeout = DefaultIdleTimeoutSeconds
+		idleTimeout = v1alpha1.DefaultIdleTimeoutSeconds
 	}
 	approvalPolicy := a.ApprovalPolicy
 	if approvalPolicy == "" {

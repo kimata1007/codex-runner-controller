@@ -53,3 +53,9 @@ func TestCodexSessionSpecValidate(t *testing.T) {
 		})
 	}
 }
+
+func TestDefaultIdleTimeoutSeconds(t *testing.T) {
+	if DefaultIdleTimeoutSeconds != 1800 {
+		t.Fatalf("default idle timeout = %d, want 1800", DefaultIdleTimeoutSeconds)
+	}
+}
