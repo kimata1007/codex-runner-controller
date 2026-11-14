@@ -174,6 +174,26 @@ func (a *SessionActivator) recordActivity(ctx context.Context, key types.Namespa
 	})
 }
 
+// Touch records heartbeat activity without changing the session lifecycle.
+func (a *SessionActivator) Touch(ctx context.Context, conversationID string, at time.Time) error {
+	if a == nil || a.Client == nil {
+		return fmt.Errorf("session activity: client is required")
+	}
+	name, err := SessionName(conversationID)
+	if err != nil {
+		return err
+	}
+	namespace := a.Namespace
+	if namespace == "" {
+		namespace = DefaultSessionNamespace
+	}
+	key := types.NamespacedName{Namespace: namespace, Name: name}
+	if err := a.recordActivity(ctx, key, at); err != nil {
+		return fmt.Errorf("session activity: update status: %w", err)
+	}
+	return nil
+}
+
 // SessionName maps a conversation ID to the Kubernetes DNS label used by its
 // CodexSession and Service.
 func SessionName(conversationID string) (string, error) {

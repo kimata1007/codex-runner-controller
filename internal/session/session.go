@@ -21,3 +21,8 @@ type Repository struct {
 type Activator interface {
 	Activate(context.Context, Activation) error
 }
+
+// ActivityRecorder updates the last activity time for a conversation session.
+type ActivityRecorder interface {
+	Touch(context.Context, string, time.Time) error
+}

@@ -24,6 +24,7 @@ type Handler struct {
 	dispatcher        MessageDispatcher
 	approvalResponder ApprovalResponder
 	activator         session.Activator
+	activity          session.ActivityRecorder
 	eventStore        RunEventStore
 	eventProjector    RunEventProjector
 	eventHub          RunEventHub
@@ -43,12 +44,14 @@ func NewHandler(dependencies HandlerDependencies) *Handler {
 	statusStore, _ := dependencies.Repository.(MessageStatusStore)
 	eventProjector, _ := dependencies.Repository.(RunEventProjector)
 	approvalResponder, _ := dependencies.Dispatcher.(ApprovalResponder)
+	activity, _ := dependencies.Activator.(session.ActivityRecorder)
 	return &Handler{
 		repository:        dependencies.Repository,
 		statusStore:       statusStore,
 		dispatcher:        dependencies.Dispatcher,
 		approvalResponder: approvalResponder,
 		activator:         dependencies.Activator,
+		activity:          activity,
 		eventStore:        dependencies.EventStore,
 		eventProjector:    eventProjector,
 		eventHub:          dependencies.EventHub,
