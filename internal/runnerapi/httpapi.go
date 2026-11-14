@@ -164,9 +164,19 @@ func (h *Handler) projectSessionPhase(ctx context.Context, runID, eventType, pay
 	if h.phase == nil {
 		return
 	}
-	status, ok := runs.StatusForEvent(eventType, payload)
-	if !ok {
-		return
+	phase := ""
+	if eventType == "approval/requested" {
+		phase = v1alpha1.PhaseWaitingForApproval
+	} else {
+		status, ok := runs.StatusForEvent(eventType, payload)
+		if !ok {
+			return
+		}
+		phase = v1alpha1.PhaseReady
+		switch status {
+		case runs.StatusFailed, runs.StatusInterrupted:
+			phase = v1alpha1.PhaseFailed
+		}
 	}
 	runStore, ok := h.repository.(interface {
 		GetRun(context.Context, string) (runs.Run, bool, error)
@@ -177,13 +187,6 @@ func (h *Handler) projectSessionPhase(ctx context.Context, runID, eventType, pay
 	run, found, err := runStore.GetRun(ctx, runID)
 	if err != nil || !found {
 		return
-	}
-	phase := v1alpha1.PhaseReady
-	switch status {
-	case runs.StatusWaitingApproval:
-		phase = v1alpha1.PhaseWaitingForApproval
-	case runs.StatusFailed, runs.StatusInterrupted:
-		phase = v1alpha1.PhaseFailed
 	}
 	_ = h.phase.SetPhase(ctx, run.ConversationID, phase)
 }
