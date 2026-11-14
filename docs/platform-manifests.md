@@ -5,17 +5,17 @@
 - `codex-runner-api`: ClusterIP Service、CodexSession操作用Role、libSQL接続設定
 - `libsql`: 1 replicaのStatefulSet、PVC、headless Service
 
-libSQLのデータディレクトリは`/var/lib/sqld`へPVCをマウントします。公式のsqldコンテナイメージを使い、`SQLD_NODE=primary`で単一primaryとして起動します。libSQLはアプリケーションPodからHTTPで利用しますが、libSQL自身はPVCを持つステートフルなサービスです。
+libSQLのデータディレクトリは`/var/lib/sqld`へPVCをマウントします。公式のsqldコンテナイメージを固定バージョンで使い、`SQLD_NODE=primary`で単一primaryとして起動します。libSQLはアプリケーションPodからHTTPで利用しますが、libSQL自身はPVCを持つステートフルなサービスです。
 
 ## Secret
 
-`codex-runner-secrets`はこのリポジトリに値を含めません。クラスタへ適用する前に、少なくとも次のキーをSecret管理基盤から作成してください。
+`codex-runner-tokens` Secretはこのリポジトリに値を含めません。クラスタへ適用する前に、Secret管理基盤から次のキーを作成してください。
 
-- `runnerApiToken`: PWAからRunner APIへ送るBearer token
-- `runnerAgentToken`: Runner APIからセッションPodへ送るBearer token
-- `libsqlAuthToken`: sqldの認証を有効にする場合に使用するtoken
+- `api-token`: PWAとセッションPodからRunner APIへ送るBearer token
+- `agent-token`: Runner APIからセッションPodへ送るBearer token
+- `libsql-auth-token`: sqldでBearer認証を有効にする場合に使用するtoken
 
-Secretがない場合は開発互換のため環境変数が空になり、認証ミドルウェアは無効化されます。本番でSecret未設定のまま公開経路を作らないでください。API ServiceはClusterIPのみで、外部公開のIngressは含めていません。
+Runner APIは`api-token`と`agent-token`を必須として起動します。sqldのBearer認証を有効にする場合は、sqld側にも対応する認証鍵を別途設定してください。API ServiceはClusterIPのみで、外部公開のIngressは含めていません。
 
 ## 適用順
 
@@ -23,4 +23,4 @@ Secretがない場合は開発互換のため環境変数が空になり、認�
 kubectl apply -k config/
 ```
 
-まずCRD、RBAC、Controller、libSQL、Runner APIの順でKustomizeが適用します。イメージタグとPVC StorageClassはクラスタ環境に合わせてoverlayで上書きしてください。
+まずCRD、RBAC、Controller、libSQL、Runner APIのリソースがKustomizeから適用されます。Controllerは`CodexSession`を監視するため、起動順に依存せず各コンポーネントが再試行します。PVC StorageClassはクラスタ環境に合わせてoverlayで上書きしてください。
