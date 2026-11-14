@@ -1,12 +1,9 @@
 const state = {
-  apiURL: sessionStorage.getItem('codex.apiURL') || window.location.origin,
-  token: sessionStorage.getItem('codex.apiToken') || '',
+  apiURL: window.location.origin,
   conversationID: sessionStorage.getItem('codex.conversationID') || '',
   threadID: sessionStorage.getItem('codex.threadID') || '',
 };
 
-const apiURL = document.querySelector('#api-url');
-const apiToken = document.querySelector('#api-token');
 const mode = document.querySelector('#mode');
 const repositoryFields = document.querySelector('#repository-fields');
 const revisionFields = document.querySelector('#revision-fields');
@@ -19,8 +16,8 @@ const composer = document.querySelector('#message-form');
 const messageInput = document.querySelector('#message');
 const sendButton = composer.querySelector('button');
 
-apiURL.value = state.apiURL;
-apiToken.value = state.token;
+sessionStorage.removeItem('codex.apiURL');
+sessionStorage.removeItem('codex.apiToken');
 conversationID.textContent = state.conversationID || '会話未作成';
 
 function updateModeFields() {
@@ -31,18 +28,9 @@ function updateModeFields() {
 
 function setStatus(text) { status.textContent = text; }
 
-function saveSettings() {
-  state.apiURL = apiURL.value.trim().replace(/\/$/, '');
-  state.token = apiToken.value.trim();
-  sessionStorage.setItem('codex.apiURL', state.apiURL);
-  sessionStorage.setItem('codex.apiToken', state.token);
-  setStatus('設定を保存しました');
-}
-
 async function request(path, options = {}) {
   const headers = new Headers(options.headers || {});
   headers.set('Content-Type', 'application/json');
-  if (state.token) headers.set('Authorization', `Bearer ${state.token}`);
   const response = await fetch(`${state.apiURL}${path}`, {...options, headers});
   if (!response.ok) throw new Error(`${response.status}: ${await response.text()}`);
   return response.json();
@@ -91,7 +79,6 @@ function addApproval(runID, payload) {
 }
 
 async function createConversation() {
-  saveSettings();
   const body = {mode: mode.value};
   if (mode.value === 'implement') {
     body.repository = {url: repositoryURL.value.trim(), revision: repositoryRevision.value.trim()};
@@ -119,9 +106,7 @@ async function loadHistory() {
 }
 
 async function streamEvents(runID, assistantItem) {
-  const headers = {};
-  if (state.token) headers.Authorization = `Bearer ${state.token}`;
-  const response = await fetch(`${state.apiURL}/v1/runs/${runID}/events`, {headers});
+  const response = await fetch(`${state.apiURL}/v1/runs/${runID}/events`);
   if (!response.ok || !response.body) throw new Error(`event stream: ${response.status}`);
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -163,7 +148,6 @@ async function sendMessage(event) {
   const content = messageInput.value.trim();
   if (!content) return;
   if (!state.conversationID) await createConversation();
-  saveSettings();
   addMessage('user', content);
   messageInput.value = '';
   sendButton.disabled = true;
@@ -187,10 +171,13 @@ async function sendMessage(event) {
   }
 }
 
-document.querySelector('#save-settings').addEventListener('click', saveSettings);
 document.querySelector('#new-conversation').addEventListener('click', createConversation);
 mode.addEventListener('change', updateModeFields);
 updateModeFields();
 composer.addEventListener('submit', sendMessage);
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
+fetch('/healthz').then((response) => {
+  if (!response.ok) throw new Error(`${response.status}`);
+  setStatus('接続済み');
+}).catch((error) => setStatus(`接続エラー: ${error.message}`));
 loadHistory();

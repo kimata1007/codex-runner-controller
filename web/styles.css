@@ -7,6 +7,7 @@ h1 { margin: 0; font-size: clamp(1.7rem, 5vw, 2.5rem); }
 .status, .muted { color: #9ca3af; font-size: .9rem; }
 .settings, .conversation { background: rgba(17, 24, 39, .82); border: 1px solid #334155; border-radius: 16px; padding: 16px; margin-top: 20px; }
 .settings { display: grid; gap: 12px; grid-template-columns: 1fr; }
+.settings-help { margin: 0; color: #cbd5e1; line-height: 1.5; }
 label { display: grid; gap: 5px; font-size: .85rem; color: #cbd5e1; }
 input, textarea { width: 100%; border: 1px solid #475569; border-radius: 10px; background: #0f172a; color: #f8fafc; padding: 10px 12px; font: inherit; }
 select { width: 100%; border: 1px solid #475569; border-radius: 10px; background: #0f172a; color: #f8fafc; padding: 10px 12px; font: inherit; }
@@ -25,4 +26,7 @@ button:disabled { opacity: .5; cursor: wait; }
 .approval-actions button:last-child { background: #57534e; }
 .composer { display: grid; gap: 10px; margin-top: 14px; }
 .composer button { justify-self: end; }
-@media (min-width: 640px) { .settings { grid-template-columns: 1fr 1fr auto; align-items: end; } }
+@media (min-width: 640px) {
+  .settings { grid-template-columns: 1fr 1fr auto; align-items: end; }
+  .settings-help { grid-column: 1 / -1; }
+}

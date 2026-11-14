@@ -13,12 +13,11 @@
       <header>
         <p class="eyebrow">CODEX RUNNER</p>
         <h1>セッション会話</h1>
-        <p id="status" class="status">未接続</p>
+        <p id="status" class="status" role="status" aria-live="polite">接続確認中…</p>
       </header>
 
-      <section class="settings" aria-label="接続設定">
-        <label>API URL <input id="api-url" type="url" autocomplete="url"></label>
-        <label>Bearer token <input id="api-token" type="password" autocomplete="off"></label>
+      <section class="settings" aria-label="会話設定">
+        <p class="settings-help">接続設定は済んでいます。この画面からそのまま会話できます。</p>
         <label>モード
           <select id="mode">
             <option value="chat">chat（相談）</option>
@@ -27,7 +26,6 @@
         </label>
         <label id="repository-fields" class="hidden">リポジトリURL <input id="repository-url" type="url" placeholder="https://github.com/org/repo.git"></label>
         <label id="revision-fields" class="hidden">リビジョン <input id="repository-revision" value="main"></label>
-        <button id="save-settings" type="button">設定を保存</button>
       </section>
 
       <section class="conversation" aria-label="会話">

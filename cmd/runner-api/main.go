@@ -50,9 +50,12 @@ func main() {
 		dependencies.EventHub = events.NewBroker()
 	}
 	apiHandler := runnerapi.NewHandler(dependencies)
+	apiRouter := runnerapi.NewRouter(apiHandler)
+	apiRouter = auth.BearerTokenForPathPrefix(apiRouter, os.Getenv("RUNNER_API_TOKEN"), "/internal/runs/")
+	apiRouter = auth.BearerTokenForPathPrefix(apiRouter, os.Getenv("RUNNER_AGENT_TOKEN"), "/internal/sessions/")
 	server := &http.Server{
 		Addr:              addr,
-		Handler:           auth.BearerToken(runnerapi.NewRouter(apiHandler), os.Getenv("RUNNER_API_TOKEN")),
+		Handler:           apiRouter,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      5 * time.Minute,
