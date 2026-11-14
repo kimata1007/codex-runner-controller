@@ -13,6 +13,10 @@ type ThreadClient interface {
 	StartTurn(context.Context, string, string, string) error
 }
 
+type ApprovalClient interface {
+	RespondApproval(context.Context, string, any) error
+}
+
 // ThreadClientFactory selects the runner-agent client for a conversation.
 type ThreadClientFactory interface {
 	CreateClientForConversation(context.Context, string) (ThreadClient, error)
@@ -22,6 +26,7 @@ type ThreadClientFactory interface {
 // Server event consumer in a separate path.
 type Store interface {
 	CreateRun(context.Context, string, string, string) (Run, error)
+	GetRun(context.Context, string) (Run, bool, error)
 	SetRunStatus(context.Context, string, string, string, string) error
 }
 
@@ -76,6 +81,31 @@ func (d *MessageDispatcher) Dispatch(ctx context.Context, conversationID, messag
 		return Run{}, err
 	}
 	return run, nil
+}
+
+func (d *MessageDispatcher) RespondApproval(ctx context.Context, runID, requestID string, response any) error {
+	if d == nil || d.store == nil || d.factory == nil {
+		return fmt.Errorf("message dispatcher: run store and client factory are required")
+	}
+	run, ok, err := d.store.GetRun(ctx, runID)
+	if err != nil {
+		return fmt.Errorf("message dispatcher: get run: %w", err)
+	}
+	if !ok {
+		return fmt.Errorf("message dispatcher: run %q not found", runID)
+	}
+	client, err := d.factory.CreateClientForConversation(ctx, run.ConversationID)
+	if err != nil {
+		return fmt.Errorf("message dispatcher: select session client: %w", err)
+	}
+	approvalClient, ok := client.(ApprovalClient)
+	if !ok {
+		return fmt.Errorf("message dispatcher: approval client is not configured")
+	}
+	if err := approvalClient.RespondApproval(ctx, requestID, response); err != nil {
+		return fmt.Errorf("message dispatcher: respond approval: %w", err)
+	}
+	return nil
 }
 
 func (d *MessageDispatcher) prepareThread(ctx context.Context, client ThreadClient, threadID string) (string, error) {

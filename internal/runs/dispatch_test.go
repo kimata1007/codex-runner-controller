@@ -46,6 +46,13 @@ type fakeRunStore struct {
 	statuses []string
 }
 
+func (f *fakeRunStore) GetRun(_ context.Context, runID string) (Run, bool, error) {
+	if f.run.ID != runID {
+		return Run{}, false, nil
+	}
+	return f.run, true, nil
+}
+
 func (f *fakeRunStore) CreateRun(_ context.Context, conversationID, messageID, threadID string) (Run, error) {
 	f.run = Run{ID: "run-1", ConversationID: conversationID, MessageID: messageID, ThreadID: threadID, Status: StatusQueued}
 	return f.run, nil

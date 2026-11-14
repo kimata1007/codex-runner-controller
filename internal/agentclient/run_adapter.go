@@ -35,4 +35,9 @@ func (c *RunAdapter) StartTurn(ctx context.Context, threadID, runID, text string
 	return c.client.StartTurnForRun(ctx, threadID, runID, []agent.TurnInput{{Type: "text", Text: text}})
 }
 
+func (c *RunAdapter) RespondApproval(ctx context.Context, requestID string, response any) error {
+	return c.client.RespondApproval(ctx, requestID, response)
+}
+
 var _ runs.ThreadClient = (*RunAdapter)(nil)
+var _ runs.ApprovalClient = (*RunAdapter)(nil)
