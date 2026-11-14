@@ -7,6 +7,7 @@
 ```sh
 docker build -f Dockerfile.runner-api --tag ghcr.io/kimata1007/codex-runner-api:dev .
 docker build -f Dockerfile.runner-controller --tag ghcr.io/kimata1007/codex-runner-controller:dev .
+docker build -f Dockerfile.runner-pwa --tag ghcr.io/kimata1007/codex-runner-pwa:dev .
 docker build --build-arg CODEX_CLI_VERSION=<pinned-version> \
   -f Dockerfile.runner-agent \
   --tag ghcr.io/kimata1007/codex-runner-agent:dev .
