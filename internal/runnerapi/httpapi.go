@@ -129,7 +129,30 @@ func (h *Handler) checkHealth(c echo.Context) error {
 }
 
 func (h *Handler) createConversation(c echo.Context) error {
-	value, err := h.repository.CreateConversation(c.Request().Context())
+	var request struct {
+		Repository *conversation.RepositoryConfig `json:"repository,omitempty"`
+	}
+	if c.Request().ContentLength != 0 {
+		if err := decodeJSON(c, &request); err != nil {
+			return err
+		}
+	}
+	if request.Repository != nil {
+		request.Repository.URL = strings.TrimSpace(request.Repository.URL)
+		request.Repository.Revision = strings.TrimSpace(request.Repository.Revision)
+		if request.Repository.URL == "" || request.Repository.Revision == "" {
+			return writeError(c, http.StatusBadRequest, "repository url and revision are required together")
+		}
+	}
+	var value conversation.Conversation
+	var err error
+	if configured, ok := h.repository.(conversation.RepositoryConfigurer); ok {
+		value, err = configured.CreateConversationWithRepository(c.Request().Context(), request.Repository)
+	} else if request.Repository != nil {
+		return writeError(c, http.StatusInternalServerError, "repository configuration storage is not supported")
+	} else {
+		value, err = h.repository.CreateConversation(c.Request().Context())
+	}
 	if err != nil {
 		return writeRepositoryError(c, err)
 	}
@@ -200,7 +223,16 @@ func (h *Handler) createMessage(c echo.Context) error {
 		}
 	}
 	if dispatchable && h.activator != nil {
-		if err := h.activator.Activate(c.Request().Context(), session.Activation{ConversationID: conversationID, RequestedAt: time.Now().UTC()}); err != nil {
+		conversationValue, err := h.repository.GetConversation(c.Request().Context(), conversationID)
+		if err != nil {
+			h.resetQueuedMessage(c, message.ID)
+			return writeRepositoryError(c, err)
+		}
+		var repository *session.Repository
+		if conversationValue.Repository != nil {
+			repository = &session.Repository{URL: conversationValue.Repository.URL, Revision: conversationValue.Repository.Revision}
+		}
+		if err := h.activator.Activate(c.Request().Context(), session.Activation{ConversationID: conversationID, RequestedAt: time.Now().UTC(), Repository: repository}); err != nil {
 			h.resetQueuedMessage(c, message.ID)
 			return writeError(c, http.StatusServiceUnavailable, "failed to activate session")
 		}
@@ -236,11 +268,12 @@ type createMessageRequest struct {
 }
 
 type conversationResponse struct {
-	ID        string            `json:"id"`
-	Status    string            `json:"status"`
-	CreatedAt time.Time         `json:"createdAt"`
-	UpdatedAt time.Time         `json:"updatedAt"`
-	Messages  []messageResponse `json:"messages,omitempty"`
+	ID         string                         `json:"id"`
+	Status     string                         `json:"status"`
+	Repository *conversation.RepositoryConfig `json:"repository,omitempty"`
+	CreatedAt  time.Time                      `json:"createdAt"`
+	UpdatedAt  time.Time                      `json:"updatedAt"`
+	Messages   []messageResponse              `json:"messages,omitempty"`
 }
 
 type messageResponse struct {
@@ -255,10 +288,11 @@ type messageResponse struct {
 
 func conversationResponseFrom(value conversation.Conversation) conversationResponse {
 	response := conversationResponse{
-		ID:        value.ID,
-		Status:    value.Status,
-		CreatedAt: value.CreatedAt,
-		UpdatedAt: value.UpdatedAt,
+		ID:         value.ID,
+		Status:     value.Status,
+		Repository: value.Repository,
+		CreatedAt:  value.CreatedAt,
+		UpdatedAt:  value.UpdatedAt,
 	}
 	if len(value.Messages) > 0 {
 		response.Messages = make([]messageResponse, 0, len(value.Messages))

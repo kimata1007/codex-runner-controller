@@ -96,8 +96,8 @@ func newRepositoryTestServer(t *testing.T) (*httptest.Server, *[]string, *[][]Va
 
 		result := statementResult{}
 		switch {
-		case strings.HasPrefix(statement.SQL, "SELECT id, status"):
-			result.Rows = [][]Value{{Text("conversation-1"), Text("active"), Text("2026-01-01T00:00:00Z"), Text("2026-01-01T00:00:00Z")}}
+		case strings.HasPrefix(statement.SQL, "SELECT c.id, c.status"):
+			result.Rows = [][]Value{{Text("conversation-1"), Text("active"), Text("2026-01-01T00:00:00Z"), Text("2026-01-01T00:00:00Z"), Null(), Null()}}
 		case strings.HasPrefix(statement.SQL, "SELECT id FROM conversations"):
 			result.Rows = [][]Value{{Text("conversation-1")}}
 		case strings.HasPrefix(statement.SQL, "INSERT INTO messages"):

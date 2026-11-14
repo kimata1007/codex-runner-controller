@@ -30,6 +30,10 @@ func (r *Repository) Migrate(ctx context.Context) error {
 }
 
 func (r *Repository) CreateConversation(ctx context.Context) (conversation.Conversation, error) {
+	return r.CreateConversationWithRepository(ctx, nil)
+}
+
+func (r *Repository) CreateConversationWithRepository(ctx context.Context, repository *conversation.RepositoryConfig) (conversation.Conversation, error) {
 	if err := ctx.Err(); err != nil {
 		return conversation.Conversation{}, err
 	}
@@ -44,19 +48,25 @@ func (r *Repository) CreateConversation(ctx context.Context) (conversation.Conve
 	if err != nil {
 		return conversation.Conversation{}, err
 	}
-	return conversation.Conversation{ID: id, Status: "active", CreatedAt: now, UpdatedAt: now}, nil
+	if repository != nil {
+		if _, err := r.client.Exec(ctx, `INSERT INTO conversation_repositories (conversation_id, url, revision) VALUES (?, ?, ?)`, []Value{Text(id), Text(repository.URL), Text(repository.Revision)}, false); err != nil {
+			return conversation.Conversation{}, err
+		}
+	}
+	return conversation.Conversation{ID: id, Status: "active", CreatedAt: now, UpdatedAt: now, Repository: repository}, nil
 }
 
 func (r *Repository) GetConversation(ctx context.Context, id string) (conversation.Conversation, error) {
-	result, err := r.client.Exec(ctx, `SELECT id, status, created_at, updated_at
-		FROM conversations WHERE id = ? AND user_id = ?`, []Value{Text(id), Text(r.userID)}, true)
+	result, err := r.client.Exec(ctx, `SELECT c.id, c.status, c.created_at, c.updated_at, r.url, r.revision
+		FROM conversations c LEFT JOIN conversation_repositories r ON r.conversation_id = c.id
+		WHERE c.id = ? AND c.user_id = ?`, []Value{Text(id), Text(r.userID)}, true)
 	if err != nil {
 		return conversation.Conversation{}, err
 	}
 	if len(result.Rows) == 0 {
 		return conversation.Conversation{}, fmt.Errorf("%w: %s", conversation.ErrNotFound, id)
 	}
-	if len(result.Rows[0]) < 4 {
+	if len(result.Rows[0]) < 6 {
 		return conversation.Conversation{}, fmt.Errorf("libsql: conversation row has %d columns", len(result.Rows[0]))
 	}
 
@@ -74,6 +84,9 @@ func (r *Repository) GetConversation(ctx context.Context, id string) (conversati
 		Status:    row[1].Value,
 		CreatedAt: createdAt,
 		UpdatedAt: updatedAt,
+	}
+	if row[4].Type != "null" || row[5].Type != "null" {
+		value.Repository = &conversation.RepositoryConfig{URL: row[4].Value, Revision: row[5].Value}
 	}
 	value.Messages, err = r.listMessages(ctx, id)
 	if err != nil {

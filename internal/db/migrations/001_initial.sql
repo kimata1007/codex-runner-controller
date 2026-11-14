@@ -8,6 +8,12 @@ CREATE TABLE IF NOT EXISTS conversations (
     updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS conversation_repositories (
+    conversation_id TEXT PRIMARY KEY REFERENCES conversations(id),
+    url TEXT NOT NULL,
+    revision TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS messages (
     id TEXT PRIMARY KEY,
     conversation_id TEXT NOT NULL REFERENCES conversations(id),

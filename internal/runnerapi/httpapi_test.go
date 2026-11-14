@@ -97,6 +97,41 @@ func TestCreateConversationAndMessage(t *testing.T) {
 	}
 }
 
+func TestCreateConversationPersistsRepositoryConfiguration(t *testing.T) {
+	router := newTestRouter()
+	response := serveJSON(t, router, http.MethodPost, "/v1/conversations", `{"repository":{"url":"https://example.test/repo.git","revision":"main"}}`)
+	if response.Code != http.StatusCreated {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	var value conversationResponse
+	decodeResponse(t, response, &value)
+	if value.Repository == nil || value.Repository.URL != "https://example.test/repo.git" || value.Repository.Revision != "main" {
+		t.Fatalf("repository = %+v", value.Repository)
+	}
+}
+
+func TestCreateConversationRejectsIncompleteRepositoryConfiguration(t *testing.T) {
+	response := serveJSON(t, newTestRouter(), http.MethodPost, "/v1/conversations", `{"repository":{"url":"https://example.test/repo.git"}}`)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusBadRequest)
+	}
+}
+
+func TestCreateMessagePassesRepositoryConfigurationToActivator(t *testing.T) {
+	activator := &fakeSessionActivator{}
+	router := NewRouter(NewHandler(HandlerDependencies{Repository: memory.NewRepository(), Activator: activator}))
+	conversationRecorder := serveJSON(t, router, http.MethodPost, "/v1/conversations", `{"repository":{"url":"https://example.test/repo.git","revision":"main"}}`)
+	var value conversationResponse
+	decodeResponse(t, conversationRecorder, &value)
+	response := serveJSON(t, router, http.MethodPost, "/v1/conversations/"+value.ID+"/messages", `{"content":"hello"}`)
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("message status = %d, want %d", response.Code, http.StatusAccepted)
+	}
+	if activator.repository == nil || activator.repository.URL != "https://example.test/repo.git" || activator.repository.Revision != "main" {
+		t.Fatalf("activated repository = %+v", activator.repository)
+	}
+}
+
 func TestCreateMessageActivatesSessionBeforeRun(t *testing.T) {
 	activator := &fakeSessionActivator{}
 	router := NewRouter(NewHandler(HandlerDependencies{Repository: memory.NewRepository(), Activator: activator}))
@@ -159,11 +194,13 @@ func (d *countingDispatcher) Dispatch(_ context.Context, conversationID, message
 
 type fakeSessionActivator struct {
 	conversationID string
+	repository     *session.Repository
 	err            error
 }
 
 func (f *fakeSessionActivator) Activate(_ context.Context, activation session.Activation) error {
 	f.conversationID = activation.ConversationID
+	f.repository = activation.Repository
 	return f.err
 }
 
