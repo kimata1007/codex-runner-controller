@@ -11,11 +11,12 @@ libSQLのデータディレクトリは`/var/lib/sqld`へPVCをマウントし�
 
 `codex-runner-tokens` Secretはこのリポジトリに値を含めません。クラスタへ適用する前に、Secret管理基盤から次のキーを作成してください。
 
-- `api-token`: PWAとセッションPodからRunner APIへ送るBearer token
-- `agent-token`: Runner APIからセッションPodへ送るBearer token
-- `libsql-auth-token`: sqldでBearer認証を有効にする場合に使用するtoken
+- `runnerApiToken`: PWAからRunner APIへ送るBearer token
+- `runnerAgentToken`: Runner APIからセッションPodへ送るBearer token
+- `CODEX_GIT_CREDENTIALS_SECRET_NAME`で参照するGit token Secretは、private repositoryを使う場合だけ別途作成する
+- `libsqlAuthToken`: sqldの認証を有効にする場合に使用するtoken
 
-Runner APIは`api-token`と`agent-token`を必須として起動します。sqldのBearer認証を有効にする場合は、sqld側にも対応する認証鍵を別途設定してください。API ServiceはClusterIPのみで、外部公開のIngressは含めていません。
+Runner APIはSecretからRunner API用とRunner Agent用のtokenを読み込みます。sqldのBearer認証を有効にする場合は、sqld側にも対応する認証鍵を別途設定してください。API ServiceはClusterIPのみで、外部公開のIngressは含めていません。
 
 ## 適用順
 

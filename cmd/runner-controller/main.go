@@ -52,6 +52,7 @@ func main() {
 	builder := kubernetes.ResourceBuilder{
 		RunnerImage:                runnerImage,
 		RunnerEventURL:             os.Getenv("RUNNER_EVENT_URL"),
+		RunnerHeartbeatURL:         os.Getenv("RUNNER_HEARTBEAT_URL"),
 		RunnerAgentTokenSecretName: os.Getenv("RUNNER_AGENT_TOKEN_SECRET_NAME"),
 		RunnerAgentTokenSecretKey:  tokenSecretKey,
 		RunnerAPITokenSecretName:   os.Getenv("RUNNER_API_TOKEN_SECRET_NAME"),
