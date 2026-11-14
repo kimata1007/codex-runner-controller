@@ -3,5 +3,8 @@
 .tmp-codex-runner-controller
 *.md
 docs/
-config/
+config/*
+!config/web/
+config/web/*
+!config/web/nginx.conf
 **/*_test.go
