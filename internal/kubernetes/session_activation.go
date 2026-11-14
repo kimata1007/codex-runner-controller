@@ -18,9 +18,10 @@ import (
 )
 
 const (
-	DefaultSessionNamespace = "codex-system"
-	DefaultSessionDataSize  = "10Gi"
-	DefaultApprovalPolicy   = "user"
+	DefaultSessionNamespace    = "codex-system"
+	DefaultSessionDataSize     = "10Gi"
+	DefaultApprovalPolicy      = "user"
+	DefaultSessionReadyTimeout = 60 * time.Second
 )
 
 // SessionActivator creates or resumes a CodexSession and waits for its controller to
@@ -35,6 +36,7 @@ type SessionActivator struct {
 	Model              string
 	ApprovalPolicy     string
 	ReadyPollInterval  time.Duration
+	ReadyTimeout       time.Duration
 }
 
 func (a *SessionActivator) Activate(ctx context.Context, activation session.Activation) error {
@@ -89,6 +91,13 @@ func (a *SessionActivator) Activate(ctx context.Context, activation session.Acti
 		return fmt.Errorf("record session activity: %w", err)
 	}
 
+	readyTimeout := a.ReadyTimeout
+	if readyTimeout <= 0 {
+		readyTimeout = DefaultSessionReadyTimeout
+	}
+	readyCtx, cancel := context.WithTimeout(ctx, readyTimeout)
+	defer cancel()
+
 	interval := a.ReadyPollInterval
 	if interval <= 0 {
 		interval = time.Second
@@ -96,7 +105,7 @@ func (a *SessionActivator) Activate(ctx context.Context, activation session.Acti
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
-		if err := a.Client.Get(ctx, key, session); err != nil {
+		if err := a.Client.Get(readyCtx, key, session); err != nil {
 			return fmt.Errorf("read CodexSession status: %w", err)
 		}
 		if session.Spec.DesiredState != v1alpha1.DesiredStateActive {
@@ -109,8 +118,8 @@ func (a *SessionActivator) Activate(ctx context.Context, activation session.Acti
 			return nil
 		}
 		select {
-		case <-ctx.Done():
-			return fmt.Errorf("wait for CodexSession %q readiness: %w", name, ctx.Err())
+		case <-readyCtx.Done():
+			return fmt.Errorf("wait for CodexSession %q readiness: %w", name, readyCtx.Err())
 		case <-ticker.C:
 		}
 	}

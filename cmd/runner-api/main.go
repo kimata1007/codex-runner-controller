@@ -123,6 +123,7 @@ func runtimeFromEnvironment(repository conversation.Repository) (runnerapi.Messa
 			CredentialsRefName: gitCredentialsSecretNameFromEnvironment(),
 			Model:              params.Model,
 			ApprovalPolicy:     params.ApprovalPolicy,
+			ReadyTimeout:       kubernetes.DefaultSessionReadyTimeout,
 		}
 		resolver = kubernetes.SessionEndpointResolver{Namespace: namespace}
 	}

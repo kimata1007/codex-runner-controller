@@ -2,6 +2,7 @@ package kubernetes
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -79,6 +80,33 @@ func TestSessionActivatorResumesSuspendedSession(t *testing.T) {
 	}
 	if updated.Spec.DesiredState != v1alpha1.DesiredStateActive {
 		t.Fatalf("desired state = %q, want Active", updated.Spec.DesiredState)
+	}
+}
+
+func TestSessionActivatorReturnsWhenReadinessTimesOut(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	existing := &v1alpha1.CodexSession{
+		ObjectMeta: metav1.ObjectMeta{Name: "conversation-1", Namespace: "sessions"},
+		Spec: v1alpha1.CodexSessionSpec{
+			ConversationID: "conversation-1",
+			DesiredState:   v1alpha1.DesiredStateActive,
+		},
+		Status: v1alpha1.CodexSessionStatus{Phase: v1alpha1.PhaseStarting},
+	}
+	kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&v1alpha1.CodexSession{}).WithObjects(existing).Build()
+	activator := &SessionActivator{
+		Client:            kubeClient,
+		Namespace:         "sessions",
+		ReadyPollInterval: time.Millisecond,
+		ReadyTimeout:      time.Millisecond,
+	}
+
+	err := activator.Activate(context.Background(), session.Activation{ConversationID: "conversation-1"})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Activate error = %v, want deadline exceeded", err)
 	}
 }
 
