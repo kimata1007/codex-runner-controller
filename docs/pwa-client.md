@@ -7,6 +7,7 @@
 - chat会話の作成
 - Bearer tokenのsessionStorage保存
 - メッセージ送信と`clientMessageId`による再送識別
+- `threadId`を会話中で引き継ぎ、Codexの同じスレッドへ続けて送信
 - runイベントのfetchストリーミング表示
 - 同一originでのオフラインShellキャッシュ
 

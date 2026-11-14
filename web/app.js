@@ -2,6 +2,7 @@ const state = {
   apiURL: sessionStorage.getItem('codex.apiURL') || window.location.origin,
   token: sessionStorage.getItem('codex.apiToken') || '',
   conversationID: sessionStorage.getItem('codex.conversationID') || '',
+  threadID: sessionStorage.getItem('codex.threadID') || '',
 };
 
 const apiURL = document.querySelector('#api-url');
@@ -49,7 +50,9 @@ async function createConversation() {
   saveSettings();
   const conversation = await request('/v1/conversations', {method: 'POST', body: JSON.stringify({mode: 'chat'})});
   state.conversationID = conversation.id;
+  state.threadID = '';
   sessionStorage.setItem('codex.conversationID', state.conversationID);
+  sessionStorage.removeItem('codex.threadID');
   conversationID.textContent = state.conversationID;
   messages.replaceChildren();
   setStatus('会話を作成しました');
@@ -69,17 +72,24 @@ async function streamEvents(runID, assistantItem) {
     const chunks = buffer.split('\n\n');
     buffer = chunks.pop() || '';
     for (const chunk of chunks) {
+      const eventLine = chunk.split('\n').find((line) => line.startsWith('event: '));
+      const eventType = eventLine ? eventLine.slice(7) : '';
       const data = chunk.split('\n').find((line) => line.startsWith('data: '));
-      if (!data) continue;
-      try {
-        const payload = JSON.parse(data.slice(6));
-        const text = payload.text || payload.delta || payload.content || '';
-        if (text) assistantItem.textContent += text;
-      } catch (_) {
-        // Event payloads that are not user-visible JSON are ignored by the UI.
+      if (data) {
+        try {
+          const payload = JSON.parse(data.slice(6));
+          const text = payload.text || payload.delta || payload.content || '';
+          if (text) assistantItem.textContent += text;
+        } catch (_) {
+          // Event payloads that are not user-visible JSON are ignored by the UI.
+        }
+      }
+      if (eventType === 'turn/completed' || eventType === 'turn/failed') {
+        await reader.cancel();
+        return eventType === 'turn/completed';
       }
     }
-    if (done) break;
+    if (done) return false;
   }
 }
 
@@ -96,13 +106,15 @@ async function sendMessage(event) {
   try {
     const result = await request(`/v1/conversations/${state.conversationID}/messages`, {
       method: 'POST',
-      body: JSON.stringify({content, clientMessageId: crypto.randomUUID()}),
+      body: JSON.stringify({content, clientMessageId: crypto.randomUUID(), threadId: state.threadID}),
     });
     if (!result.run) { setStatus('メッセージを保存しました'); return; }
+    state.threadID = result.run.thread_id || state.threadID;
+    if (state.threadID) sessionStorage.setItem('codex.threadID', state.threadID);
     const assistant = addMessage('assistant', '');
     setStatus('Codexが応答中…');
-    await streamEvents(result.run.id, assistant);
-    setStatus('完了');
+    const completed = await streamEvents(result.run.id, assistant);
+    setStatus(completed ? '完了' : '応答が終了しました');
   } catch (error) {
     setStatus(`エラー: ${error.message}`);
   } finally {
