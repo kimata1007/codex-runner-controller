@@ -10,11 +10,24 @@ import (
 // an explicit development-mode bypass; production manifests must provide it
 // through a Secret-backed environment variable.
 func BearerToken(next http.Handler, expected string) http.Handler {
+	return bearerToken(next, expected, func(*http.Request) bool { return true })
+}
+
+// BearerTokenForPathPrefix protects only requests whose URL path starts with
+// prefix. It is useful when public user-facing routes rely on a trusted
+// network boundary while internal service routes still require a shared token.
+func BearerTokenForPathPrefix(next http.Handler, expected, prefix string) http.Handler {
+	return bearerToken(next, expected, func(request *http.Request) bool {
+		return strings.HasPrefix(request.URL.Path, prefix)
+	})
+}
+
+func bearerToken(next http.Handler, expected string, shouldProtect func(*http.Request) bool) http.Handler {
 	if strings.TrimSpace(expected) == "" {
 		return next
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/healthz" || r.URL.Path == "/readyz" {
+		if (r.URL.Path == "/healthz" || r.URL.Path == "/readyz") || !shouldProtect(r) {
 			next.ServeHTTP(w, r)
 			return
 		}

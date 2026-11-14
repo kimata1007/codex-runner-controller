@@ -89,6 +89,7 @@ func NewRouter(handler *Handler) *echo.Echo {
 	e.HideBanner = true
 	e.GET("/healthz", handler.checkHealth)
 	e.GET("/readyz", handler.checkHealth)
+	e.GET("/v1/conversations", handler.listConversations)
 	e.POST("/v1/conversations", handler.createConversation)
 	e.GET("/v1/conversations/:id", handler.getConversation)
 	e.GET("/v1/conversations/:id/messages", handler.getMessages)
@@ -253,6 +254,22 @@ func (h *Handler) createConversation(c echo.Context) error {
 	return writeJSON(c, http.StatusCreated, conversationResponseFrom(value))
 }
 
+func (h *Handler) listConversations(c echo.Context) error {
+	lister, ok := h.repository.(conversation.Lister)
+	if !ok {
+		return writeError(c, http.StatusNotImplemented, "conversation listing is not supported")
+	}
+	values, err := lister.ListConversations(c.Request().Context())
+	if err != nil {
+		return writeRepositoryError(c, err)
+	}
+	response := make([]conversationResponse, 0, len(values))
+	for _, value := range values {
+		response = append(response, conversationResponseFrom(value))
+	}
+	return writeJSON(c, http.StatusOK, map[string]any{"conversations": response})
+}
+
 func (h *Handler) getConversation(c echo.Context) error {
 	value, err := h.repository.GetConversation(c.Request().Context(), c.Param("id"))
 	if err != nil {
@@ -370,6 +387,7 @@ type createMessageRequest struct {
 
 type conversationResponse struct {
 	ID         string                         `json:"id"`
+	Title      string                         `json:"title"`
 	Status     string                         `json:"status"`
 	Repository *conversation.RepositoryConfig `json:"repository,omitempty"`
 	CreatedAt  time.Time                      `json:"createdAt"`
@@ -388,8 +406,18 @@ type messageResponse struct {
 }
 
 func conversationResponseFrom(value conversation.Conversation) conversationResponse {
+	title := value.Title
+	if title == "" {
+		for _, message := range value.Messages {
+			if message.Role == "user" {
+				title = conversationTitle(message.Content)
+				break
+			}
+		}
+	}
 	response := conversationResponse{
 		ID:         value.ID,
+		Title:      title,
 		Status:     value.Status,
 		Repository: value.Repository,
 		CreatedAt:  value.CreatedAt,
@@ -402,6 +430,15 @@ func conversationResponseFrom(value conversation.Conversation) conversationRespo
 		}
 	}
 	return response
+}
+
+func conversationTitle(content string) string {
+	content = strings.Join(strings.Fields(content), " ")
+	runes := []rune(content)
+	if len(runes) > 48 {
+		return string(runes[:48]) + "…"
+	}
+	return content
 }
 
 func messageResponseFrom(value conversation.Message) messageResponse {
