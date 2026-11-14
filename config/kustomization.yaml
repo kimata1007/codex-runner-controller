@@ -8,3 +8,5 @@ resources:
   - crd
   - rbac
   - manager
+  - api
+  - libsql
