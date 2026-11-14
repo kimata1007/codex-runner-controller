@@ -20,6 +20,7 @@ runnerapi
 - `CODEX_APPROVAL_POLICY`が未設定の場合、作成するセッションの既定値は`user`です。
 - PVCサイズの既定値は`10Gi`、`retain`は`true`です。
 - アイドルタイムアウトの既定値は`1800秒（30分）`です。最後のアクティビティからこの時間が経過すると、ControllerはPodだけを削除し、CR/PVC/Service/DBの会話状態を残します。
+- セッションのReady待ちは既定で60秒です。時間内にReadyにならなければRunner APIは`503 Service Unavailable`を返し、保存済みメッセージを再試行できる状態に戻します。
 - `CODEX_GIT_CREDENTIALS_SECRET_NAME`をRunner API Deploymentに設定すると、新しく作るセッションの`credentialsRef`へそのSecret名を設定します。Secretはセッションと同じNamespaceに置き、`token`キーへHTTPS Git tokenを保存します。未設定なら公開リポジトリまたは別途作成したCRDの`credentialsRef`を使います。
 
 `RUNNER_SESSION_NAMESPACE`が空の場合は`codex-system`を使用します。その他のPVCサイズ、StorageClass、モデル、承認ポリシーの設定は[runner-apiの実行経路](runner-api-wiring.md)を参照してください。
