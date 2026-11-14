@@ -1,0 +1,69 @@
+# Changelog
+
+## [v0.0.1](https://github.com/kimata1007/codex-runner-controller/commits/v0.0.1) - 2026-11-14
+
+- feat: add initial runner api contract by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/1
+- refactor: add conversation repository boundary by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/2
+- feat: define conversation data schema by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/3
+- feat: add libsql http repository by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/4
+- feat: wire libsql repository into runner api by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/5
+- test: cover first message insertion by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/6
+- ci: run Go tests on pull requests by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/66
+- feat: define codexsession contract by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/7
+- feat: build session pod and pvc resources by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/8
+- feat: add session reconcile logic by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/9
+- feat: connect codexsession to controller runtime by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/10
+- feat: add app server stdio transport by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/11
+- feat: add app server session lifecycle by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/12
+- feat: add runner agent http api by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/13
+- feat: persist runs and app server events by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/14
+- feat: add runner agent http client by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/16
+- feat: dispatch user messages to Codex by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/17
+- feat: start runs from message api by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/18
+- feat: wire runner api to session agent by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/19
+- feat: track active run in runner agent by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/20
+- Revert "feat: propagate run id to runner agent" by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/68
+- feat: propagate run id to runner agent by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/21
+- feat: forward app server events from runner agent by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/22
+- refactor: clarify runner API and agent client packages by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/69
+- feat: add internal run event ingest api by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/23
+- feat: wire durable run events and sse by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/24
+- feat: expose session runner through service by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/25
+- feat: resolve runner agent per conversation by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/27
+- feat: add session activation boundary by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/28
+- refactor: separate session activation adapter by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/29
+- feat: suspend idle session pods by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/30
+- feat: protect runner http APIs with bearer tokens by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/31
+- chore: add controller kubernetes manifests by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/32
+- build: add service container images by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/33
+- ci: add go and manifest validation by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/34
+- feat: add text-first pwa client by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/35
+- feat: configure runner pod runtime wiring by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/36
+- feat: add api and libsql platform manifests by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/37
+- feat: add PWA deployment manifest by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/38
+- fix: expose runner agent readiness probe by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/39
+- fix: make message dispatch idempotent by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/40
+- feat: persist conversation repository configuration by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/41
+- feat: project app server events to run status by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/70
+- feat: handle app server initiated rpc requests by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/43
+- feat: add runner agent approval handling by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/44
+- feat: proxy approvals through runner api by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/45
+- feat: add approval controls to pwa by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/46
+- feat: restore pwa conversations and modes by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/47
+- feat: bootstrap repository workspaces in runner pods by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/48
+- test: cover runner agent event authentication by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/49
+- refactor: centralize default session idle timeout by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/50
+- feat: configure default git credentials secret by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/51
+- fix: checkout repository revisions after cloning by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/52
+- docs: add deployment quickstart by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/53
+- fix: bound session readiness wait by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/54
+- fix: resume the latest conversation thread by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/55
+- feat: keep active session pods alive with heartbeats by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/56
+- feat: persist completed assistant messages by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/57
+- feat: persist approval lifecycle by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/58
+- feat: project session execution phases by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/59
+- fix: create the codex workspace for chat sessions by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/60
+- fix: stop heartbeats after runs finish by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/61
+- docs: align implementation guides with runtime behavior by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/62
+- feat: inject Codex App Server authentication by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/63
+- ci: build and publish versioned images with tagpr by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/72
