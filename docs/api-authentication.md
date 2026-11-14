@@ -4,10 +4,10 @@ Tailscaleはネットワーク境界を提供しますが、Runner APIとrunner-
 
 ## 設定
 
-- `RUNNER_API_TOKEN`: モバイル/PWAクライアントがRunner APIへ送るトークン
+- `RUNNER_API_TOKEN`: モバイル/PWAクライアントとrunner-agentがRunner APIへ送るトークン
 - `RUNNER_AGENT_TOKEN`: Runner APIがrunner-agentへ送る内部トークン
 
-どちらもKubernetes Secretから環境変数へ注入します。空の場合は開発用に認証を無効化しますが、本番マニフェストでは必須です。
+どちらもKubernetes Secretから環境変数へ注入します。runner-agent Podには2種類のSecret値を別のキーから注入し、App Serverイベント送信時は`RUNNER_API_TOKEN`をBearerヘッダーに設定します。空の場合は開発用に認証を無効化しますが、本番マニフェストでは必須です。
 
 `/healthz`と`/readyz`はServiceのprobeから利用できるよう認証不要です。それ以外のルートは`Authorization: Bearer <token>`が必要です。トークンは定数時間比較し、レスポンスにトークン値を含めません。
 

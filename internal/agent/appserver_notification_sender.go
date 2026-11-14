@@ -35,8 +35,9 @@ type RunEventSender interface {
 // The endpoint is intentionally configured separately from the public message
 // API because it is only reachable inside the cluster.
 type HTTPRunEventSender struct {
-	baseURL    string
-	httpClient *http.Client
+	baseURL     string
+	bearerToken string
+	httpClient  *http.Client
 }
 
 func NewHTTPRunEventSender(baseURL string) *HTTPRunEventSender {
@@ -46,6 +47,13 @@ func NewHTTPRunEventSender(baseURL string) *HTTPRunEventSender {
 func (s *HTTPRunEventSender) WithHTTPClient(client *http.Client) *HTTPRunEventSender {
 	if client != nil {
 		s.httpClient = client
+	}
+	return s
+}
+
+func (s *HTTPRunEventSender) WithBearerToken(token string) *HTTPRunEventSender {
+	if s != nil {
+		s.bearerToken = strings.TrimSpace(token)
 	}
 	return s
 }
@@ -76,6 +84,9 @@ func (s *HTTPRunEventSender) Send(ctx context.Context, event AppServerRunEvent) 
 		return fmt.Errorf("event sender: create request: %w", err)
 	}
 	request.Header.Set("Content-Type", "application/json")
+	if s.bearerToken != "" {
+		request.Header.Set("Authorization", "Bearer "+s.bearerToken)
+	}
 	response, err := s.httpClient.Do(request)
 	if err != nil {
 		return fmt.Errorf("event sender: send request: %w", err)

@@ -3,5 +3,6 @@ kind: Kustomization
 
 resources:
   - serviceaccount.yaml
+  - agent-serviceaccount.yaml
   - role.yaml
   - rolebinding.yaml
