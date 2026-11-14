@@ -263,9 +263,15 @@ func (h *Handler) listConversations(c echo.Context) error {
 	if err != nil {
 		return writeRepositoryError(c, err)
 	}
-	response := make([]conversationResponse, 0, len(values))
+	response := make([]conversationListResponse, 0, len(values))
 	for _, value := range values {
-		response = append(response, conversationResponseFrom(value))
+		response = append(response, conversationListResponse{
+			ID:        value.ID,
+			Title:     value.Title,
+			Status:    value.Status,
+			CreatedAt: value.CreatedAt,
+			UpdatedAt: value.UpdatedAt,
+		})
 	}
 	return writeJSON(c, http.StatusOK, map[string]any{"conversations": response})
 }
@@ -393,6 +399,14 @@ type conversationResponse struct {
 	CreatedAt  time.Time                      `json:"createdAt"`
 	UpdatedAt  time.Time                      `json:"updatedAt"`
 	Messages   []messageResponse              `json:"messages,omitempty"`
+}
+
+type conversationListResponse struct {
+	ID        string    `json:"id"`
+	Title     string    `json:"title"`
+	Status    string    `json:"status"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
 }
 
 type messageResponse struct {

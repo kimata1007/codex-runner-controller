@@ -5,6 +5,12 @@ const state = {
   sending: false,
 };
 
+// Preserve repositories selected by earlier versions, before the recent list existed.
+if (state.repository && !state.repositories.some((item) => item.url === state.repository.url && item.revision === state.repository.revision)) {
+  state.repositories = [state.repository, ...state.repositories].slice(0, 12);
+  localStorage.setItem('codex.repositories', JSON.stringify(state.repositories));
+}
+
 const elements = {
   shell: document.querySelector('.app-shell'),
   sidebar: document.querySelector('#sidebar'),
@@ -118,20 +124,28 @@ function makeIcon(path) {
 
 function setRepository(repository) {
   state.repository = repository;
-  if (repository) localStorage.setItem('codex.selectedRepository', JSON.stringify(repository));
-  else localStorage.removeItem('codex.selectedRepository');
+  if (repository) {
+    localStorage.setItem('codex.selectedRepository', JSON.stringify(repository));
+    state.repositories = [repository, ...state.repositories.filter((item) => item.url !== repository.url || item.revision !== repository.revision)].slice(0, 12);
+    localStorage.setItem('codex.repositories', JSON.stringify(state.repositories));
+  } else {
+    localStorage.removeItem('codex.selectedRepository');
+  }
   renderRepository();
   renderContextMenu();
 }
 
 function renderContextMenu() {
   elements.contextMenu.replaceChildren();
-  if (state.repositories.length) {
+  const repositories = state.repository
+    ? [state.repository, ...state.repositories.filter((item) => item.url !== state.repository.url || item.revision !== state.repository.revision)]
+    : state.repositories;
+  if (repositories.length) {
     const label = document.createElement('p');
     label.className = 'menu-section-label';
     label.textContent = 'リポジトリ';
     elements.contextMenu.append(label);
-    for (const repository of state.repositories) {
+    for (const repository of repositories) {
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'repository-option';
@@ -140,6 +154,7 @@ function renderContextMenu() {
       name.textContent = repositoryName(repository);
       button.append(name);
       if (state.repository?.url === repository.url && state.repository?.revision === repository.revision) {
+        button.setAttribute('aria-pressed', 'true');
         const selected = document.createElement('small');
         selected.textContent = '選択中';
         button.append(selected);
@@ -349,8 +364,7 @@ async function openConversation(id) {
     state.conversationID = result.id;
     localStorage.setItem('codex.currentConversation', result.id);
     setConversationURL(result.id);
-    state.repository = result.repository || null;
-    renderRepository();
+    setRepository(result.repository || null);
     elements.conversationTitle.textContent = conversationTitle(result);
     elements.messages.replaceChildren();
     for (const message of result.messages || []) addMessage(message.role, message.content);

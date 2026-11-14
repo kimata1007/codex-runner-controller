@@ -97,10 +97,9 @@ func (r *Repository) GetConversation(ctx context.Context, id string) (conversati
 }
 
 func (r *Repository) ListConversations(ctx context.Context) ([]conversation.Conversation, error) {
-	result, err := r.client.Exec(ctx, `SELECT c.id, c.status, c.created_at, c.updated_at, r.url, r.revision,
+	result, err := r.client.Exec(ctx, `SELECT c.id, c.status, c.created_at, c.updated_at,
 		COALESCE((SELECT m.content FROM messages m WHERE m.conversation_id = c.id AND m.role = 'user' ORDER BY m.sequence LIMIT 1), c.title, '')
 		FROM conversations c
-		LEFT JOIN conversation_repositories r ON r.conversation_id = c.id
 		WHERE c.user_id = ?
 		ORDER BY c.updated_at DESC
 		LIMIT 100`, []Value{Text(r.userID)}, true)
@@ -109,7 +108,7 @@ func (r *Repository) ListConversations(ctx context.Context) ([]conversation.Conv
 	}
 	values := make([]conversation.Conversation, 0, len(result.Rows))
 	for _, row := range result.Rows {
-		if len(row) < 7 {
+		if len(row) < 5 {
 			return nil, fmt.Errorf("libsql: conversation list row has %d columns", len(row))
 		}
 		createdAt, err := parseTime(row[2])
@@ -125,10 +124,7 @@ func (r *Repository) ListConversations(ctx context.Context) ([]conversation.Conv
 			Status:    row[1].Value,
 			CreatedAt: createdAt,
 			UpdatedAt: updatedAt,
-			Title:     conversationTitle(row[6].Value),
-		}
-		if row[4].Type != "null" || row[5].Type != "null" {
-			value.Repository = &conversation.RepositoryConfig{URL: row[4].Value, Revision: row[5].Value}
+			Title:     conversationTitle(row[4].Value),
 		}
 		values = append(values, value)
 	}
