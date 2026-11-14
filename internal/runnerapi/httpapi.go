@@ -155,16 +155,16 @@ func (h *Handler) receiveAppServerRunEvent(c echo.Context) error {
 			return writeError(c, http.StatusBadGateway, "failed to update run status")
 		}
 	}
-	h.projectSessionPhase(c.Request().Context(), event.RunID, event.EventType)
+	h.projectSessionPhase(c.Request().Context(), event.RunID, event.EventType, event.Payload)
 	h.eventHub.Publish(event)
 	return writeJSON(c, http.StatusAccepted, event)
 }
 
-func (h *Handler) projectSessionPhase(ctx context.Context, runID, eventType string) {
+func (h *Handler) projectSessionPhase(ctx context.Context, runID, eventType, payload string) {
 	if h.phase == nil {
 		return
 	}
-	status, ok := runs.StatusForEvent(eventType)
+	status, ok := runs.StatusForEvent(eventType, payload)
 	if !ok {
 		return
 	}
