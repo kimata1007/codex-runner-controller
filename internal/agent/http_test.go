@@ -77,3 +77,24 @@ func TestHTTPHandlerExposesReadinessProbe(t *testing.T) {
 		t.Fatalf("status = %d, want %d", response.Code, http.StatusOK)
 	}
 }
+
+func TestHTTPHandlerResolvesApproval(t *testing.T) {
+	resolver := &fakeApprovalResolver{}
+	handler := NewHTTPHandlerWithTrackerAndApprovals(new(fakeSession), NewRunTracker(), resolver)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/v1/approvals/7", strings.NewReader(`{"decision":"accept"}`)))
+	if response.Code != http.StatusAccepted || resolver.requestID != "7" || !strings.Contains(string(resolver.response), "accept") {
+		t.Fatalf("status=%d id=%q response=%s", response.Code, resolver.requestID, resolver.response)
+	}
+}
+
+type fakeApprovalResolver struct {
+	requestID string
+	response  json.RawMessage
+}
+
+func (f *fakeApprovalResolver) Resolve(requestID string, response any) error {
+	f.requestID = requestID
+	f.response, _ = json.Marshal(response)
+	return nil
+}
