@@ -8,5 +8,6 @@ Workflowは`ubuntu-24.04`上で実行し、`actions/checkout`は`v7.0.1`、`acti
 - `go vet ./...`
 - `node --check`によるWeb JavaScriptの構文検証とPWA manifestのJSON検証
 - `kubectl kustomize config`が成功すること
+- 4つのプロジェクト用コンテナイメージをビルドできること（GHCRにはpushしません）
 
-CIは外部のGitHub tokenやCodex tokenを必要としません。イメージpublishやクラスタへのdeployは別のリリース工程として扱い、権限の範囲を広げないようにしています。
+SemVerタグを作るrelease PRとGHCRへのイメージ公開は、`.github/workflows/tagpr-release.yaml`で行います。詳しくは[リリース手順](release-process.md)を参照してください。通常のCIはイメージを公開せず、タグPRのワークフローはActions標準の`GITHUB_TOKEN`だけを使います。

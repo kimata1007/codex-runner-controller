@@ -17,4 +17,6 @@ docker build --build-arg CODEX_CLI_VERSION=<pinned-version> \
 
 runner-agentは同じコンテナ内でCodex CLIを子プロセスとして起動するため、Node.jsベースのイメージにCodex CLIを同梱します。`CODEX_CLI_VERSION`は必須のbuild argで、`latest`を暗黙に使わず、CIまたはリリース設定で明示的に固定します。
 
+CIとGHCRリリースはリポジトリルートの`CODEX_CLI_VERSION`ファイルを読み、同じバージョンをbuild argとして渡します。
+
 APIとControllerはdistrolessのnon-rootイメージです。agentはCLIと作業ディレクトリが必要なため、Debian slim上でnon-rootユーザーを作成します。セッションPVCはDeploymentではなく、CodexSession ControllerがPodへマウントします。

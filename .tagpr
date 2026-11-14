@@ -1,0 +1,5 @@
+[tagpr]
+releaseBranch = main
+versionFile = -
+vPrefix = true
+postVersionCommand = bash scripts/update-release-image-tags.sh

@@ -34,18 +34,18 @@ docker build -f Dockerfile.runner-api \
   --tag ghcr.io/kimata1007/codex-runner-api:dev .
 docker build -f Dockerfile.runner-controller \
   --tag ghcr.io/kimata1007/codex-runner-controller:dev .
-docker build --build-arg CODEX_CLI_VERSION=<pinned-version> \
+docker build --build-arg CODEX_CLI_VERSION="$(cat CODEX_CLI_VERSION)" \
   -f Dockerfile.runner-agent \
   --tag ghcr.io/kimata1007/codex-runner-agent:dev .
 docker build -f Dockerfile.runner-pwa \
   --tag ghcr.io/kimata1007/codex-runner-pwa:dev .
 ```
 
-`Dockerfile.runner-agent` はGit取得に使う `git` と、固定したCodex CLIのバージョンを含みます。`CODEX_CLI_VERSION`を省略してビルドできないようにしているため、環境ごとに明示的に固定してください。
+`Dockerfile.runner-agent` はGit取得に使う `git` と、固定したCodex CLIのバージョンを含みます。`CODEX_CLI_VERSION`ファイルにバージョンを固定し、CIとリリースで同じ値を使います。
 
 ## Kubernetesデプロイ
 
-1. 4つのイメージをレジストリへpushし、`config/manager/deployment.yaml`、`config/api/deployment.yaml`、`config/web/deployment.yaml`のイメージを環境のタグへ変更します。
+1. リリースPRをマージすると、SemVerタグ付きの4つのイメージがGHCRへ公開され、共通Kustomizeマニフェストのイメージタグも同じバージョンに更新されます。リリース方法は[リリース手順](docs/release-process.md)を参照してください。
 2. 同じNamespaceにRunner APIとrunner-agent間で共有するSecretを作成します。
 
 ```yaml
