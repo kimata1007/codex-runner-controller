@@ -30,7 +30,7 @@ func main() {
 	tracker := agent.NewRunTracker()
 	var runEventSender agent.RunEventSender
 	if eventURL := os.Getenv("RUNNER_EVENT_URL"); eventURL != "" {
-		runEventSender = agent.NewHTTPRunEventSender(eventURL)
+		runEventSender = agent.NewHTTPRunEventSender(eventURL).WithBearerToken(os.Getenv("RUNNER_API_TOKEN"))
 	}
 	process, err := agent.StartProcess(ctx, command, args, func(notification agent.AppServerNotification) {
 		runID := tracker.Current()

@@ -88,7 +88,7 @@ func TestResourceBuilderBuildsRunnerAgentService(t *testing.T) {
 }
 
 func TestResourceBuilderInjectsRunnerRuntimeConfiguration(t *testing.T) {
-	pod, err := (ResourceBuilder{RunnerEventURL: "http://runner-api:8080/internal/runs", RunnerAgentTokenSecretName: "runner-tokens", RunnerAgentTokenSecretKey: "token", RunnerServiceAccountName: "runner-agent"}).BuildPod("codex-system", "session-1", testSessionSpec())
+	pod, err := (ResourceBuilder{RunnerImage: "runner:v1.0.0", RunnerEventURL: "http://runner-api:8080/internal/runs", RunnerAgentTokenSecretName: "runner-tokens", RunnerAgentTokenSecretKey: "agent-token", RunnerAPITokenSecretName: "runner-tokens", RunnerAPITokenSecretKey: "api-token", RunnerServiceAccountName: "runner-agent"}).BuildPod("codex-system", "session-1", testSessionSpec())
 	if err != nil {
 		t.Fatalf("build pod: %v", err)
 	}
@@ -96,19 +96,21 @@ func TestResourceBuilderInjectsRunnerRuntimeConfiguration(t *testing.T) {
 	if pod.Spec.ServiceAccountName != "runner-agent" || pod.Spec.SecurityContext == nil || pod.Spec.SecurityContext.RunAsNonRoot == nil || !*pod.Spec.SecurityContext.RunAsNonRoot {
 		t.Fatalf("pod security/service account = %+v / %q", pod.Spec.SecurityContext, pod.Spec.ServiceAccountName)
 	}
-	if len(container.Env) != 5 {
-		t.Fatalf("environment variable count = %d, want 5", len(container.Env))
+	if len(container.Env) != 6 {
+		t.Fatalf("environment variable count = %d, want 6", len(container.Env))
 	}
-	var eventURL, token string
+	var eventURL, agentToken, apiToken string
 	for _, env := range container.Env {
 		switch env.Name {
 		case "RUNNER_EVENT_URL":
 			eventURL = env.Value
 		case "RUNNER_AGENT_TOKEN":
-			token = env.ValueFrom.SecretKeyRef.Name + ":" + env.ValueFrom.SecretKeyRef.Key
+			agentToken = env.ValueFrom.SecretKeyRef.Name + ":" + env.ValueFrom.SecretKeyRef.Key
+		case "RUNNER_API_TOKEN":
+			apiToken = env.ValueFrom.SecretKeyRef.Name + ":" + env.ValueFrom.SecretKeyRef.Key
 		}
 	}
-	if eventURL != "http://runner-api:8080/internal/runs" || token != "runner-tokens:token" {
-		t.Fatalf("runtime env = %q / %q", eventURL, token)
+	if eventURL != "http://runner-api:8080/internal/runs" || agentToken != "runner-tokens:agent-token" || apiToken != "runner-tokens:api-token" {
+		t.Fatalf("runtime env = %q / %q / %q", eventURL, agentToken, apiToken)
 	}
 }

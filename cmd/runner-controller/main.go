@@ -43,13 +43,19 @@ func main() {
 	}
 	tokenSecretKey := os.Getenv("RUNNER_AGENT_TOKEN_SECRET_KEY")
 	if tokenSecretKey == "" {
-		tokenSecretKey = "token"
+		tokenSecretKey = "agent-token"
+	}
+	apiTokenSecretKey := os.Getenv("RUNNER_API_TOKEN_SECRET_KEY")
+	if apiTokenSecretKey == "" {
+		apiTokenSecretKey = "api-token"
 	}
 	builder := kubernetes.ResourceBuilder{
 		RunnerImage:                runnerImage,
 		RunnerEventURL:             os.Getenv("RUNNER_EVENT_URL"),
 		RunnerAgentTokenSecretName: os.Getenv("RUNNER_AGENT_TOKEN_SECRET_NAME"),
 		RunnerAgentTokenSecretKey:  tokenSecretKey,
+		RunnerAPITokenSecretName:   os.Getenv("RUNNER_API_TOKEN_SECRET_NAME"),
+		RunnerAPITokenSecretKey:    apiTokenSecretKey,
 		RunnerServiceAccountName:   serviceAccountName,
 	}
 	if err := (&controller.CodexSessionController{Client: mgr.GetClient(), Builder: builder}).SetupWithManager(mgr); err != nil {

@@ -13,7 +13,7 @@ kubectl apply -k config/
 - `rbac/`: ControllerがCodexSession、Pod、Service、PVCをreconcileするためのRole
 - `manager/`: controller-runtime managerのDeployment
 
-このPRはControllerだけを対象にします。Runner API、runner-agent、libSQLは別Deploymentとして追加します。イメージは`ghcr.io/kimata1007/codex-runner-controller:latest`を仮定しているため、CIで同じイメージをpublishするまでにタグを環境ごとに上書きしてください。
+このPRはControllerだけを対象にします。Runner API、runner-agent、libSQLは別Deploymentとして追加します。サンプルのControllerイメージは`ghcr.io/kimata1007/codex-runner-controller:v0.1.0`です。イメージをpublishした固定バージョンまたはdigestに合わせてください。
 
 ## RBACの考え方
 
