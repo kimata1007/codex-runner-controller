@@ -1,0 +1,84 @@
+name: Tag PR and publish images
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  tagpr:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: read
+    outputs:
+      tag: ${{ steps.tagpr.outputs.tag }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Prepare or tag release
+        id: tagpr
+        uses: Songmu/tagpr@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish-images:
+    needs: tagpr
+    if: needs.tagpr.outputs.tag != ''
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: runner-api
+            dockerfile: Dockerfile.runner-api
+          - name: runner-controller
+            dockerfile: Dockerfile.runner-controller
+          - name: runner-agent
+            dockerfile: Dockerfile.runner-agent
+          - name: runner-pwa
+            dockerfile: Dockerfile.runner-pwa
+    steps:
+      - name: Check out release tag
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ needs.tagpr.outputs.tag }}
+          persist-credentials: false
+      - name: Read source revision
+        id: source
+        run: echo "sha=$(git rev-parse --short=12 HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Log in to GitHub Container Registry
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: printf '%s' "$GITHUB_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+      - name: Build and push image
+        env:
+          RELEASE_TAG: ${{ needs.tagpr.outputs.tag }}
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+        run: |
+          build_args=()
+          if [[ "${{ matrix.name }}" == "runner-agent" ]]; then
+            build_args+=(--build-arg "CODEX_CLI_VERSION=$(cat CODEX_CLI_VERSION)")
+          fi
+          image="ghcr.io/kimata1007/codex-${{ matrix.name }}"
+          docker build \
+            "${build_args[@]}" \
+            --label "org.opencontainers.image.source=https://github.com/kimata1007/codex-runner-controller" \
+            --label "org.opencontainers.image.version=$RELEASE_TAG" \
+            --label "org.opencontainers.image.revision=$SOURCE_SHA" \
+            --file "${{ matrix.dockerfile }}" \
+            --tag "$image:$RELEASE_TAG" \
+            --tag "$image:sha-$SOURCE_SHA" \
+            .
+          docker push "$image:$RELEASE_TAG"
+          docker push "$image:sha-$SOURCE_SHA"

@@ -49,3 +49,32 @@ jobs:
         run: kubectl kustomize config > /tmp/codex-runner-manifests.yaml
       - name: Validate YAML is non-empty
         run: test -s /tmp/codex-runner-manifests.yaml
+
+  container-images:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: runner-api
+            dockerfile: Dockerfile.runner-api
+          - name: runner-controller
+            dockerfile: Dockerfile.runner-controller
+          - name: runner-agent
+            dockerfile: Dockerfile.runner-agent
+          - name: runner-pwa
+            dockerfile: Dockerfile.runner-pwa
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7.0.1
+      - name: Build container image
+        run: |
+          build_args=()
+          if [[ "${{ matrix.name }}" == "runner-agent" ]]; then
+            build_args+=(--build-arg "CODEX_CLI_VERSION=$(cat CODEX_CLI_VERSION)")
+          fi
+          docker build \
+            "${build_args[@]}" \
+            --file "${{ matrix.dockerfile }}" \
+            --tag "local/${{ matrix.name }}:${{ github.sha }}" \
+            .
