@@ -2,7 +2,7 @@
 
 `cmd/runner-controller`がKubernetes Managerを起動し、`CodexSessionController`を登録する。
 
-起動前に固定タグ付きのrunner-agentイメージを`RUNNER_AGENT_IMAGE`で指定する。未設定の場合は起動しない。
+起動前に固定タグ付きのrunner-agentイメージを`RUNNER_AGENT_IMAGE`で指定する。未設定の場合は起動しない。ManagerのキャッシュはPodの`metadata.namespace`から取得した`KUBERNETES_NAMESPACE`内に限定する。未設定の場合は起動しないため、namespaceスコープのRoleだけで監視できる。
 
 処理の分担は次のとおり。
 
