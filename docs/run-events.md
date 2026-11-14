@@ -9,4 +9,4 @@
 - Podが削除されても、どの実行が途中だったかをDBから判断できる
 - イベントをsequence順で再生でき、後続のSSEクライアントが途中から再接続できる
 
-`AppendEvent` はrunごとのsequenceをDB側で採番し、`ListEvents` は指定したsequenceより後だけを返す。現段階ではRunner Podからのイベント転送は後続PRで接続する。
+`AppendEvent` はrunごとのsequenceをDB側で採番し、`ListEvents` は指定したsequenceより後だけを返す。runner-agentはBearer認証付き内部APIへイベントを送信し、Runner APIは保存後にBrokerへpublishする。完了イベントではassistant messageも投影する。

@@ -22,4 +22,4 @@ libSQL/sqldをシステム・オブ・レコードとして使うための最初
 
 ## セキュリティ
 
-メッセージ本文、Codexの認証トークン、GitHubのアクセストークンはKubernetesのCRDへ保存しない。DBの認証情報は後続のKubernetes Secretと環境変数で注入する。
+メッセージ本文、Codexの認証トークン、GitHubのアクセストークンはKubernetesのCRDへ保存しない。DBとGitの認証情報はKubernetes Secretと環境変数で注入する。

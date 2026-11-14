@@ -55,6 +55,8 @@ func main() {
 		RunnerHeartbeatURL:         os.Getenv("RUNNER_HEARTBEAT_URL"),
 		RunnerAgentTokenSecretName: os.Getenv("RUNNER_AGENT_TOKEN_SECRET_NAME"),
 		RunnerAgentTokenSecretKey:  tokenSecretKey,
+		CodexAccessTokenSecretName: os.Getenv("CODEX_ACCESS_TOKEN_SECRET_NAME"),
+		CodexAccessTokenSecretKey:  os.Getenv("CODEX_ACCESS_TOKEN_SECRET_KEY"),
 		RunnerAPITokenSecretName:   os.Getenv("RUNNER_API_TOKEN_SECRET_NAME"),
 		RunnerAPITokenSecretKey:    apiTokenSecretKey,
 		RunnerServiceAccountName:   serviceAccountName,

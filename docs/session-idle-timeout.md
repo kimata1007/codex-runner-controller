@@ -18,3 +18,5 @@ message API
 `lastActivityAt`はReady待ちの前に更新します。これにより、停止期限を過ぎたセッションの再開中に古い時刻を見てPodを再削除する競合を避けます。期限前ならcontrollerは期限まで`RequeueAfter`で待ちます。期限を過ぎた場合はPodを削除し、`Suspended` phaseを返します。`Spec.DesiredState`はActiveのままでも、期限切れの`lastActivityAt`を見て再作成を抑止するため、Pod削除イベントで直ちに再起動することはありません。新しいメッセージのアクティベーションが、次の起動を明示的に行います。Starting中、実行中（Busy）、承認待ち（WaitingForApproval）のセッションは停止しません。
 
 `CodexSession`で`idleTimeoutSeconds`が0なら停止しません。Runner APIが作るセッションでは既定値1800秒を使用します。
+
+実行中（Busy）または承認待ち（WaitingForApproval）の間はrunner-agentがheartbeatを送るため、heartbeatが継続する限りidle timeoutでは削除されません。

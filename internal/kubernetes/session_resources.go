@@ -29,6 +29,8 @@ type ResourceBuilder struct {
 	RunnerAgentTokenSecretKey  string
 	RunnerAPITokenSecretName   string
 	RunnerAPITokenSecretKey    string
+	CodexAccessTokenSecretName string
+	CodexAccessTokenSecretKey  string
 	RunnerServiceAccountName   string
 }
 
@@ -106,6 +108,13 @@ func (b ResourceBuilder) BuildPod(namespace, name string, spec v1alpha1.CodexSes
 			key = "api-token"
 		}
 		env = append(env, corev1.EnvVar{Name: "RUNNER_API_TOKEN", ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: b.RunnerAPITokenSecretName}, Key: key}}})
+	}
+	if b.CodexAccessTokenSecretName != "" {
+		key := b.CodexAccessTokenSecretKey
+		if key == "" {
+			key = "token"
+		}
+		env = append(env, corev1.EnvVar{Name: "ACCESS_TOKEN", ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: b.CodexAccessTokenSecretName}, Key: key}}})
 	}
 	serviceAccountName := b.RunnerServiceAccountName
 	if serviceAccountName == "" {

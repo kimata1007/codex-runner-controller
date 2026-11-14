@@ -2,6 +2,7 @@
 set -eu
 
 workspace="${CODEX_CWD:-/var/lib/codex/workspace}"
+mkdir -p "$workspace"
 
 git_cmd() {
 	if [ -n "${GIT_AUTH_TOKEN:-}" ]; then
@@ -17,7 +18,6 @@ if [ -n "${CODEX_REPOSITORY_URL:-}" ]; then
 		exit 1
 	fi
 
-	mkdir -p "$workspace"
 	if [ -d "$workspace/.git" ]; then
 		remote_url=$(git -C "$workspace" remote get-url origin)
 		if [ "$remote_url" != "$CODEX_REPOSITORY_URL" ]; then

@@ -24,7 +24,7 @@ func main() {
 	}
 	args := strings.Fields(os.Getenv("CODEX_APP_SERVER_ARGS"))
 	if len(args) == 0 {
-		args = []string{"app-server", "--listen", "stdio://"}
+		args = defaultAppServerArgs()
 	}
 
 	tracker := agent.NewRunTracker()
@@ -37,6 +37,9 @@ func main() {
 		runID := tracker.Current()
 		log.Printf("app-server notification: run=%s method=%s", runID, notification.Method)
 		if runEventSender == nil || runID == "" {
+			if terminalAppServerEvent(notification.Method) {
+				tracker.Clear(runID)
+			}
 			return
 		}
 		// Notification handling must not block the JSON-RPC reader. A short
@@ -51,6 +54,9 @@ func main() {
 				log.Printf("send App Server run event: %v", err)
 			}
 		}()
+		if terminalAppServerEvent(notification.Method) {
+			tracker.Clear(runID)
+		}
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -61,7 +67,7 @@ func main() {
 		if heartbeatErr != nil {
 			log.Printf("configure heartbeat: %v", heartbeatErr)
 		} else {
-			go runHeartbeat(ctx, heartbeat)
+			go runHeartbeat(ctx, heartbeat, tracker)
 		}
 	}
 
@@ -112,11 +118,30 @@ func main() {
 	}
 }
 
-func runHeartbeat(ctx context.Context, heartbeat *agent.HTTPHeartbeatSink) {
+func defaultAppServerArgs() []string {
+	args := []string{"app-server", "--listen", "stdio://"}
+	if strings.TrimSpace(os.Getenv("ACCESS_TOKEN")) == "" {
+		return args
+	}
+	return append(args,
+		"-c", `model_provider="openai_chatgpt_plan"`,
+		"-c", `model_providers.openai_chatgpt_plan.name="ChatGPT plan"`,
+		"-c", `model_providers.openai_chatgpt_plan.base_url="https://api.openai.com/v1"`,
+		"-c", `model_providers.openai_chatgpt_plan.env_key="ACCESS_TOKEN"`,
+		"-c", `model_providers.openai_chatgpt_plan.wire_api="responses"`,
+		"-c", `model_providers.openai_chatgpt_plan.requires_openai_auth=false`,
+		"-c", `model_providers.openai_chatgpt_plan.supports_websockets=false`,
+	)
+}
+
+func runHeartbeat(ctx context.Context, heartbeat *agent.HTTPHeartbeatSink, tracker *agent.RunTracker) {
 	const interval = 30 * time.Second
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	report := func() {
+		if tracker.Current() == "" {
+			return
+		}
 		heartbeatCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
 		if err := heartbeat.Report(heartbeatCtx); err != nil && ctx.Err() == nil {
@@ -131,5 +156,14 @@ func runHeartbeat(ctx context.Context, heartbeat *agent.HTTPHeartbeatSink) {
 		case <-ticker.C:
 			report()
 		}
+	}
+}
+
+func terminalAppServerEvent(method string) bool {
+	switch strings.ToLower(strings.TrimSpace(method)) {
+	case "turn/completed", "turn/complete", "turn/finished", "turn/failed", "turn/error", "turn/interrupted", "turn/aborted":
+		return true
+	default:
+		return false
 	}
 }

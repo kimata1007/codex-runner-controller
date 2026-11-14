@@ -8,4 +8,4 @@
 - `POST /v1/threads/{threadId}/resume` — PVC上のthreadを再開
 - `POST /v1/threads/{threadId}/turns` — ユーザー入力を送信
 
-この境界を置くことで、Runner APIのテストでは実際のCodexプロセスを起動せず、HTTPサーバーを差し替えて実行経路を検証できます。Kubernetes上では、後続のService実装でセッションPodのrunner-agentへ到達させます。
+この境界を置くことで、Runner APIのテストでは実際のCodexプロセスを起動せず、HTTPサーバーを差し替えて実行経路を検証できます。Kubernetes上では、会話ごとのClusterIP Serviceを経由してセッションPodへ到達します。
