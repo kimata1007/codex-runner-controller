@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.0.2](https://github.com/kimata1007/codex-runner-controller/compare/v0.0.1...v0.0.2) - 2026-11-14
+
+- Scope controller cache to its namespace by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/74
+
 ## [v0.0.1](https://github.com/kimata1007/codex-runner-controller/commits/v0.0.1) - 2026-11-14
 
 - feat: add initial runner api contract by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/1
