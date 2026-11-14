@@ -50,3 +50,18 @@ func TestHTTPRunEventSenderValidatesEvent(t *testing.T) {
 		t.Fatal("expected run ID error")
 	}
 }
+
+func TestHTTPRunEventSenderAddsBearerToken(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer api-token" {
+			t.Fatalf("authorization = %q", got)
+		}
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer server.Close()
+
+	sender := NewHTTPRunEventSender(server.URL).WithBearerToken(" api-token ")
+	if err := sender.Send(context.Background(), AppServerRunEvent{RunID: "run-1", EventType: "turn/completed"}); err != nil {
+		t.Fatalf("report: %v", err)
+	}
+}
