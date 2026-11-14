@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -115,17 +116,22 @@ func runtimeFromEnvironment(repository conversation.Repository) (runnerapi.Messa
 			return nil, nil, fmt.Errorf("create Kubernetes client for session activation: %w", err)
 		}
 		activator = &kubernetes.SessionActivator{
-			Client:           kubeClient,
-			Namespace:        namespace,
-			SessionDataSize:  os.Getenv("RUNNER_SESSION_DATA_SIZE"),
-			StorageClassName: os.Getenv("RUNNER_SESSION_STORAGE_CLASS"),
-			Model:            params.Model,
-			ApprovalPolicy:   params.ApprovalPolicy,
+			Client:             kubeClient,
+			Namespace:          namespace,
+			SessionDataSize:    os.Getenv("RUNNER_SESSION_DATA_SIZE"),
+			StorageClassName:   os.Getenv("RUNNER_SESSION_STORAGE_CLASS"),
+			CredentialsRefName: gitCredentialsSecretNameFromEnvironment(),
+			Model:              params.Model,
+			ApprovalPolicy:     params.ApprovalPolicy,
 		}
 		resolver = kubernetes.SessionEndpointResolver{Namespace: namespace}
 	}
 	factory := agentclient.NewRunClientFactoryWithToken(resolver, params, os.Getenv("RUNNER_AGENT_TOKEN"))
 	return runs.NewMessageDispatcherWithFactory(runStore, factory), activator, nil
+}
+
+func gitCredentialsSecretNameFromEnvironment() string {
+	return strings.TrimSpace(os.Getenv("CODEX_GIT_CREDENTIALS_SECRET_NAME"))
 }
 
 func repositoryFromEnvironment(ctx context.Context) (conversation.Repository, error) {
