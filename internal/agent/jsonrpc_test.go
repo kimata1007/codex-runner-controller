@@ -53,3 +53,21 @@ func TestJSONRPCClientReturnsRemoteError(t *testing.T) {
 		t.Fatalf("error = %v", err)
 	}
 }
+
+func TestJSONRPCClientRespondsToServerRequest(t *testing.T) {
+	reader := strings.NewReader("{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"approval/request\",\"params\":{}}\n{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{}}\n")
+	var output strings.Builder
+	client := NewJSONRPCClient(reader, &output, nil)
+	client.SetRequestHandler(func(_ context.Context, message Message) (any, error) {
+		if message.Method != "approval/request" {
+			t.Fatalf("method = %q", message.Method)
+		}
+		return map[string]string{"decision": "decline"}, nil
+	})
+	if err := client.Call(context.Background(), "turn/start", nil, nil); err != nil {
+		t.Fatalf("call: %v", err)
+	}
+	if !strings.Contains(output.String(), `"id":7`) || !strings.Contains(output.String(), `"decision":"decline"`) {
+		t.Fatalf("response = %s", output.String())
+	}
+}
