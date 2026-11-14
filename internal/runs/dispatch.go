@@ -120,6 +120,11 @@ func (d *MessageDispatcher) RespondApproval(ctx context.Context, runID, requestI
 	if err := approvalClient.RespondApproval(ctx, requestID, response); err != nil {
 		return fmt.Errorf("message dispatcher: respond approval: %w", err)
 	}
+	if approvalStore, ok := d.store.(ApprovalStore); ok {
+		if err := approvalStore.ResolveApproval(ctx, runID, requestID, ApprovalStatus(response), response); err != nil {
+			return fmt.Errorf("message dispatcher: persist approval response: %w", err)
+		}
+	}
 	return nil
 }
 

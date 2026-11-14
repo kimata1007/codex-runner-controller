@@ -9,4 +9,4 @@ POST /v1/approvals/{jsonRpcRequestId}
 {"decision":"accept"}
 ```
 
-HTTP APIはBearer認証で保護されます。`response`フィールドへApp Serverプロトコルの完全なJSONを渡す形式も利用できます。承認待ちの実体はPod内のApp Server接続にあり、Podが削除された場合は承認も無効になるため、次のメッセージでthreadを再開します。
+HTTP APIはBearer認証で保護されます。`response`フィールドへApp Serverプロトコルの完全なJSONを渡す形式も利用できます。承認待ちの実体はPod内のApp Server接続にありますが、Runner APIは承認要求をlibSQLの`approvals`へpendingとして記録し、許可/拒否をrunner-agentへ転送した後にapproved/rejectedへ更新します。Podが削除された場合はPod内の承認待ち接続は無効になるため、保存済み履歴を確認して次のメッセージでthreadを再開します。

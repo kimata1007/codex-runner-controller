@@ -2,8 +2,10 @@ package libsql
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/kimata1007/codex-runner-controller/internal/runs"
@@ -125,7 +127,58 @@ func (r *Repository) ApplyAppServerEvent(ctx context.Context, runID, eventType, 
 			return err
 		}
 	}
+	if status == runs.StatusWaitingApproval {
+		if err := r.persistApproval(ctx, runID, payload); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+func (r *Repository) persistApproval(ctx context.Context, runID, payload string) error {
+	var request struct {
+		RequestID string          `json:"requestId"`
+		Method    string          `json:"method"`
+		Params    json.RawMessage `json:"params"`
+	}
+	if err := json.Unmarshal([]byte(payload), &request); err != nil || strings.TrimSpace(request.RequestID) == "" {
+		return nil
+	}
+	params := strings.TrimSpace(string(request.Params))
+	if params == "" {
+		params = "{}"
+	}
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	_, err := r.client.Exec(ctx, `INSERT INTO approvals
+		(id, run_id, request_id, action_type, summary, status, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(run_id, request_id) DO UPDATE SET action_type = excluded.action_type, summary = excluded.summary`, []Value{
+		Text("approval-" + runID + "-" + request.RequestID), Text(runID), Text(request.RequestID), Text(request.Method), Text(params), Text(runs.ApprovalPending), Text(now),
+	}, false)
+	return err
+}
+
+func (r *Repository) RecordApproval(ctx context.Context, runID, requestID, actionType, summary string) error {
+	payload, err := json.Marshal(struct {
+		RequestID string `json:"requestId"`
+		Method    string `json:"method"`
+		Params    string `json:"params"`
+	}{RequestID: requestID, Method: actionType, Params: summary})
+	if err != nil {
+		return err
+	}
+	return r.persistApproval(ctx, runID, string(payload))
+}
+
+func (r *Repository) ResolveApproval(ctx context.Context, runID, requestID, status string, response any) error {
+	payload, err := json.Marshal(response)
+	if err != nil {
+		return err
+	}
+	_, err = r.client.Exec(ctx, `UPDATE approvals SET status = ?, response = ?, resolved_at = ? WHERE run_id = ? AND request_id = ?`, []Value{
+		Text(status), Text(string(payload)), Text(time.Now().UTC().Format(time.RFC3339Nano)), Text(runID), Text(requestID),
+	}, false)
+	return err
 }
 
 func (r *Repository) persistAssistantMessage(ctx context.Context, runID string) error {
