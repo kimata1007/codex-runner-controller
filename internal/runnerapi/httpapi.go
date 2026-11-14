@@ -19,11 +19,12 @@ import (
 const maxRequestBodyBytes = 1 << 20
 
 type Handler struct {
-	repository conversation.Repository
-	dispatcher MessageDispatcher
-	activator  session.Activator
-	eventStore RunEventStore
-	eventHub   RunEventHub
+	repository  conversation.Repository
+	statusStore MessageStatusStore
+	dispatcher  MessageDispatcher
+	activator   session.Activator
+	eventStore  RunEventStore
+	eventHub    RunEventHub
 }
 
 // HandlerDependencies groups the optional collaborators used by the HTTP API.
@@ -37,17 +38,26 @@ type HandlerDependencies struct {
 }
 
 func NewHandler(dependencies HandlerDependencies) *Handler {
+	statusStore, _ := dependencies.Repository.(MessageStatusStore)
 	return &Handler{
-		repository: dependencies.Repository,
-		dispatcher: dependencies.Dispatcher,
-		activator:  dependencies.Activator,
-		eventStore: dependencies.EventStore,
-		eventHub:   dependencies.EventHub,
+		repository:  dependencies.Repository,
+		statusStore: statusStore,
+		dispatcher:  dependencies.Dispatcher,
+		activator:   dependencies.Activator,
+		eventStore:  dependencies.EventStore,
+		eventHub:    dependencies.EventHub,
 	}
 }
 
 type MessageDispatcher interface {
 	Dispatch(context.Context, string, string, string, string) (runs.Run, error)
+}
+
+// MessageStatusStore atomically claims queued messages before dispatch and
+// restores them when a dispatch attempt fails.
+type MessageStatusStore interface {
+	ClaimQueuedMessage(context.Context, string) (bool, error)
+	SetMessageStatus(context.Context, string, string) error
 }
 
 func NewRouter(handler *Handler) *echo.Echo {
@@ -157,30 +167,6 @@ func (h *Handler) createMessage(c echo.Context) error {
 		return writeError(c, http.StatusBadRequest, "content is required")
 	}
 	conversationID := c.Param("id")
-	if h.activator != nil {
-		if _, err := h.repository.GetConversation(c.Request().Context(), conversationID); err != nil {
-			return writeRepositoryError(c, err)
-		}
-		isDuplicate := false
-		if request.ClientMessageID != "" {
-			messages, err := h.repository.ListMessages(c.Request().Context(), conversationID)
-			if err != nil {
-				return writeRepositoryError(c, err)
-			}
-			for _, existing := range messages {
-				if existing.ClientMessageID == request.ClientMessageID {
-					isDuplicate = true
-					break
-				}
-			}
-		}
-		if !isDuplicate {
-			if err := h.activator.Activate(c.Request().Context(), session.Activation{ConversationID: conversationID, RequestedAt: time.Now().UTC()}); err != nil {
-				return writeError(c, http.StatusServiceUnavailable, "failed to activate session")
-			}
-		}
-	}
-
 	message, created, err := h.repository.CreateMessage(c.Request().Context(), conversationID, conversation.NewMessage{
 		Content:         request.Content,
 		ClientMessageID: request.ClientMessageID,
@@ -188,9 +174,41 @@ func (h *Handler) createMessage(c echo.Context) error {
 	if err != nil {
 		return writeRepositoryError(c, err)
 	}
-	if created && h.dispatcher != nil {
+	dispatchable := message.Status == "queued"
+	if dispatchable && h.dispatcher != nil {
+		if h.statusStore == nil {
+			return writeError(c, http.StatusInternalServerError, "message status store is not configured")
+		}
+		claimed, err := h.statusStore.ClaimQueuedMessage(c.Request().Context(), message.ID)
+		if err != nil {
+			return writeError(c, http.StatusInternalServerError, "failed to claim message for dispatch")
+		}
+		if !claimed {
+			dispatchable = false
+			messages, err := h.repository.ListMessages(c.Request().Context(), conversationID)
+			if err != nil {
+				return writeRepositoryError(c, err)
+			}
+			for _, current := range messages {
+				if current.ID == message.ID {
+					message = current
+					break
+				}
+			}
+		} else {
+			message.Status = "running"
+		}
+	}
+	if dispatchable && h.activator != nil {
+		if err := h.activator.Activate(c.Request().Context(), session.Activation{ConversationID: conversationID, RequestedAt: time.Now().UTC()}); err != nil {
+			h.resetQueuedMessage(c, message.ID)
+			return writeError(c, http.StatusServiceUnavailable, "failed to activate session")
+		}
+	}
+	if dispatchable && h.dispatcher != nil {
 		run, err := h.dispatcher.Dispatch(c.Request().Context(), message.ConversationID, message.ID, request.ThreadID, message.Content)
 		if err != nil {
+			h.resetQueuedMessage(c, message.ID)
 			return writeError(c, http.StatusBadGateway, "failed to start run")
 		}
 		return writeJSON(c, http.StatusAccepted, map[string]any{
@@ -199,10 +217,16 @@ func (h *Handler) createMessage(c echo.Context) error {
 		})
 	}
 	status := http.StatusOK
-	if created {
+	if created && message.Status == "queued" {
 		status = http.StatusAccepted
 	}
 	return writeJSON(c, status, messageResponseFrom(message))
+}
+
+func (h *Handler) resetQueuedMessage(c echo.Context, messageID string) {
+	if h.statusStore != nil {
+		_ = h.statusStore.SetMessageStatus(c.Request().Context(), messageID, "queued")
+	}
 }
 
 type createMessageRequest struct {
