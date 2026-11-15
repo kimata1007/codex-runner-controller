@@ -6,7 +6,10 @@ import (
 	"time"
 )
 
-var ErrNotFound = errors.New("conversation not found")
+var (
+	ErrNotFound = errors.New("conversation not found")
+	ErrArchived = errors.New("conversation archived")
+)
 
 type Conversation struct {
 	ID         string
@@ -51,4 +54,12 @@ type Lister interface {
 
 type RepositoryConfigurer interface {
 	CreateConversationWithRepository(context.Context, *RepositoryConfig) (Conversation, error)
+}
+
+type ActivityRecorder interface {
+	TouchConversation(context.Context, string, time.Time) error
+}
+
+type RetentionStore interface {
+	ArchiveInactiveConversations(context.Context, time.Time) error
 }

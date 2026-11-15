@@ -172,6 +172,15 @@ func (a *SessionActivator) recordActivity(ctx context.Context, key types.Namespa
 		if err := a.Client.Get(ctx, key, resource); err != nil {
 			return err
 		}
+		if resource.Status.LastActivityAt != "" {
+			previous, err := time.Parse(time.RFC3339Nano, resource.Status.LastActivityAt)
+			if err != nil {
+				return fmt.Errorf("parse lastActivityAt: %w", err)
+			}
+			if previous.After(at) {
+				at = previous
+			}
+		}
 		resource.Status.LastActivityAt = at.Format(time.RFC3339Nano)
 		return a.Client.Status().Update(ctx, resource)
 	})

@@ -5,6 +5,8 @@ import (
 	"time"
 )
 
+const DefaultRetentionPeriod = 7 * 24 * time.Hour
+
 // Activation identifies the conversation whose runner-agent must be reachable.
 type Activation struct {
 	ConversationID string
