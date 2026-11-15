@@ -24,6 +24,7 @@ type Credential struct {
 	HostID       string    `json:"hostId"`
 	ClientID     string    `json:"clientId"`
 	AccountID    string    `json:"accountId"`
+	Subject      string    `json:"subject"`
 	Email        string    `json:"email,omitempty"`
 	PlanType     string    `json:"planType,omitempty"`
 	AccessToken  string    `json:"accessToken"`
@@ -143,7 +144,11 @@ func (b *Broker) Import(ctx context.Context, attemptID string, bundle OAuthToken
 	if err != nil {
 		return err
 	}
-	credential := Credential{HostID: attempt.hostID, ClientID: bundle.ClientID, AccountID: claims.Subject, Email: claims.Email,
+	accountID, err := chatGPTAccountID(bundle.AccessToken)
+	if err != nil {
+		return err
+	}
+	credential := Credential{HostID: attempt.hostID, ClientID: bundle.ClientID, AccountID: accountID, Subject: claims.Subject, Email: claims.Email,
 		AccessToken: bundle.AccessToken, RefreshToken: bundle.RefreshToken, IDToken: bundle.IDToken, Scopes: scopes,
 		ExpiresAt: b.now().Add(time.Duration(bundle.ExpiresIn) * time.Second)}
 	return b.write(ctx, credential)
@@ -238,6 +243,10 @@ func (b *Broker) refresh(ctx context.Context, force bool, expectedAccountID stri
 	if refreshed.AccessToken == "" || refreshed.RefreshToken == "" {
 		return Credential{}, fmt.Errorf("refresh response is incomplete")
 	}
+	accountID, err := chatGPTAccountID(refreshed.AccessToken)
+	if err != nil || accountID != credential.AccountID {
+		return Credential{}, fmt.Errorf("refreshed ChatGPT token belongs to a different account")
+	}
 	credential.AccessToken = refreshed.AccessToken
 	credential.RefreshToken = refreshed.RefreshToken
 	credential.ExpiresAt = b.now().Add(time.Duration(refreshed.ExpiresIn) * time.Second)
@@ -260,6 +269,26 @@ type tokenResponse struct {
 	TokenType    string `json:"token_type"`
 	Scope        string `json:"scope"`
 	ExpiresIn    int64  `json:"expires_in"`
+}
+
+func chatGPTAccountID(accessToken string) (string, error) {
+	parts := strings.Split(accessToken, ".")
+	if len(parts) != 3 {
+		return "", fmt.Errorf("ChatGPT access token does not contain an account identifier")
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return "", fmt.Errorf("decode ChatGPT access-token claims: %w", err)
+	}
+	var claims struct {
+		Auth struct {
+			AccountID string `json:"chatgpt_account_id"`
+		} `json:"https://api.openai.com/auth"`
+	}
+	if err := json.Unmarshal(payload, &claims); err != nil || strings.TrimSpace(claims.Auth.AccountID) == "" {
+		return "", fmt.Errorf("ChatGPT access token does not contain a workspace/account identifier")
+	}
+	return claims.Auth.AccountID, nil
 }
 
 func toAgentTokens(c Credential) agent.ChatGPTAuthTokens {

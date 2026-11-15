@@ -7,7 +7,7 @@ ChatGPTへの接続はRunner全体で一度行います。会話用Podごとに�
 1. PWAで会話を送信すると、未接続の場合に一時コマンドを表示します。
 2. リポジトリのルートで `go run ./cmd/codex-runner auth connect --server <Runner URL> --attempt <one-time ID> --host-id <host ID>` を実行します。
 3. ローカルヘルパーが `127.0.0.1` の一時コールバックを開き、ChatGPTの認証・同意を受け付けます。
-4. ヘルパーはOAuthトークンをPWAへ渡さず、TLS経由でRunner APIへ直接送ります。APIはID tokenの署名、audience、nonce、有効期限と、ChatGPTプラン利用scopeを検証します。
+4. ヘルパーはOAuthトークンをPWAへ渡さず、TLS経由でRunner APIへ直接送ります。APIはID tokenの署名、audience、nonce、有効期限と、ChatGPTプラン利用scopeを検証します。App Server用のworkspace/account IDはaccess token内の `chatgpt_account_id` claimから取得し、ID tokenの `sub`（ユーザー識別子）とは区別します。
 5. Runner APIはトークン一式をAES-GCMで暗号化し、専用Kubernetes Secretへ保存します。Kubernetes Secretへのアクセス権はRunner APIのServiceAccountに限定します。
 6. 各会話Podには短命のaccess tokenだけを渡します。App Serverが401を受けるとRunner APIへrefreshを依頼し、APIがrefresh tokenを一元的に更新して置き換えます。
 
