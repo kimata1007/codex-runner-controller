@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.0.3](https://github.com/kimata1007/codex-runner-controller/compare/v0.0.2...v0.0.3) - 2026-11-15
+
+- fix: remove user-facing API bearer token by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/77
+- feat: polish runner chat by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/76
+
 ## [v0.0.2](https://github.com/kimata1007/codex-runner-controller/compare/v0.0.1...v0.0.2) - 2026-11-14
 
 - Scope controller cache to its namespace by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/74
