@@ -122,10 +122,11 @@ func (s *HTTPServer) startTurn(c echo.Context) error {
 	if request.Text == "" {
 		return writeError(c, http.StatusBadRequest, "text is required")
 	}
-	if request.RunID != "" {
-		s.tracker.Set(request.RunID)
+	if request.RunID != "" && !s.tracker.Begin(request.RunID) {
+		return writeError(c, http.StatusConflict, "another turn is already active")
 	}
 	if err := s.session.StartTurn(c.Request().Context(), c.Param("id"), []TurnInput{{Type: "text", Text: request.Text}}); err != nil {
+		s.tracker.Clear(request.RunID)
 		return writeError(c, http.StatusBadGateway, err.Error())
 	}
 	return writeJSON(c, http.StatusAccepted, map[string]string{"status": "accepted"})

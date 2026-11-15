@@ -23,6 +23,21 @@ func (t *RunTracker) Set(runID string) {
 	t.mu.Unlock()
 }
 
+// Begin claims the session's single active turn. It returns false when another
+// turn is already being processed.
+func (t *RunTracker) Begin(runID string) bool {
+	if t == nil || runID == "" {
+		return false
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.runID != "" {
+		return false
+	}
+	t.runID = runID
+	return true
+}
+
 func (t *RunTracker) Current() string {
 	if t == nil {
 		return ""
