@@ -164,3 +164,22 @@ func TestReadyPodPreservesBusyPhase(t *testing.T) {
 		t.Fatalf("phase = %q", result.Phase)
 	}
 }
+
+func TestReconcilerRecreatesTerminalPod(t *testing.T) {
+	client := &fakeResourceClient{pod: &corev1.Pod{Status: corev1.PodStatus{Phase: corev1.PodFailed}}}
+	reconciler := CodexSessionReconciler{Client: client, Builder: kubernetes.ResourceBuilder{RunnerImage: "runner:v1.0.0"}}
+	result, err := reconciler.Reconcile(context.Background(), "codex-system", "session-1", reconcileSpec())
+	if err != nil {
+		t.Fatalf("reconcile terminal pod: %v", err)
+	}
+	if result.Phase != v1alpha1.PhaseStarting || result.RequeueAfter <= 0 || client.deletedPod != 1 || client.pod != nil {
+		t.Fatalf("result = %+v, deleted=%d, pod=%v", result, client.deletedPod, client.pod)
+	}
+	result, err = reconciler.Reconcile(context.Background(), "codex-system", "session-1", reconcileSpec())
+	if err != nil {
+		t.Fatalf("reconcile after deletion: %v", err)
+	}
+	if client.createdPod != 1 || result.Phase != v1alpha1.PhaseStarting {
+		t.Fatalf("recreated result = %+v, created=%d", result, client.createdPod)
+	}
+}
