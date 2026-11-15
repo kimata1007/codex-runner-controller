@@ -1,5 +1,20 @@
 # Changelog
 
+## [v0.0.5](https://github.com/kimata1007/codex-runner-controller/compare/v0.0.4...v0.0.5) - 2026-11-15
+
+- fix: use current runner agent for auth broker by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/81
+- docs: explain required ChatGPT auth secret by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/82
+- fix: keep control tokens out of app server by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/83
+- fix: honor session PVC retention policy by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/84
+- fix: report failed and interrupted turns by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/85
+- feat: restore pending approval cards by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/86
+- fix: serialize runner event forwarding by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/87
+- fix: project explicit turn terminal events by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/88
+- fix: recreate terminal session pods by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/90
+- docs: align guides with current API contract by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/92
+- fix: reject overlapping runner turns by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/93
+- fix: keep SSE streams open for long runs by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/94
+
 ## [v0.0.4](https://github.com/kimata1007/codex-runner-controller/compare/v0.0.3...v0.0.4) - 2026-11-15
 
 - feat: share ChatGPT authentication across conversations by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/79
