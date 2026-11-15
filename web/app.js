@@ -471,9 +471,10 @@ async function streamEvents(runID, assistantMessage) {
     for (const chunk of chunks) {
       const eventType = chunk.split('\n').find((line) => line.startsWith('event: '))?.slice(7) || '';
       const dataLines = chunk.split('\n').filter((line) => line.startsWith('data: '));
+      let payload;
       if (dataLines.length) {
         try {
-          const payload = JSON.parse(dataLines.map((line) => line.slice(6)).join('\n'));
+          payload = JSON.parse(dataLines.map((line) => line.slice(6)).join('\n'));
           if (eventType === 'approval/requested') {
             addApproval(runID, payload);
             setStatus('承認待ち', 'working');
@@ -488,12 +489,22 @@ async function streamEvents(runID, assistantMessage) {
           // Ignore event payloads that are not user-visible JSON.
         }
       }
-      if (eventType === 'turn/completed' || eventType === 'turn/failed') {
+      if (eventType === 'turn/completed') {
         await reader.cancel();
-        return eventType === 'turn/completed';
+        const status = payload?.turn?.status;
+        if (status === 'completed' || status === 'failed' || status === 'interrupted') return status;
+        return 'unknown';
+      }
+      if (eventType === 'turn/failed' || eventType === 'turn/error') {
+        await reader.cancel();
+        return 'failed';
+      }
+      if (eventType === 'turn/interrupted' || eventType === 'turn/aborted') {
+        await reader.cancel();
+        return 'interrupted';
       }
     }
-    if (done) return false;
+    if (done) return 'unknown';
   }
 }
 
@@ -613,8 +624,11 @@ async function sendMessage(event) {
     renderRepository();
     setStatus('応答中…', 'working');
     const assistantMessage = addMessage('assistant', '');
-    const completed = await streamEvents(result.run.id, assistantMessage);
-    setStatus(completed ? '完了' : '応答が終了しました');
+    const outcome = await streamEvents(result.run.id, assistantMessage);
+    if (outcome === 'completed') setStatus('完了');
+    else if (outcome === 'failed') setStatus('実行に失敗しました', 'error');
+    else if (outcome === 'interrupted') setStatus('応答が中断されました');
+    else setStatus('応答が終了しました');
     await loadConversationList();
   } catch (error) {
     if (userMessage && !userMessage.item.isConnected) return;
