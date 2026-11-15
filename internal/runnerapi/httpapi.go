@@ -10,6 +10,8 @@ import (
 	"time"
 
 	v1alpha1 "github.com/kimata1007/codex-runner-controller/api/v1alpha1"
+	"github.com/kimata1007/codex-runner-controller/internal/agent"
+	"github.com/kimata1007/codex-runner-controller/internal/authbroker"
 	"github.com/kimata1007/codex-runner-controller/internal/conversation"
 	"github.com/kimata1007/codex-runner-controller/internal/events"
 	"github.com/kimata1007/codex-runner-controller/internal/runs"
@@ -30,6 +32,7 @@ type Handler struct {
 	eventStore        RunEventStore
 	eventProjector    RunEventProjector
 	eventHub          RunEventHub
+	authBroker        ChatGPTAuthBroker
 }
 
 // HandlerDependencies groups the optional collaborators used by the HTTP API.
@@ -40,6 +43,16 @@ type HandlerDependencies struct {
 	Activator  session.Activator
 	EventStore RunEventStore
 	EventHub   RunEventHub
+	AuthBroker ChatGPTAuthBroker
+}
+
+type ChatGPTAuthBroker interface {
+	Status(context.Context) (map[string]any, error)
+	BeginLogin(context.Context) (authbroker.DeviceLogin, error)
+	CancelLogin(string)
+	GetChatGPTAuthTokens(context.Context) (agent.ChatGPTAuthTokens, error)
+	RefreshChatGPTAuthTokens(context.Context, string) (agent.ChatGPTAuthTokens, error)
+	Logout(context.Context) error
 }
 
 func NewHandler(dependencies HandlerDependencies) *Handler {
@@ -59,6 +72,7 @@ func NewHandler(dependencies HandlerDependencies) *Handler {
 		eventStore:        dependencies.EventStore,
 		eventProjector:    eventProjector,
 		eventHub:          dependencies.EventHub,
+		authBroker:        dependencies.AuthBroker,
 	}
 }
 
@@ -90,6 +104,13 @@ func NewRouter(handler *Handler) *echo.Echo {
 	e.GET("/healthz", handler.checkHealth)
 	e.GET("/readyz", handler.checkHealth)
 	e.GET("/v1/conversations", handler.listConversations)
+	if handler.authBroker != nil {
+		e.GET("/v1/auth/status", handler.getGlobalAuthStatus)
+		e.POST("/v1/auth/login", handler.beginGlobalAuth)
+		e.DELETE("/v1/auth/login/:attemptID", handler.cancelGlobalAuth)
+		e.DELETE("/v1/auth", handler.logoutGlobalAuth)
+		e.POST("/internal/auth/refresh", handler.refreshGlobalAuth)
+	}
 	e.POST("/v1/conversations", handler.createConversation)
 	e.GET("/v1/conversations/:id", handler.getConversation)
 	e.GET("/v1/conversations/:id/messages", handler.getMessages)
@@ -105,6 +126,48 @@ func NewRouter(handler *Handler) *echo.Echo {
 		e.POST("/internal/sessions/:conversationID/heartbeat", handler.receiveHeartbeat)
 	}
 	return e
+}
+
+func (h *Handler) getGlobalAuthStatus(c echo.Context) error {
+	status, err := h.authBroker.Status(c.Request().Context())
+	if err != nil {
+		return writeError(c, http.StatusServiceUnavailable, "ChatGPT authentication status is unavailable")
+	}
+	return writeJSON(c, http.StatusOK, status)
+}
+
+func (h *Handler) beginGlobalAuth(c echo.Context) error {
+	login, err := h.authBroker.BeginLogin(c.Request().Context())
+	if err != nil {
+		return writeError(c, http.StatusServiceUnavailable, "could not begin ChatGPT sign-in")
+	}
+	return writeJSON(c, http.StatusCreated, login)
+}
+
+func (h *Handler) cancelGlobalAuth(c echo.Context) error {
+	h.authBroker.CancelLogin(c.Param("attemptID"))
+	return writeJSON(c, http.StatusAccepted, map[string]string{"status": "cancelled"})
+}
+
+func (h *Handler) logoutGlobalAuth(c echo.Context) error {
+	if err := h.authBroker.Logout(c.Request().Context()); err != nil {
+		return writeError(c, http.StatusServiceUnavailable, "could not disconnect ChatGPT")
+	}
+	return writeJSON(c, http.StatusOK, map[string]string{"status": "disconnected"})
+}
+
+func (h *Handler) refreshGlobalAuth(c echo.Context) error {
+	var request struct {
+		PreviousAccountID string `json:"previousAccountId"`
+	}
+	if err := decodeJSON(c, &request); err != nil {
+		return err
+	}
+	tokens, err := h.authBroker.RefreshChatGPTAuthTokens(c.Request().Context(), request.PreviousAccountID)
+	if err != nil {
+		return writeError(c, http.StatusUnauthorized, "ChatGPT credentials need to be reconnected")
+	}
+	return writeJSON(c, http.StatusOK, tokens)
 }
 
 // RunEventStore persists App Server notifications that runner-agent associates

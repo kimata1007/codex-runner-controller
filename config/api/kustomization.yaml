@@ -5,6 +5,7 @@ resources:
   - serviceaccount.yaml
   - role.yaml
   - rolebinding.yaml
+  - auth-secret.yaml
   - deployment.yaml
   - service.yaml
 

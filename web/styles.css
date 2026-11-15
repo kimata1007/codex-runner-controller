@@ -171,6 +171,20 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .empty-state h2 { margin: 0; color: #383b35; font-size: 25px; font-weight: 550; letter-spacing: -.035em; line-height: 1.35; text-wrap: balance; }
 .empty-state[hidden] { display: none; }
 
+.auth-open { display: inline-flex; min-height: 44px; align-items: center; margin-top: 18px; padding: 0 15px; border-radius: 8px; background: var(--primary); color: #fff; font-size: 14px; font-weight: 550; text-decoration: none; }
+.auth-open:hover { background: var(--primary-hover); }
+.auth-code-label { margin-top: 20px; color: #666a62; font-size: 12px; line-height: 18px; }
+.auth-code-row { display: flex; min-height: 48px; align-items: center; gap: 10px; margin-top: 5px; }
+.auth-code { color: #242622; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 21px; font-weight: 650; letter-spacing: .12em; }
+.auth-command { min-width: 0; flex: 1 1 auto; overflow-wrap: anywhere; color: #30342e; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.6; }
+.auth-helper { margin: 10px 0 0; color: #62675e; font-size: 13px; line-height: 1.6; }
+.auth-copy { min-width: 76px; min-height: 40px; flex: 0 0 auto; padding: 0 10px; border: 1px solid #d9dad5; border-radius: 7px; background: #fff; color: #454840; font-size: 13px; white-space: nowrap; cursor: pointer; }
+.auth-copy:hover { background: #f5f5f2; }
+.auth-waiting { margin: 12px 0 0 !important; color: #62675e !important; font-size: 13px !important; }
+.auth-cancel { min-height: 40px; margin-top: 11px; padding: 0; border: 0; background: transparent; color: #62675e; font-size: 13px; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.auth-cancel:hover { color: #292c27; }
+.auth-cancel:disabled { opacity: .6; cursor: wait; }
+
 .approval-card {
   width: min(100%, 640px);
   align-self: flex-start;
@@ -196,6 +210,16 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .approval-actions button:disabled { cursor: default; opacity: .55; }
 
 .composer-dock { z-index: 2; width: min(calc(var(--content-width) + 48px), 100%); justify-self: center; padding: 8px 24px max(20px, env(safe-area-inset-bottom)); }
+.account-indicator { display: flex; min-height: 36px; align-items: center; gap: 8px; margin: 0 0 5px 8px; color: #575951; font-size: 13px; line-height: 20px; }
+.account-dot { width: 8px; height: 8px; flex: 0 0 auto; border-radius: 50%; background: #b8493f; }
+.account-indicator[data-connected="true"] .account-dot { background: #64815b; }
+.account-indicator[data-connecting="true"] .account-dot { background: #bb8a3b; }
+.account-action { min-height: 36px; margin-left: auto; padding: 0 10px; border: 0; border-radius: 7px; background: transparent; color: #475641; font-size: 13px; font-weight: 600; cursor: pointer; }
+.account-action:hover { background: #ecefe9; }
+.account-action:focus-visible, .auth-copy:focus-visible { outline: 2px solid #697e5f; outline-offset: 2px; }
+.account-action[hidden] { display: none; }
+.account-indicator a { margin-left: 4px; color: #4e5e48; text-underline-offset: 2px; }
+.account-indicator a:hover { color: #293b25; }
 .repository-chip {
   display: flex;
   width: fit-content;
@@ -290,6 +314,16 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .button-secondary:hover { background: #f5f5f2; }
 .button-primary { border-color: var(--primary) !important; background: var(--primary); color: #fff; }
 .button-primary:hover { background: var(--primary-hover); }
+.auth-dialog { max-height: min(88dvh, 620px); overflow: auto; overscroll-behavior: contain; }
+.auth-dialog-content { display: grid; padding: 24px; }
+.auth-description { margin: -12px 0 0; color: var(--muted); font-size: 14px; line-height: 1.65; }
+.auth-dialog .auth-open { width: fit-content; margin-top: 19px; }
+.auth-dialog .auth-code-label { margin-top: 22px; }
+.auth-dialog .auth-code-row { justify-content: space-between; min-height: 56px; }
+.auth-dialog .auth-code { font-size: clamp(24px, 7vw, 30px); letter-spacing: .13em; }
+.auth-dialog .auth-waiting { margin-top: 7px !important; }
+.auth-dialog .dialog-actions { margin-top: 16px; }
+.auth-dialog .dialog-actions button { min-width: 96px; }
 
 .mobile-history { display: none; width: 44px; height: 44px; flex: 0 0 auto; border-radius: 9px; color: #4b4f47; }
 .mobile-history:hover { background: #f0f1ed; }
@@ -315,6 +349,9 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   .empty-state h2 { font-size: 22px; }
   .status { max-width: 94px; overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
   .composer-dock { padding: 8px 14px max(12px, env(safe-area-inset-bottom)); }
+  .account-indicator { margin-right: 1px; margin-left: 4px; font-size: 12px; }
+  .account-action { min-height: 44px; padding: 0 8px; font-size: 12px; }
+  .auth-dialog-content { padding: 20px 18px; }
   .composer { min-height: 56px; gap: 8px; padding: 7px; border-radius: 13px; }
   .add-context, .send-button { width: 44px; height: 44px; }
   .composer textarea { font-size: 16px; }

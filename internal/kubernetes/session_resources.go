@@ -25,6 +25,7 @@ type ResourceBuilder struct {
 	RunnerImage                string
 	RunnerEventURL             string
 	RunnerHeartbeatURL         string
+	RunnerAuthRefreshURL       string
 	RunnerAgentTokenSecretName string
 	RunnerAgentTokenSecretKey  string
 	RunnerAPITokenSecretName   string
@@ -94,6 +95,9 @@ func (b ResourceBuilder) BuildPod(namespace, name string, spec v1alpha1.CodexSes
 	}
 	if b.RunnerHeartbeatURL != "" {
 		env = append(env, corev1.EnvVar{Name: "RUNNER_HEARTBEAT_URL", Value: b.RunnerHeartbeatURL})
+	}
+	if b.RunnerAuthRefreshURL != "" {
+		env = append(env, corev1.EnvVar{Name: "RUNNER_AUTH_REFRESH_URL", Value: b.RunnerAuthRefreshURL})
 	}
 	if b.RunnerAgentTokenSecretName != "" {
 		key := b.RunnerAgentTokenSecretKey

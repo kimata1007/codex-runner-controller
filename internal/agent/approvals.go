@@ -20,8 +20,11 @@ func NewApprovalManager(sender RunEventSender, tracker *RunTracker) *ApprovalMan
 }
 
 func (m *ApprovalManager) Handle(ctx context.Context, message Message) (any, error) {
-	if m == nil || !isApprovalRequest(message.Method) {
-		return nil, fmt.Errorf("approval request is not supported: %s", message.Method)
+	if !isApprovalRequest(message.Method) {
+		return nil, errRequestNotHandled
+	}
+	if m == nil {
+		return nil, fmt.Errorf("approval manager is not configured")
 	}
 	if message.ID == nil {
 		return nil, fmt.Errorf("approval request id is required")

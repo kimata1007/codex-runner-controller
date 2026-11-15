@@ -14,6 +14,26 @@ import (
 type NotificationHandler func(AppServerNotification)
 type RequestHandler func(context.Context, Message) (any, error)
 
+func ChainRequestHandlers(handlers ...RequestHandler) RequestHandler {
+	return func(ctx context.Context, message Message) (any, error) {
+		for _, handler := range handlers {
+			if handler == nil {
+				continue
+			}
+			result, err := handler(ctx, message)
+			if err == nil {
+				return result, nil
+			}
+			if err != errRequestNotHandled {
+				return nil, err
+			}
+		}
+		return nil, errRequestNotHandled
+	}
+}
+
+var errRequestNotHandled = fmt.Errorf("request not handled")
+
 type Message struct {
 	JSONRPC string          `json:"jsonrpc"`
 	ID      *int64          `json:"id,omitempty"`
@@ -176,7 +196,11 @@ func (c *JSONRPCClient) handleRequest(ctx context.Context, message Message) {
 	}
 	result, err := c.requestHandler(ctx, message)
 	if err != nil {
-		response.Error = &RPCError{Code: -32000, Message: err.Error()}
+		if err == errRequestNotHandled {
+			response.Error = &RPCError{Code: -32601, Message: "method not handled"}
+		} else {
+			response.Error = &RPCError{Code: -32000, Message: err.Error()}
+		}
 	} else {
 		response.Result = mustRawJSON(result)
 	}

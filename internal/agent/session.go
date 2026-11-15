@@ -3,6 +3,8 @@ package agent
 import (
 	"context"
 	"fmt"
+	"strings"
+	"sync"
 )
 
 // ClientInfo identifies runner-agent to Codex App Server.
@@ -41,11 +43,39 @@ type TurnStartParams struct {
 	Input    []TurnInput `json:"input"`
 }
 
+// ChatGPTAuthTokens are short-lived credentials supplied by the host application.
+// The refresh token stays in the Runner API auth broker.
+type ChatGPTAuthTokens struct {
+	AccessToken string `json:"accessToken"`
+	AccountID   string `json:"chatgptAccountId"`
+	PlanType    string `json:"chatgptPlanType,omitempty"`
+}
+
+type AuthTokenClient interface {
+	SetChatGPTAuthTokens(context.Context, ChatGPTAuthTokens) error
+}
+
+type DeviceLogin struct {
+	LoginID         string `json:"loginId"`
+	VerificationURL string `json:"verificationUrl"`
+	UserCode        string `json:"userCode"`
+}
+
+type AccountStatus struct {
+	Account *struct {
+		Type     string `json:"type"`
+		Email    string `json:"email"`
+		PlanType string `json:"planType"`
+	} `json:"account"`
+}
+
 // Session owns the App Server lifecycle for one CodexSession.
 // It deliberately does not persist thread state: the controller/API persists
 // the thread ID, while this object only manages the live child process.
 type Session struct {
-	client *JSONRPCClient
+	client              *JSONRPCClient
+	loginMu             sync.Mutex
+	activeAuthAccountID string
 }
 
 func NewSession(client *JSONRPCClient) *Session {
@@ -57,13 +87,78 @@ func (s *Session) Initialize(ctx context.Context, info ClientInfo) error {
 		return fmt.Errorf("agent session: nil client")
 	}
 	var result map[string]any
-	if err := s.client.Call(ctx, "initialize", map[string]any{"clientInfo": info}, &result); err != nil {
+	if err := s.client.Call(ctx, "initialize", map[string]any{
+		"clientInfo":   info,
+		"capabilities": map[string]bool{"experimentalApi": true},
+	}, &result); err != nil {
 		return fmt.Errorf("initialize app server: %w", err)
 	}
 	if err := s.client.Notify("initialized", map[string]any{}); err != nil {
 		return fmt.Errorf("notify app server initialized: %w", err)
 	}
 	return nil
+}
+
+func (s *Session) LoginWithChatGPTAuthTokens(ctx context.Context, tokens ChatGPTAuthTokens) error {
+	if s == nil || s.client == nil {
+		return fmt.Errorf("set ChatGPT credentials: nil client")
+	}
+	if strings.TrimSpace(tokens.AccessToken) == "" || strings.TrimSpace(tokens.AccountID) == "" {
+		return fmt.Errorf("set ChatGPT credentials: access token and account id are required")
+	}
+	s.loginMu.Lock()
+	defer s.loginMu.Unlock()
+	if s.activeAuthAccountID == tokens.AccountID {
+		return nil
+	}
+	var result map[string]any
+	if err := s.client.Call(ctx, "account/login/start", map[string]any{
+		"type":             "chatgptAuthTokens",
+		"accessToken":      tokens.AccessToken,
+		"chatgptAccountId": tokens.AccountID,
+		"chatgptPlanType":  tokens.PlanType,
+	}, &result); err != nil {
+		return fmt.Errorf("set ChatGPT credentials: %w", err)
+	}
+	s.activeAuthAccountID = tokens.AccountID
+	return nil
+}
+
+func (s *Session) SetChatGPTAuthTokens(ctx context.Context, tokens ChatGPTAuthTokens) error {
+	return s.LoginWithChatGPTAuthTokens(ctx, tokens)
+}
+
+func (s *Session) StartDeviceLogin(ctx context.Context) (DeviceLogin, error) {
+	var result DeviceLogin
+	if err := s.client.Call(ctx, "account/login/start", map[string]string{"type": "chatgptDeviceCode"}, &result); err != nil {
+		return DeviceLogin{}, fmt.Errorf("start ChatGPT device login: %w", err)
+	}
+	if result.LoginID == "" || result.VerificationURL == "" || result.UserCode == "" {
+		return DeviceLogin{}, fmt.Errorf("start ChatGPT device login: incomplete response")
+	}
+	return result, nil
+}
+
+func (s *Session) ReadAccount(ctx context.Context) (AccountStatus, error) {
+	var result AccountStatus
+	if err := s.client.Call(ctx, "account/read", map[string]bool{"refreshToken": false}, &result); err != nil {
+		return AccountStatus{}, fmt.Errorf("read ChatGPT account: %w", err)
+	}
+	return result, nil
+}
+
+func (s *Session) CancelDeviceLogin(ctx context.Context, loginID string) error {
+	return s.client.Call(ctx, "account/login/cancel", map[string]string{"loginId": loginID}, nil)
+}
+
+func (s *Session) Logout(ctx context.Context) error {
+	return s.client.Call(ctx, "account/logout", map[string]any{}, nil)
+}
+
+func (s *Session) SetRequestHandler(handler RequestHandler) {
+	if s != nil && s.client != nil {
+		s.client.SetRequestHandler(handler)
+	}
 }
 
 func (s *Session) StartThread(ctx context.Context, params ThreadStartParams) (Thread, error) {

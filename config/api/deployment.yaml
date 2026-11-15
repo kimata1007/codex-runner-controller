@@ -49,6 +49,12 @@ spec:
                 secretKeyRef:
                   name: codex-runner-tokens
                   key: agent-token
+            - name: RUNNER_AUTH_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: codex-runner-tokens
+                  key: runner-auth-encryption-key
+                  optional: true
             - name: CODEX_APPROVAL_POLICY
               value: user
             - name: CODEX_CWD

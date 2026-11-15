@@ -46,6 +46,12 @@
         </section>
 
         <footer class="composer-dock">
+          <div id="codex-account" class="account-indicator" aria-live="polite">
+            <span class="account-dot" aria-hidden="true"></span>
+            <span id="codex-account-label">ChatGPT 未接続</span>
+            <button id="connect-chatgpt" class="account-action" type="button">ChatGPTに接続</button>
+            <a id="manage-usage" href="https://chatgpt.com/settings/usage" target="_blank" rel="noopener noreferrer" hidden>利用状況を管理</a>
+          </div>
           <div id="selected-repository" class="repository-chip" hidden>
             <svg aria-hidden="true" viewBox="0 0 20 20"><path d="M3 5.5h5l1.6 1.8H17v8.2H3z"/><path d="M3 5.5V4h5l1.6 1.5"/></svg>
             <span id="repository-label"></span>
@@ -90,6 +96,29 @@
           <button class="button-primary" type="submit">追加する</button>
         </div>
       </form>
+    </dialog>
+
+    <dialog id="auth-dialog" class="repository-dialog auth-dialog" aria-labelledby="auth-dialog-title">
+      <section class="auth-dialog-content">
+        <div class="dialog-heading">
+          <div>
+            <p class="dialog-eyebrow">Codex Runner</p>
+            <h2 id="auth-dialog-title">ChatGPTに接続</h2>
+          </div>
+          <button id="close-auth-dialog" class="icon-button dialog-close" type="button" aria-label="閉じる">
+            <svg aria-hidden="true" viewBox="0 0 20 20"><path d="m6 6 8 8M14 6l-8 8"/></svg>
+          </button>
+        </div>
+        <p class="auth-description">ChatGPTでサインインして、このRunnerでCodexを使えるようにします。</p>
+        <a id="auth-verification-link" class="auth-open" href="https://auth.openai.com/codex/device" target="_blank" rel="noopener noreferrer">ChatGPTを開く</a>
+        <span class="auth-code-label">次のコードを入力してください</span>
+        <div class="auth-code-row">
+          <code id="auth-user-code" class="auth-code">----</code>
+          <button id="copy-auth-code" class="auth-copy" type="button">コードをコピー</button>
+        </div>
+        <p id="auth-waiting" class="auth-waiting" role="status" aria-live="polite">サインインを確認しています…</p>
+        <div class="dialog-actions"><button id="cancel-auth" class="button-secondary" type="button">キャンセル</button></div>
+      </section>
     </dialog>
 
     <script type="module" src="app.js"></script>

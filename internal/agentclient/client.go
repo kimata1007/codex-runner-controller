@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/kimata1007/codex-runner-controller/internal/agent"
@@ -74,6 +75,48 @@ func (c *Client) RespondApproval(ctx context.Context, requestID string, response
 	return nil
 }
 
+func (c *Client) SetChatGPTAuthTokens(ctx context.Context, tokens agent.ChatGPTAuthTokens) error {
+	if err := c.post(ctx, "/v1/auth/tokens", tokens, nil); err != nil {
+		return fmt.Errorf("runner-agent set ChatGPT credentials: %w", err)
+	}
+	return nil
+}
+
+func (c *Client) StartDeviceLogin(ctx context.Context) (agent.DeviceLogin, error) {
+	var result agent.DeviceLogin
+	if err := c.post(ctx, "/v1/auth/device-login", struct{}{}, &result); err != nil {
+		return agent.DeviceLogin{}, err
+	}
+	return result, nil
+}
+
+func (c *Client) ReadAccount(ctx context.Context, loginID string) (agent.AccountStatus, error) {
+	var result agent.AccountStatus
+	if strings.TrimSpace(loginID) == "" {
+		loginID = "status"
+	}
+	if err := c.request(ctx, http.MethodGet, "/v1/auth/device-login/"+url.PathEscape(loginID), nil, &result); err != nil {
+		return agent.AccountStatus{}, err
+	}
+	return result, nil
+}
+
+func (c *Client) CancelDeviceLogin(ctx context.Context, loginID string) error {
+	return c.request(ctx, http.MethodDelete, "/v1/auth/device-login/"+url.PathEscape(loginID), nil, nil)
+}
+
+func (c *Client) ReadAuthCredentials(ctx context.Context) (json.RawMessage, error) {
+	var result json.RawMessage
+	if err := c.request(ctx, http.MethodGet, "/v1/auth/credentials", nil, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (c *Client) Logout(ctx context.Context) error {
+	return c.request(ctx, http.MethodDelete, "/v1/auth/account", nil, nil)
+}
+
 func (c *Client) startTurn(ctx context.Context, threadID, runID string, input []agent.TurnInput) error {
 	if threadID == "" {
 		return fmt.Errorf("runner-agent start turn: thread id is required")
@@ -101,6 +144,10 @@ func (c *Client) startTurn(ctx context.Context, threadID, runID string, input []
 }
 
 func (c *Client) post(ctx context.Context, path string, requestBody any, responseBody any) error {
+	return c.request(ctx, http.MethodPost, path, requestBody, responseBody)
+}
+
+func (c *Client) request(ctx context.Context, method, path string, requestBody any, responseBody any) error {
 	if c == nil || c.baseURL == "" {
 		return fmt.Errorf("runner-agent client: base URL is required")
 	}
@@ -108,7 +155,7 @@ func (c *Client) post(ctx context.Context, path string, requestBody any, respons
 	if err != nil {
 		return fmt.Errorf("encode request: %w", err)
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, bytes.NewReader(payload))
+	request, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, bytes.NewReader(payload))
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}

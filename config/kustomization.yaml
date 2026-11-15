@@ -9,5 +9,6 @@ resources:
   - rbac
   - manager
   - api
+  - auth-broker
   - libsql
   - web

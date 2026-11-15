@@ -65,6 +65,7 @@ func main() {
 		RunnerImage:                runnerImage,
 		RunnerEventURL:             os.Getenv("RUNNER_EVENT_URL"),
 		RunnerHeartbeatURL:         os.Getenv("RUNNER_HEARTBEAT_URL"),
+		RunnerAuthRefreshURL:       os.Getenv("RUNNER_AUTH_REFRESH_URL"),
 		RunnerAgentTokenSecretName: os.Getenv("RUNNER_AGENT_TOKEN_SECRET_NAME"),
 		RunnerAgentTokenSecretKey:  tokenSecretKey,
 		CodexAccessTokenSecretName: os.Getenv("CODEX_ACCESS_TOKEN_SECRET_NAME"),

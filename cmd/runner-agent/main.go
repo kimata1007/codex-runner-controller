@@ -61,7 +61,6 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	process.Client.SetRequestHandler(approvals.Handle)
 	if heartbeatURL := os.Getenv("RUNNER_HEARTBEAT_URL"); heartbeatURL != "" {
 		heartbeat, heartbeatErr := agent.NewHTTPHeartbeatSinkWithToken(heartbeatURL, os.Getenv("CODEX_CONVERSATION_ID"), os.Getenv("RUNNER_AGENT_TOKEN"))
 		if heartbeatErr != nil {
@@ -72,6 +71,8 @@ func main() {
 	}
 
 	session := agent.NewSession(process.Client)
+	authRefresher := agent.ChatGPTAuthTokenRefresher{URL: os.Getenv("RUNNER_AUTH_REFRESH_URL"), Bearer: os.Getenv("RUNNER_AGENT_TOKEN")}
+	session.SetRequestHandler(agent.ChainRequestHandlers(approvals.Handle, authRefresher.Handle))
 	if err := session.Initialize(ctx, agent.ClientInfo{
 		Name:    "codex-runner-controller",
 		Title:   "Codex Runner Controller",
@@ -86,7 +87,7 @@ func main() {
 	}
 	server := &http.Server{
 		Addr:              address,
-		Handler:           auth.BearerToken(agent.NewHTTPHandlerWithTrackerAndApprovals(session, tracker, approvals), os.Getenv("RUNNER_AGENT_TOKEN")),
+		Handler:           auth.BearerToken(agent.NewHTTPHandlerWithAuthBroker(session, tracker, approvals, os.Getenv("RUNNER_AUTH_BROKER") == "true"), os.Getenv("RUNNER_AGENT_TOKEN")),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,

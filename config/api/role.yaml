@@ -9,3 +9,7 @@ rules:
   - apiGroups: ["codexrunner.io"]
     resources: ["codexsessions/status"]
     verbs: ["get", "patch", "update"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["codex-runner-chatgpt-auth"]
+    verbs: ["get", "update"]
