@@ -33,6 +33,14 @@ const elements = {
   accountIndicator: document.querySelector('#codex-account'),
   accountLabel: document.querySelector('#codex-account-label'),
   manageUsage: document.querySelector('#manage-usage'),
+  connectChatGPT: document.querySelector('#connect-chatgpt'),
+  authDialog: document.querySelector('#auth-dialog'),
+  authVerificationLink: document.querySelector('#auth-verification-link'),
+  authUserCode: document.querySelector('#auth-user-code'),
+  authWaiting: document.querySelector('#auth-waiting'),
+  copyAuthCode: document.querySelector('#copy-auth-code'),
+  cancelAuth: document.querySelector('#cancel-auth'),
+  closeAuthDialog: document.querySelector('#close-auth-dialog'),
   repositoryChip: document.querySelector('#selected-repository'),
   repositoryLabel: document.querySelector('#repository-label'),
   removeRepository: document.querySelector('#remove-repository'),
@@ -119,16 +127,22 @@ function renderRepository() {
 
 function setCodexAccount(account) {
   elements.accountIndicator.hidden = false;
+  elements.accountIndicator.dataset.connected = 'true';
+  delete elements.accountIndicator.dataset.connecting;
   const usesChatGPTPlan = account?.type === 'chatgpt';
   elements.accountLabel.textContent = usesChatGPTPlan
-    ? `ChatGPT${account.planType ? ` · ${account.planType}` : ''} でCodexを実行しています`
+    ? `ChatGPT 接続済み${account.planType ? ` · ${account.planType}` : ''}`
     : 'Codex に接続済み';
+  elements.connectChatGPT.hidden = true;
   elements.manageUsage.hidden = !usesChatGPTPlan;
 }
 
 function clearCodexAccount() {
-  elements.accountIndicator.hidden = true;
-  elements.accountLabel.textContent = '';
+  elements.accountIndicator.hidden = false;
+  delete elements.accountIndicator.dataset.connected;
+  delete elements.accountIndicator.dataset.connecting;
+  elements.accountLabel.textContent = 'ChatGPT 未接続';
+  elements.connectChatGPT.hidden = false;
   elements.manageUsage.hidden = true;
 }
 
@@ -483,100 +497,75 @@ async function streamEvents(runID, assistantMessage) {
   }
 }
 
-function addAuthGate(challenge) {
-  const server = window.location.origin;
-  const command = `go run ./cmd/codex-runner auth connect --server ${server} --attempt ${challenge.attemptId} --host-id ${challenge.hostId}`;
-  const item = document.createElement('li');
-  item.className = 'auth-gate';
-  const icon = document.createElement('span');
-  icon.className = 'auth-gate-mark';
-  icon.append(makeIcon('<path d="M6.5 9V6.8a3.5 3.5 0 0 1 7 0V9"/><rect x="4.5" y="9" width="11" height="8" rx="1.8"/><path d="M10 12v2"/>'));
-  const title = document.createElement('h2');
-  title.textContent = 'ChatGPTに接続してください';
-  const description = document.createElement('p');
-  description.textContent = '最初の一度だけ、ローカルの認証ヘルパーを実行してChatGPTにサインインします。認証情報はブラウザーを経由せず、Runner内に保管されます。';
-  const commandLabel = document.createElement('span');
-  commandLabel.className = 'auth-code-label';
-  commandLabel.textContent = 'リポジトリのルートで実行';
-  const codeRow = document.createElement('div');
-  codeRow.className = 'auth-code-row';
-  const commandCode = document.createElement('code');
-  commandCode.className = 'auth-command';
-  commandCode.textContent = command;
-  const copy = document.createElement('button');
-  copy.type = 'button';
-  copy.className = 'auth-copy';
-  copy.textContent = 'コピー';
-  copy.addEventListener('click', async () => {
-    try {
-      await navigator.clipboard.writeText(command);
-      copy.textContent = 'コピーしました';
-    } catch (_) {
-      copy.textContent = 'コピーできません';
-    }
-  });
-  codeRow.append(commandCode, copy);
-  const helper = document.createElement('p');
-  helper.className = 'auth-helper';
-  helper.textContent = 'コマンドがブラウザーを開いたらChatGPTで許可してください。完了すると、この画面から会話を続けます。';
-  const waiting = document.createElement('p');
-  waiting.className = 'auth-waiting';
-  waiting.setAttribute('role', 'status');
-  waiting.textContent = '認証を確認しています…';
-  const cancel = document.createElement('button');
-  cancel.type = 'button';
-  cancel.className = 'auth-cancel';
-  cancel.textContent = 'あとで';
-  item.append(icon, title, description, commandLabel, codeRow, helper, waiting, cancel);
-  elements.messages.append(item);
-  elements.emptyState.hidden = true;
-  scrollTranscriptToEnd();
-  copy.focus({preventScroll: true});
-  return {item, waiting, cancel};
-}
+let authLoginID = '';
+let finishAuthLogin = null;
 
-function waitForCodexAuth(challenge) {
-  const gate = addAuthGate(challenge);
+async function connectChatGPT() {
+  if (elements.authDialog.open) return null;
+  let challenge;
+  try {
+    challenge = await request('/v1/auth/login', {method: 'POST'});
+  } catch (error) {
+    setStatus(`ChatGPTに接続できませんでした: ${error.message}`, 'error');
+    return null;
+  }
+  authLoginID = challenge.loginId;
+  elements.authVerificationLink.href = challenge.verificationUrl;
+  elements.authUserCode.textContent = challenge.userCode;
+  elements.authWaiting.textContent = 'ChatGPTでコードを入力してください。サインイン後、自動で接続されます。';
+  elements.copyAuthCode.textContent = 'コードをコピー';
+  elements.accountIndicator.dataset.connecting = 'true';
+  elements.accountLabel.textContent = 'ChatGPT 接続を確認中…';
+  elements.authDialog.showModal();
   setStatus('ChatGPT へのサインインを待っています…', 'working');
+
   return new Promise((resolve) => {
     let finished = false;
     let checking = false;
     const deadline = Date.now() + 10 * 60 * 1000;
-    const timer = setInterval(check, 2000);
-    const finish = (authenticated, message = '', status = null) => {
+    const finish = (status) => {
       if (finished) return;
       finished = true;
       clearInterval(timer);
-      gate.cancel.removeEventListener('click', cancel);
-      gate.item.remove();
-      if (!elements.messages.children.length) elements.emptyState.hidden = false;
-      setStatus(message || (authenticated ? '認証済みです。会話を開始します…' : '認証を中断しました'));
-      resolve(authenticated ? status : null);
+      elements.cancelAuth.removeEventListener('click', cancel);
+      elements.closeAuthDialog.removeEventListener('click', cancel);
+      finishAuthLogin = null;
+      authLoginID = '';
+      if (elements.authDialog.open) elements.authDialog.close();
+      if (status?.authenticated) {
+        setCodexAccount(status.account);
+        setStatus('');
+        resolve(status);
+      } else {
+        clearCodexAccount();
+        setStatus('ChatGPTへの接続を中断しました');
+        resolve(null);
+      }
     };
     const cancel = async () => {
-      gate.cancel.disabled = true;
-      try {
-        await request(`/v1/auth/login/${encodeURIComponent(challenge.attemptId)}`, {method: 'DELETE'});
-      } catch (_) { /* The local draft can still be restored if cancellation cannot reach the server. */ }
-      finish(false);
+      elements.cancelAuth.disabled = true;
+      try { await request(`/v1/auth/login/${encodeURIComponent(authLoginID)}`, {method: 'DELETE'}); } catch (_) { /* The dialog can still close if the agent is unavailable. */ }
+      elements.cancelAuth.disabled = false;
+      finish(null);
     };
-    gate.cancel.addEventListener('click', cancel);
-    async function check() {
+    finishAuthLogin = finish;
+    elements.cancelAuth.addEventListener('click', cancel);
+    elements.closeAuthDialog.addEventListener('click', cancel);
+    const timer = setInterval(async () => {
       if (finished || checking) return;
       if (Date.now() >= deadline) {
-        finish(false, '認証を確認できませんでした。もう一度送信してやり直してください。');
+        elements.authWaiting.textContent = '時間切れです。もう一度接続してください。';
+        await cancel();
         return;
       }
       checking = true;
       try {
         const status = await request('/v1/auth/status');
-        if (status.authenticated) finish(true, '', status);
+        if (status.authenticated) finish(status);
       } catch (_) {
-        gate.waiting.textContent = '接続を確認しています…';
-      } finally {
-        checking = false;
-      }
-    }
+        elements.authWaiting.textContent = '接続を確認しています…';
+      } finally { checking = false; }
+    }, 2000);
   });
 }
 
@@ -594,10 +583,7 @@ async function sendMessage(event) {
 
   try {
     let authStatus = await request('/v1/auth/status');
-    if (!authStatus.authenticated) {
-      const attempt = await request('/v1/auth/login', {method: 'POST'});
-      authStatus = await waitForCodexAuth(attempt);
-    }
+    if (!authStatus.authenticated) authStatus = await connectChatGPT();
     if (!authStatus) {
       elements.message.value = content;
       resizeComposer();
@@ -673,6 +659,19 @@ function saveRepository(event) {
 }
 
 elements.newConversation.addEventListener('click', startNewConversation);
+elements.connectChatGPT.addEventListener('click', () => connectChatGPT());
+elements.copyAuthCode.addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText(elements.authUserCode.textContent);
+    elements.copyAuthCode.textContent = 'コピーしました';
+  } catch (_) {
+    elements.authWaiting.textContent = 'コードを選択してコピーしてください。';
+  }
+});
+elements.authDialog.addEventListener('cancel', (event) => {
+  event.preventDefault();
+  if (finishAuthLogin) elements.cancelAuth.click();
+});
 elements.historyToggle.addEventListener('click', toggleSidebar);
 elements.sidebarBackdrop.addEventListener('click', closeSidebar);
 elements.contextToggle.addEventListener('click', () => {
@@ -705,7 +704,8 @@ document.addEventListener('keydown', (event) => {
 renderRepository();
 request('/v1/auth/status').then((status) => {
   if (status.authenticated) setCodexAccount(status.account);
-}).catch(() => {});
+  else clearCodexAccount();
+}).catch(() => clearCodexAccount());
 loadConversationList().then(async () => {
   if (state.conversationID) await openConversation(state.conversationID);
 });
