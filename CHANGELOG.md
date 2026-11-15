@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.0.6](https://github.com/kimata1007/codex-runner-controller/compare/v0.0.5...v0.0.6) - 2026-11-15
+
+- fix: use numeric runner-agent UID by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/97
+
 ## [v0.0.5](https://github.com/kimata1007/codex-runner-controller/compare/v0.0.4...v0.0.5) - 2026-11-15
 
 - fix: use current runner agent for auth broker by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/81
