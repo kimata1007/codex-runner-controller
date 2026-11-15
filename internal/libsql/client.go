@@ -178,6 +178,7 @@ func (c *Client) pipeline(ctx context.Context, requests []streamRequest) (pipeli
 	}
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
+		c.baton = nil
 		return pipelineResponse{}, fmt.Errorf("libsql: pipeline request: %w", err)
 	}
 	defer resp.Body.Close()
@@ -189,6 +190,7 @@ func (c *Client) pipeline(ctx context.Context, requests []streamRequest) (pipeli
 	}
 	var response pipelineResponse
 	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		c.baton = nil
 		return pipelineResponse{}, fmt.Errorf("libsql: decode pipeline response: %w", err)
 	}
 	c.baton = response.Baton

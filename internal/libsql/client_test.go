@@ -3,11 +3,17 @@ package libsql
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 )
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) { return f(request) }
 
 func TestClientExecUsesBatonAndAuthorization(t *testing.T) {
 	var requests int
@@ -85,6 +91,50 @@ func TestClientClearsBatonAfterHTTPError(t *testing.T) {
 	if _, err := client.Exec(context.Background(), "SELECT 1", nil, true); err != nil {
 		t.Fatalf("third exec: %v", err)
 	}
+}
+
+func TestClientClearsBatonAfterTransportError(t *testing.T) {
+	var requests int
+	client := NewClient("http://libsql", "").WithHTTPClient(&http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		requests++
+		var body pipelineRequest
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		switch requests {
+		case 1:
+			if body.Baton != nil {
+				t.Fatal("first request sent a baton")
+			}
+			return pipelineHTTPResponse(`{"baton":"baton-1","results":[{"type":"ok","response":{"type":"execute","result":{"cols":[],"rows":[],"affected_row_count":0}}}]}`), nil
+		case 2:
+			if body.Baton == nil || *body.Baton != "baton-1" {
+				t.Fatal("second request did not send the current baton")
+			}
+			return nil, errors.New("connection reset")
+		case 3:
+			if body.Baton != nil {
+				t.Fatal("third request reused a baton after a transport error")
+			}
+			return pipelineHTTPResponse(`{"baton":"baton-2","results":[{"type":"ok","response":{"type":"execute","result":{"cols":[],"rows":[],"affected_row_count":0}}}]}`), nil
+		default:
+			t.Fatalf("unexpected request %d", requests)
+			return nil, nil
+		}
+	})})
+	for i := 0; i < 3; i++ {
+		_, err := client.Exec(context.Background(), "SELECT 1", nil, true)
+		if i == 1 && err == nil {
+			t.Fatal("second request succeeded unexpectedly")
+		}
+		if i != 1 && err != nil {
+			t.Fatalf("request %d: %v", i+1, err)
+		}
+	}
+}
+
+func pipelineHTTPResponse(body string) *http.Response {
+	return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body))}
 }
 
 func TestValueMarshalsEmptyTextValue(t *testing.T) {
