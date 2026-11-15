@@ -147,6 +147,11 @@ func runtimeFromEnvironment(repository conversation.Repository) (runnerapi.Messa
 		if err != nil {
 			return nil, nil, nil, err
 		}
+		authURL := strings.TrimSpace(os.Getenv("RUNNER_AUTH_BROKER_URL"))
+		if authURL == "" {
+			authURL = "http://runner-auth-broker." + namespaceFromEnvironment() + ".svc.cluster.local:8081"
+		}
+		broker.WithDeviceLoginAgent(agentclient.NewClientWithToken(authURL, os.Getenv("RUNNER_AGENT_TOKEN")))
 		authTokens = broker
 	}
 	factory := agentclient.NewRunClientFactoryWithToken(resolver, params, os.Getenv("RUNNER_AGENT_TOKEN"))

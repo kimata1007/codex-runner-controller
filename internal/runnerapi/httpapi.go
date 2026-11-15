@@ -48,9 +48,8 @@ type HandlerDependencies struct {
 
 type ChatGPTAuthBroker interface {
 	Status(context.Context) (map[string]any, error)
-	BeginLogin(context.Context) (string, string, error)
+	BeginLogin(context.Context) (authbroker.DeviceLogin, error)
 	CancelLogin(string)
-	Import(context.Context, string, authbroker.OAuthTokenBundle) error
 	GetChatGPTAuthTokens(context.Context) (agent.ChatGPTAuthTokens, error)
 	RefreshChatGPTAuthTokens(context.Context, string) (agent.ChatGPTAuthTokens, error)
 	Logout(context.Context) error
@@ -109,7 +108,6 @@ func NewRouter(handler *Handler) *echo.Echo {
 		e.GET("/v1/auth/status", handler.getGlobalAuthStatus)
 		e.POST("/v1/auth/login", handler.beginGlobalAuth)
 		e.DELETE("/v1/auth/login/:attemptID", handler.cancelGlobalAuth)
-		e.POST("/v1/auth/import", handler.completeGlobalAuth)
 		e.DELETE("/v1/auth", handler.logoutGlobalAuth)
 		e.POST("/internal/auth/refresh", handler.refreshGlobalAuth)
 	}
@@ -139,30 +137,16 @@ func (h *Handler) getGlobalAuthStatus(c echo.Context) error {
 }
 
 func (h *Handler) beginGlobalAuth(c echo.Context) error {
-	attemptID, hostID, err := h.authBroker.BeginLogin(c.Request().Context())
+	login, err := h.authBroker.BeginLogin(c.Request().Context())
 	if err != nil {
 		return writeError(c, http.StatusServiceUnavailable, "could not begin ChatGPT sign-in")
 	}
-	return writeJSON(c, http.StatusCreated, map[string]string{"attemptId": attemptID, "hostId": hostID})
+	return writeJSON(c, http.StatusCreated, login)
 }
 
 func (h *Handler) cancelGlobalAuth(c echo.Context) error {
 	h.authBroker.CancelLogin(c.Param("attemptID"))
 	return writeJSON(c, http.StatusAccepted, map[string]string{"status": "cancelled"})
-}
-
-func (h *Handler) completeGlobalAuth(c echo.Context) error {
-	var request struct {
-		AttemptID string `json:"attemptId"`
-		authbroker.OAuthTokenBundle
-	}
-	if err := decodeJSON(c, &request); err != nil {
-		return err
-	}
-	if err := h.authBroker.Import(c.Request().Context(), request.AttemptID, request.OAuthTokenBundle); err != nil {
-		return writeError(c, http.StatusBadRequest, "ChatGPT sign-in could not be verified")
-	}
-	return writeJSON(c, http.StatusOK, map[string]string{"status": "authenticated"})
 }
 
 func (h *Handler) logoutGlobalAuth(c echo.Context) error {

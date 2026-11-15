@@ -21,17 +21,18 @@ import (
 const tokenEndpoint = "https://auth.openai.com/api/accounts/oauth/token"
 
 type Credential struct {
-	HostID       string    `json:"hostId"`
-	ClientID     string    `json:"clientId"`
-	AccountID    string    `json:"accountId"`
-	Subject      string    `json:"subject"`
-	Email        string    `json:"email,omitempty"`
-	PlanType     string    `json:"planType,omitempty"`
-	AccessToken  string    `json:"accessToken"`
-	RefreshToken string    `json:"refreshToken"`
-	IDToken      string    `json:"idToken"`
-	Scopes       []string  `json:"scopes"`
-	ExpiresAt    time.Time `json:"expiresAt"`
+	HostID        string    `json:"hostId"`
+	ClientID      string    `json:"clientId"`
+	TokenEndpoint string    `json:"tokenEndpoint,omitempty"`
+	AccountID     string    `json:"accountId"`
+	Subject       string    `json:"subject"`
+	Email         string    `json:"email,omitempty"`
+	PlanType      string    `json:"planType,omitempty"`
+	AccessToken   string    `json:"accessToken"`
+	RefreshToken  string    `json:"refreshToken"`
+	IDToken       string    `json:"idToken"`
+	Scopes        []string  `json:"scopes"`
+	ExpiresAt     time.Time `json:"expiresAt"`
 }
 
 type Store interface {
@@ -41,12 +42,26 @@ type Store interface {
 }
 
 type Broker struct {
-	store    Store
-	key      []byte
-	client   *http.Client
-	mu       sync.Mutex
-	now      func() time.Time
-	attempts map[string]loginAttempt
+	store      Store
+	key        []byte
+	client     *http.Client
+	mu         sync.Mutex
+	now        func() time.Time
+	attempts   map[string]loginAttempt
+	loginAgent DeviceLoginAgent
+}
+
+type DeviceLoginAgent interface {
+	StartDeviceLogin(context.Context) (agent.DeviceLogin, error)
+	ReadAccount(context.Context, string) (agent.AccountStatus, error)
+	CancelDeviceLogin(context.Context, string) error
+	ReadAuthCredentials(context.Context) (json.RawMessage, error)
+	Logout(context.Context) error
+}
+
+func (b *Broker) WithDeviceLoginAgent(loginAgent DeviceLoginAgent) *Broker {
+	b.loginAgent = loginAgent
+	return b
 }
 
 type loginAttempt struct {
@@ -54,14 +69,10 @@ type loginAttempt struct {
 	createdAt time.Time
 }
 
-type OAuthTokenBundle struct {
-	ClientID     string `json:"clientId"`
-	IDToken      string `json:"idToken"`
-	AccessToken  string `json:"accessToken"`
-	RefreshToken string `json:"refreshToken"`
-	Scope        string `json:"scope"`
-	ExpiresIn    int64  `json:"expiresIn"`
-	Nonce        string `json:"nonce"`
+type DeviceLogin struct {
+	LoginID         string `json:"loginId"`
+	VerificationURL string `json:"verificationUrl"`
+	UserCode        string `json:"userCode"`
 }
 
 func New(store Store, encryptionKey []byte, client *http.Client) (*Broker, error) {
@@ -74,41 +85,27 @@ func New(store Store, encryptionKey []byte, client *http.Client) (*Broker, error
 	return &Broker{store: store, key: append([]byte(nil), encryptionKey...), client: client, now: time.Now, attempts: map[string]loginAttempt{}}, nil
 }
 
-func (b *Broker) BeginLogin(ctx context.Context) (string, string, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.removeExpiredAttempts()
-	credential, ok, err := b.read(ctx)
-	if err != nil {
-		return "", "", err
-	}
-	hostID := credential.HostID
-	if hostID == "" {
-		var raw [16]byte
-		if _, err := rand.Read(raw[:]); err != nil {
-			return "", "", err
+func (b *Broker) BeginLogin(ctx context.Context) (DeviceLogin, error) {
+	if b.loginAgent != nil {
+		login, err := b.loginAgent.StartDeviceLogin(ctx)
+		if err != nil {
+			return DeviceLogin{}, err
 		}
-		raw[6] = raw[6]&0x0f | 0x40
-		raw[8] = raw[8]&0x3f | 0x80
-		hostID = fmt.Sprintf("urn:uuid:%08x-%04x-%04x-%04x-%012x", raw[0:4], raw[4:6], raw[6:8], raw[8:10], raw[10:16])
+		b.mu.Lock()
+		b.removeExpiredAttempts()
+		b.attempts[login.LoginID] = loginAttempt{createdAt: b.now()}
+		b.mu.Unlock()
+		return DeviceLogin{LoginID: login.LoginID, VerificationURL: login.VerificationURL, UserCode: login.UserCode}, nil
 	}
-	if !ok {
-		credential = Credential{}
-	}
-	credential.HostID = hostID
-	if err := b.write(ctx, credential); err != nil {
-		return "", "", err
-	}
-	var attempt [32]byte
-	if _, err := rand.Read(attempt[:]); err != nil {
-		return "", "", err
-	}
-	id := base64.RawURLEncoding.EncodeToString(attempt[:])
-	b.attempts[id] = loginAttempt{hostID: hostID, createdAt: b.now()}
-	return id, hostID, nil
+	return DeviceLogin{}, fmt.Errorf("ChatGPT device sign-in agent is unavailable")
 }
 
 func (b *Broker) CancelLogin(attemptID string) {
+	if b.loginAgent != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = b.loginAgent.CancelDeviceLogin(ctx, attemptID)
+	}
 	b.mu.Lock()
 	delete(b.attempts, attemptID)
 	b.mu.Unlock()
@@ -122,42 +119,30 @@ func (b *Broker) removeExpiredAttempts() {
 	}
 }
 
-func (b *Broker) Import(ctx context.Context, attemptID string, bundle OAuthTokenBundle) error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	attempt, ok := b.attempts[attemptID]
-	if !ok || b.now().Sub(attempt.createdAt) > 10*time.Minute {
-		return fmt.Errorf("sign-in attempt is invalid or expired")
-	}
-	delete(b.attempts, attemptID)
-	if bundle.Nonce != attemptID {
-		return fmt.Errorf("ID token nonce does not match the sign-in attempt")
-	}
-	scopes := strings.Fields(bundle.Scope)
-	if !contains(scopes, "chatgpt.tokens.use.direct") || !contains(scopes, "offline_access") {
-		return fmt.Errorf("ChatGPT plan usage permission was not granted")
-	}
-	if bundle.ClientID == "" || strings.TrimSpace(bundle.ClientID) == "dynamic_agent_client" || bundle.AccessToken == "" || bundle.RefreshToken == "" || bundle.IDToken == "" {
-		return fmt.Errorf("sign-in token response is incomplete")
-	}
-	claims, err := validateIDToken(ctx, b.client, bundle.IDToken, bundle.ClientID, bundle.Nonce)
-	if err != nil {
-		return err
-	}
-	accountID, err := chatGPTAccountID(bundle.AccessToken)
-	if err != nil {
-		return err
-	}
-	credential := Credential{HostID: attempt.hostID, ClientID: bundle.ClientID, AccountID: accountID, Subject: claims.Subject, Email: claims.Email,
-		AccessToken: bundle.AccessToken, RefreshToken: bundle.RefreshToken, IDToken: bundle.IDToken, Scopes: scopes,
-		ExpiresAt: b.now().Add(time.Duration(bundle.ExpiresIn) * time.Second)}
-	return b.write(ctx, credential)
-}
-
 func (b *Broker) Status(ctx context.Context) (map[string]any, error) {
 	credential, ok, err := b.read(ctx)
 	if err != nil {
 		return nil, err
+	}
+	if (!ok || credential.AccessToken == "") && b.loginAgent != nil {
+		status, statusErr := b.loginAgent.ReadAccount(ctx, "")
+		if statusErr != nil {
+			return nil, statusErr
+		}
+		if status.Account != nil && status.Account.Type == "chatgpt" {
+			raw, readErr := b.loginAgent.ReadAuthCredentials(ctx)
+			if readErr != nil {
+				return nil, readErr
+			}
+			credential, readErr = credentialFromCodexAuth(raw, status.Account.Email, status.Account.PlanType)
+			if readErr != nil {
+				return nil, readErr
+			}
+			if err := b.Save(ctx, credential); err != nil {
+				return nil, err
+			}
+			ok = true
+		}
 	}
 	if !ok || credential.AccessToken == "" {
 		return map[string]any{"authenticated": false}, nil
@@ -195,6 +180,11 @@ func (b *Broker) Logout(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	if b.loginAgent != nil {
+		if err := b.loginAgent.Logout(ctx); err != nil {
+			return err
+		}
+	}
 	if !ok {
 		return nil
 	}
@@ -220,9 +210,14 @@ func (b *Broker) refresh(ctx context.Context, force bool, expectedAccountID stri
 	}
 	form := url.Values{
 		"grant_type": {"refresh_token"}, "client_id": {credential.ClientID},
-		"refresh_token": {credential.RefreshToken}, "resource": {"https://api.openai.com/v1"},
+		"refresh_token": {credential.RefreshToken},
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenEndpoint, strings.NewReader(form.Encode()))
+	refreshEndpoint := credential.TokenEndpoint
+	if refreshEndpoint == "" {
+		refreshEndpoint = tokenEndpoint
+		form.Set("resource", "https://api.openai.com/v1")
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, refreshEndpoint, strings.NewReader(form.Encode()))
 	if err != nil {
 		return Credential{}, err
 	}
@@ -262,6 +257,35 @@ func (b *Broker) refresh(ctx context.Context, force bool, expectedAccountID stri
 	return credential, nil
 }
 
+func credentialFromCodexAuth(raw json.RawMessage, email, planType string) (Credential, error) {
+	var document map[string]any
+	if err := json.Unmarshal(raw, &document); err != nil {
+		return Credential{}, fmt.Errorf("decode Codex credentials: %w", err)
+	}
+	tokens, _ := document["tokens"].(map[string]any)
+	provenance, _ := tokens["oauth_provenance"].(map[string]any)
+	access, _ := tokens["access_token"].(string)
+	refresh, _ := tokens["refresh_token"].(string)
+	idToken, _ := tokens["id_token"].(string)
+	clientID, _ := provenance["client_id"].(string)
+	issuer, _ := provenance["issuer"].(string)
+	if issuer == "" {
+		issuer, _ = document["issuer"].(string)
+	}
+	if access == "" || refresh == "" || clientID == "" {
+		return Credential{}, fmt.Errorf("Codex credentials are incomplete")
+	}
+	accountID, err := chatGPTAccountID(access)
+	if err != nil {
+		return Credential{}, err
+	}
+	endpoint := ""
+	if issuer != "" {
+		endpoint = strings.TrimRight(issuer, "/") + "/oauth/token"
+	}
+	return Credential{ClientID: clientID, TokenEndpoint: endpoint, AccountID: accountID, Email: email, PlanType: planType, AccessToken: access, RefreshToken: refresh, IDToken: idToken, ExpiresAt: time.Now().Add(45 * time.Minute)}, nil
+}
+
 type tokenResponse struct {
 	AccessToken  string `json:"access_token"`
 	RefreshToken string `json:"refresh_token"`
@@ -293,15 +317,6 @@ func chatGPTAccountID(accessToken string) (string, error) {
 
 func toAgentTokens(c Credential) agent.ChatGPTAuthTokens {
 	return agent.ChatGPTAuthTokens{AccessToken: c.AccessToken, AccountID: c.AccountID, PlanType: c.PlanType}
-}
-
-func contains(values []string, target string) bool {
-	for _, value := range values {
-		if value == target {
-			return true
-		}
-	}
-	return false
 }
 
 func (b *Broker) read(ctx context.Context) (Credential, bool, error) {
