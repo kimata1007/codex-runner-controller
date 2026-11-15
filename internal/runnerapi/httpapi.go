@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -12,6 +11,7 @@ import (
 
 	v1alpha1 "github.com/kimata1007/codex-runner-controller/api/v1alpha1"
 	"github.com/kimata1007/codex-runner-controller/internal/agent"
+	"github.com/kimata1007/codex-runner-controller/internal/authbroker"
 	"github.com/kimata1007/codex-runner-controller/internal/conversation"
 	"github.com/kimata1007/codex-runner-controller/internal/events"
 	"github.com/kimata1007/codex-runner-controller/internal/runs"
@@ -32,22 +32,28 @@ type Handler struct {
 	eventStore        RunEventStore
 	eventProjector    RunEventProjector
 	eventHub          RunEventHub
-	authClients       AccountClientFactory
+	authBroker        ChatGPTAuthBroker
 }
 
 // HandlerDependencies groups the optional collaborators used by the HTTP API.
 // Keeping the constructor stable avoids encoding every new dependency in its name.
 type HandlerDependencies struct {
-	Repository  conversation.Repository
-	Dispatcher  MessageDispatcher
-	Activator   session.Activator
-	EventStore  RunEventStore
-	EventHub    RunEventHub
-	AuthClients AccountClientFactory
+	Repository conversation.Repository
+	Dispatcher MessageDispatcher
+	Activator  session.Activator
+	EventStore RunEventStore
+	EventHub   RunEventHub
+	AuthBroker ChatGPTAuthBroker
 }
 
-type AccountClientFactory interface {
-	CreateAccountClientForConversation(context.Context, string) (agent.AccountClient, error)
+type ChatGPTAuthBroker interface {
+	Status(context.Context) (map[string]any, error)
+	BeginLogin(context.Context) (string, string, error)
+	CancelLogin(string)
+	Import(context.Context, string, authbroker.OAuthTokenBundle) error
+	GetChatGPTAuthTokens(context.Context) (agent.ChatGPTAuthTokens, error)
+	RefreshChatGPTAuthTokens(context.Context, string) (agent.ChatGPTAuthTokens, error)
+	Logout(context.Context) error
 }
 
 func NewHandler(dependencies HandlerDependencies) *Handler {
@@ -67,7 +73,7 @@ func NewHandler(dependencies HandlerDependencies) *Handler {
 		eventStore:        dependencies.EventStore,
 		eventProjector:    eventProjector,
 		eventHub:          dependencies.EventHub,
-		authClients:       dependencies.AuthClients,
+		authBroker:        dependencies.AuthBroker,
 	}
 }
 
@@ -99,13 +105,16 @@ func NewRouter(handler *Handler) *echo.Echo {
 	e.GET("/healthz", handler.checkHealth)
 	e.GET("/readyz", handler.checkHealth)
 	e.GET("/v1/conversations", handler.listConversations)
+	if handler.authBroker != nil {
+		e.GET("/v1/auth/status", handler.getGlobalAuthStatus)
+		e.POST("/v1/auth/login", handler.beginGlobalAuth)
+		e.DELETE("/v1/auth/login/:attemptID", handler.cancelGlobalAuth)
+		e.POST("/v1/auth/import", handler.completeGlobalAuth)
+		e.DELETE("/v1/auth", handler.logoutGlobalAuth)
+		e.POST("/internal/auth/refresh", handler.refreshGlobalAuth)
+	}
 	e.POST("/v1/conversations", handler.createConversation)
 	e.GET("/v1/conversations/:id", handler.getConversation)
-	if handler.authClients != nil {
-		e.GET("/v1/conversations/:id/auth", handler.getConversationAuth)
-		e.POST("/v1/conversations/:id/auth/login", handler.startConversationAuth)
-		e.DELETE("/v1/conversations/:id/auth/login/:loginID", handler.cancelConversationAuth)
-	}
 	e.GET("/v1/conversations/:id/messages", handler.getMessages)
 	e.POST("/v1/conversations/:id/messages", handler.createMessage)
 	if handler.approvalResponder != nil {
@@ -119,6 +128,62 @@ func NewRouter(handler *Handler) *echo.Echo {
 		e.POST("/internal/sessions/:conversationID/heartbeat", handler.receiveHeartbeat)
 	}
 	return e
+}
+
+func (h *Handler) getGlobalAuthStatus(c echo.Context) error {
+	status, err := h.authBroker.Status(c.Request().Context())
+	if err != nil {
+		return writeError(c, http.StatusServiceUnavailable, "ChatGPT authentication status is unavailable")
+	}
+	return writeJSON(c, http.StatusOK, status)
+}
+
+func (h *Handler) beginGlobalAuth(c echo.Context) error {
+	attemptID, hostID, err := h.authBroker.BeginLogin(c.Request().Context())
+	if err != nil {
+		return writeError(c, http.StatusServiceUnavailable, "could not begin ChatGPT sign-in")
+	}
+	return writeJSON(c, http.StatusCreated, map[string]string{"attemptId": attemptID, "hostId": hostID})
+}
+
+func (h *Handler) cancelGlobalAuth(c echo.Context) error {
+	h.authBroker.CancelLogin(c.Param("attemptID"))
+	return writeJSON(c, http.StatusAccepted, map[string]string{"status": "cancelled"})
+}
+
+func (h *Handler) completeGlobalAuth(c echo.Context) error {
+	var request struct {
+		AttemptID string `json:"attemptId"`
+		authbroker.OAuthTokenBundle
+	}
+	if err := decodeJSON(c, &request); err != nil {
+		return err
+	}
+	if err := h.authBroker.Import(c.Request().Context(), request.AttemptID, request.OAuthTokenBundle); err != nil {
+		return writeError(c, http.StatusBadRequest, "ChatGPT sign-in could not be verified")
+	}
+	return writeJSON(c, http.StatusOK, map[string]string{"status": "authenticated"})
+}
+
+func (h *Handler) logoutGlobalAuth(c echo.Context) error {
+	if err := h.authBroker.Logout(c.Request().Context()); err != nil {
+		return writeError(c, http.StatusServiceUnavailable, "could not disconnect ChatGPT")
+	}
+	return writeJSON(c, http.StatusOK, map[string]string{"status": "disconnected"})
+}
+
+func (h *Handler) refreshGlobalAuth(c echo.Context) error {
+	var request struct {
+		PreviousAccountID string `json:"previousAccountId"`
+	}
+	if err := decodeJSON(c, &request); err != nil {
+		return err
+	}
+	tokens, err := h.authBroker.RefreshChatGPTAuthTokens(c.Request().Context(), request.PreviousAccountID)
+	if err != nil {
+		return writeError(c, http.StatusUnauthorized, "ChatGPT credentials need to be reconnected")
+	}
+	return writeJSON(c, http.StatusOK, tokens)
 }
 
 // RunEventStore persists App Server notifications that runner-agent associates
@@ -296,87 +361,6 @@ func (h *Handler) getConversation(c echo.Context) error {
 		return writeRepositoryError(c, err)
 	}
 	return writeJSON(c, http.StatusOK, conversationResponseFrom(value))
-}
-
-func (h *Handler) getConversationAuth(c echo.Context) error {
-	accountClient, err := h.accountClientForConversation(c.Request().Context(), c.Param("id"), false)
-	if err != nil {
-		return writeAuthSetupError(c, err)
-	}
-	status, err := accountClient.ReadAccountStatus(c.Request().Context())
-	if err != nil {
-		return writeError(c, http.StatusBadGateway, "failed to read Codex authentication status")
-	}
-	return writeJSON(c, http.StatusOK, map[string]any{
-		"authenticated": !status.RequiresOpenAIAuth,
-		"account":       status.Account,
-	})
-}
-
-func (h *Handler) startConversationAuth(c echo.Context) error {
-	accountClient, err := h.accountClientForConversation(c.Request().Context(), c.Param("id"), true)
-	if err != nil {
-		return writeAuthSetupError(c, err)
-	}
-	status, err := accountClient.ReadAccountStatus(c.Request().Context())
-	if err != nil {
-		return writeError(c, http.StatusBadGateway, "failed to read Codex authentication status")
-	}
-	if !status.RequiresOpenAIAuth {
-		return writeJSON(c, http.StatusOK, map[string]any{"authenticated": true, "account": status.Account})
-	}
-	challenge, err := accountClient.StartChatGPTDeviceCodeLogin(c.Request().Context())
-	if err != nil {
-		return writeError(c, http.StatusBadGateway, "failed to start ChatGPT sign-in")
-	}
-	return writeJSON(c, http.StatusOK, map[string]any{
-		"authenticated":   false,
-		"loginId":         challenge.LoginID,
-		"verificationUrl": challenge.VerificationURL,
-		"userCode":        challenge.UserCode,
-	})
-}
-
-func (h *Handler) cancelConversationAuth(c echo.Context) error {
-	accountClient, err := h.accountClientForConversation(c.Request().Context(), c.Param("id"), false)
-	if err != nil {
-		return writeAuthSetupError(c, err)
-	}
-	if err := accountClient.CancelChatGPTLogin(c.Request().Context(), c.Param("loginID")); err != nil {
-		return writeError(c, http.StatusBadGateway, "failed to cancel ChatGPT sign-in")
-	}
-	return writeJSON(c, http.StatusAccepted, map[string]string{"status": "cancelled"})
-}
-
-func (h *Handler) accountClientForConversation(ctx context.Context, conversationID string, activate bool) (agent.AccountClient, error) {
-	if h.authClients == nil {
-		return nil, errors.New("Codex authentication is not configured")
-	}
-	value, err := h.repository.GetConversation(ctx, conversationID)
-	if err != nil {
-		return nil, err
-	}
-	if activate && h.activator != nil {
-		var repository *session.Repository
-		if value.Repository != nil {
-			repository = &session.Repository{URL: value.Repository.URL, Revision: value.Repository.Revision}
-		}
-		if err := h.activator.Activate(ctx, session.Activation{ConversationID: conversationID, RequestedAt: time.Now().UTC(), Repository: repository}); err != nil {
-			return nil, fmt.Errorf("activate Codex session: %w", err)
-		}
-	}
-	client, err := h.authClients.CreateAccountClientForConversation(ctx, conversationID)
-	if err != nil {
-		return nil, fmt.Errorf("create Codex account client: %w", err)
-	}
-	return client, nil
-}
-
-func writeAuthSetupError(c echo.Context, err error) error {
-	if errors.Is(err, conversation.ErrNotFound) {
-		return writeError(c, http.StatusNotFound, "conversation not found")
-	}
-	return writeError(c, http.StatusServiceUnavailable, "Codex authentication is unavailable")
 }
 
 func (h *Handler) getMessages(c echo.Context) error {

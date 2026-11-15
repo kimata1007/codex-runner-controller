@@ -189,7 +189,9 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .auth-code-label { margin-top: 20px; color: #666a62; font-size: 12px; line-height: 18px; }
 .auth-code-row { display: flex; min-height: 48px; align-items: center; gap: 10px; margin-top: 5px; }
 .auth-code { color: #242622; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 21px; font-weight: 650; letter-spacing: .12em; }
-.auth-copy { min-height: 40px; padding: 0 10px; border: 1px solid #d9dad5; border-radius: 7px; background: #fff; color: #454840; font-size: 13px; cursor: pointer; }
+.auth-command { min-width: 0; flex: 1 1 auto; overflow-wrap: anywhere; color: #30342e; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.6; }
+.auth-helper { margin: 10px 0 0; color: #62675e; font-size: 13px; line-height: 1.6; }
+.auth-copy { min-width: 76px; min-height: 40px; flex: 0 0 auto; padding: 0 10px; border: 1px solid #d9dad5; border-radius: 7px; background: #fff; color: #454840; font-size: 13px; white-space: nowrap; cursor: pointer; }
 .auth-copy:hover { background: #f5f5f2; }
 .auth-waiting { margin: 12px 0 0 !important; color: #62675e !important; font-size: 13px !important; }
 .auth-cancel { min-height: 40px; margin-top: 11px; padding: 0; border: 0; background: transparent; color: #62675e; font-size: 13px; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }

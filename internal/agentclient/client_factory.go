@@ -33,7 +33,12 @@ type RunClientFactory struct {
 	resolver   EndpointResolver
 	params     agent.ThreadStartParams
 	token      string
+	authTokens AuthTokenProvider
 	httpClient *http.Client
+}
+
+type AuthTokenProvider interface {
+	GetChatGPTAuthTokens(context.Context) (agent.ChatGPTAuthTokens, error)
 }
 
 func NewRunClientFactory(resolver EndpointResolver, params agent.ThreadStartParams) *RunClientFactory {
@@ -48,15 +53,30 @@ func (f *RunClientFactory) WithHTTPClient(client *http.Client) *RunClientFactory
 	}
 	return f
 }
+func (f *RunClientFactory) WithAuthTokenProvider(provider AuthTokenProvider) *RunClientFactory {
+	if f != nil {
+		f.authTokens = provider
+	}
+	return f
+}
 func (f *RunClientFactory) CreateClientForConversation(ctx context.Context, conversationID string) (runs.ThreadClient, error) {
 	client, err := f.CreateAccountClientForConversation(ctx, conversationID)
 	if err != nil {
 		return nil, err
 	}
+	if f.authTokens != nil {
+		tokens, err := f.authTokens.GetChatGPTAuthTokens(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("get ChatGPT credentials: %w", err)
+		}
+		if err := client.SetChatGPTAuthTokens(ctx, tokens); err != nil {
+			return nil, err
+		}
+	}
 	return NewRunAdapter(client, f.params), nil
 }
 
-func (f *RunClientFactory) CreateAccountClientForConversation(ctx context.Context, conversationID string) (agent.AccountClient, error) {
+func (f *RunClientFactory) CreateAccountClientForConversation(ctx context.Context, conversationID string) (*Client, error) {
 	if f == nil || f.resolver == nil {
 		return nil, fmt.Errorf("runner-agent endpoint resolver is required")
 	}

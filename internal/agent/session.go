@@ -43,38 +43,25 @@ type TurnStartParams struct {
 	Input    []TurnInput `json:"input"`
 }
 
-// AccountStatus describes whether App Server needs an OpenAI sign-in.
-type AccountStatus struct {
-	Account            *AccountInfo `json:"account"`
-	RequiresOpenAIAuth bool         `json:"requiresOpenaiAuth"`
+// ChatGPTAuthTokens are short-lived credentials supplied by the host application.
+// The refresh token stays in the Runner API auth broker.
+type ChatGPTAuthTokens struct {
+	AccessToken string `json:"accessToken"`
+	AccountID   string `json:"chatgptAccountId"`
+	PlanType    string `json:"chatgptPlanType,omitempty"`
 }
 
-type AccountInfo struct {
-	Type     string `json:"type,omitempty"`
-	Email    string `json:"email,omitempty"`
-	PlanType string `json:"planType,omitempty"`
-}
-
-// DeviceCodeLogin is the remote-friendly ChatGPT sign-in challenge returned by App Server.
-type DeviceCodeLogin struct {
-	LoginID         string `json:"loginId"`
-	VerificationURL string `json:"verificationUrl"`
-	UserCode        string `json:"userCode"`
-}
-
-type AccountClient interface {
-	ReadAccountStatus(context.Context) (AccountStatus, error)
-	StartChatGPTDeviceCodeLogin(context.Context) (DeviceCodeLogin, error)
-	CancelChatGPTLogin(context.Context, string) error
+type AuthTokenClient interface {
+	SetChatGPTAuthTokens(context.Context, ChatGPTAuthTokens) error
 }
 
 // Session owns the App Server lifecycle for one CodexSession.
 // It deliberately does not persist thread state: the controller/API persists
 // the thread ID, while this object only manages the live child process.
 type Session struct {
-	client       *JSONRPCClient
-	loginMu      sync.Mutex
-	pendingLogin *DeviceCodeLogin
+	client              *JSONRPCClient
+	loginMu             sync.Mutex
+	activeAuthAccountID string
 }
 
 func NewSession(client *JSONRPCClient) *Session {
@@ -86,13 +73,51 @@ func (s *Session) Initialize(ctx context.Context, info ClientInfo) error {
 		return fmt.Errorf("agent session: nil client")
 	}
 	var result map[string]any
-	if err := s.client.Call(ctx, "initialize", map[string]any{"clientInfo": info}, &result); err != nil {
+	if err := s.client.Call(ctx, "initialize", map[string]any{
+		"clientInfo":   info,
+		"capabilities": map[string]bool{"experimentalApi": true},
+	}, &result); err != nil {
 		return fmt.Errorf("initialize app server: %w", err)
 	}
 	if err := s.client.Notify("initialized", map[string]any{}); err != nil {
 		return fmt.Errorf("notify app server initialized: %w", err)
 	}
 	return nil
+}
+
+func (s *Session) LoginWithChatGPTAuthTokens(ctx context.Context, tokens ChatGPTAuthTokens) error {
+	if s == nil || s.client == nil {
+		return fmt.Errorf("set ChatGPT credentials: nil client")
+	}
+	if strings.TrimSpace(tokens.AccessToken) == "" || strings.TrimSpace(tokens.AccountID) == "" {
+		return fmt.Errorf("set ChatGPT credentials: access token and account id are required")
+	}
+	s.loginMu.Lock()
+	defer s.loginMu.Unlock()
+	if s.activeAuthAccountID == tokens.AccountID {
+		return nil
+	}
+	var result map[string]any
+	if err := s.client.Call(ctx, "account/login/start", map[string]any{
+		"type":             "chatgptAuthTokens",
+		"accessToken":      tokens.AccessToken,
+		"chatgptAccountId": tokens.AccountID,
+		"chatgptPlanType":  tokens.PlanType,
+	}, &result); err != nil {
+		return fmt.Errorf("set ChatGPT credentials: %w", err)
+	}
+	s.activeAuthAccountID = tokens.AccountID
+	return nil
+}
+
+func (s *Session) SetChatGPTAuthTokens(ctx context.Context, tokens ChatGPTAuthTokens) error {
+	return s.LoginWithChatGPTAuthTokens(ctx, tokens)
+}
+
+func (s *Session) SetRequestHandler(handler RequestHandler) {
+	if s != nil && s.client != nil {
+		s.client.SetRequestHandler(handler)
+	}
 }
 
 func (s *Session) StartThread(ctx context.Context, params ThreadStartParams) (Thread, error) {
@@ -144,59 +169,5 @@ func (s *Session) StartTurn(ctx context.Context, threadID string, input []TurnIn
 	if err := s.client.Call(ctx, "turn/start", TurnStartParams{ThreadID: threadID, Input: input}, &result); err != nil {
 		return fmt.Errorf("start turn for thread %q: %w", threadID, err)
 	}
-	return nil
-}
-
-func (s *Session) ReadAccountStatus(ctx context.Context) (AccountStatus, error) {
-	if s == nil || s.client == nil {
-		return AccountStatus{}, fmt.Errorf("read account status: nil client")
-	}
-	var result AccountStatus
-	if err := s.client.Call(ctx, "account/read", map[string]bool{"refreshToken": false}, &result); err != nil {
-		return AccountStatus{}, fmt.Errorf("read account status: %w", err)
-	}
-	if !result.RequiresOpenAIAuth {
-		s.loginMu.Lock()
-		s.pendingLogin = nil
-		s.loginMu.Unlock()
-	}
-	return result, nil
-}
-
-func (s *Session) StartChatGPTDeviceCodeLogin(ctx context.Context) (DeviceCodeLogin, error) {
-	if s == nil || s.client == nil {
-		return DeviceCodeLogin{}, fmt.Errorf("start ChatGPT sign-in: nil client")
-	}
-	s.loginMu.Lock()
-	defer s.loginMu.Unlock()
-	if s.pendingLogin != nil {
-		return *s.pendingLogin, nil
-	}
-	var result DeviceCodeLogin
-	if err := s.client.Call(ctx, "account/login/start", map[string]string{"type": "chatgptDeviceCode"}, &result); err != nil {
-		return DeviceCodeLogin{}, fmt.Errorf("start ChatGPT sign-in: %w", err)
-	}
-	if result.LoginID == "" || result.VerificationURL == "" || result.UserCode == "" {
-		return DeviceCodeLogin{}, fmt.Errorf("start ChatGPT sign-in: incomplete device code response")
-	}
-	s.pendingLogin = &result
-	return result, nil
-}
-
-func (s *Session) CancelChatGPTLogin(ctx context.Context, loginID string) error {
-	if s == nil || s.client == nil {
-		return fmt.Errorf("cancel ChatGPT sign-in: nil client")
-	}
-	if strings.TrimSpace(loginID) == "" {
-		return fmt.Errorf("cancel ChatGPT sign-in: login id is required")
-	}
-	if err := s.client.Call(ctx, "account/login/cancel", map[string]string{"loginId": loginID}, nil); err != nil {
-		return err
-	}
-	s.loginMu.Lock()
-	if s.pendingLogin != nil && s.pendingLogin.LoginID == loginID {
-		s.pendingLogin = nil
-	}
-	s.loginMu.Unlock()
 	return nil
 }

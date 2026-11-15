@@ -15,6 +15,7 @@ import (
 	"github.com/kimata1007/codex-runner-controller/internal/agent"
 	"github.com/kimata1007/codex-runner-controller/internal/agentclient"
 	"github.com/kimata1007/codex-runner-controller/internal/auth"
+	"github.com/kimata1007/codex-runner-controller/internal/authbroker"
 	"github.com/kimata1007/codex-runner-controller/internal/conversation"
 	"github.com/kimata1007/codex-runner-controller/internal/events"
 	"github.com/kimata1007/codex-runner-controller/internal/kubernetes"
@@ -40,11 +41,11 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	dispatcher, activator, authClients, err := runtimeFromEnvironment(repository)
+	dispatcher, activator, authBroker, err := runtimeFromEnvironment(repository)
 	if err != nil {
 		log.Fatal(err)
 	}
-	dependencies := runnerapi.HandlerDependencies{Repository: repository, Dispatcher: dispatcher, Activator: activator, AuthClients: authClients}
+	dependencies := runnerapi.HandlerDependencies{Repository: repository, Dispatcher: dispatcher, Activator: activator, AuthBroker: authBroker}
 	if eventStore, ok := repository.(runnerapi.RunEventStore); ok {
 		dependencies.EventStore = eventStore
 		dependencies.EventHub = events.NewBroker()
@@ -53,6 +54,7 @@ func main() {
 	var httpHandler http.Handler = runnerapi.NewRouter(apiHandler)
 	httpHandler = auth.BearerTokenForPathPrefix(httpHandler, os.Getenv("RUNNER_API_TOKEN"), "/internal/runs/")
 	httpHandler = auth.BearerTokenForPathPrefix(httpHandler, os.Getenv("RUNNER_AGENT_TOKEN"), "/internal/sessions/")
+	httpHandler = auth.BearerTokenForPathPrefix(httpHandler, os.Getenv("RUNNER_AGENT_TOKEN"), "/internal/auth/")
 	server := &http.Server{
 		Addr:              addr,
 		Handler:           httpHandler,
@@ -80,7 +82,7 @@ func main() {
 	}
 }
 
-func runtimeFromEnvironment(repository conversation.Repository) (runnerapi.MessageDispatcher, session.Activator, runnerapi.AccountClientFactory, error) {
+func runtimeFromEnvironment(repository conversation.Repository) (runnerapi.MessageDispatcher, session.Activator, runnerapi.ChatGPTAuthBroker, error) {
 	agentURL := os.Getenv("RUNNER_AGENT_URL")
 	runStore, ok := repository.(runs.Store)
 	if !ok {
@@ -99,6 +101,7 @@ func runtimeFromEnvironment(repository conversation.Repository) (runnerapi.Messa
 	}
 	var resolver agentclient.EndpointResolver
 	var activator session.Activator
+	var kubeClient client.Client
 	if agentURL != "" {
 		resolver = agentclient.StaticEndpointResolver{URL: agentURL}
 	} else {
@@ -114,7 +117,7 @@ func runtimeFromEnvironment(repository conversation.Repository) (runnerapi.Messa
 		if err != nil {
 			return nil, nil, nil, fmt.Errorf("load Kubernetes configuration for session activation: %w", err)
 		}
-		kubeClient, err := client.New(kubeConfig, client.Options{Scheme: kubeScheme})
+		kubeClient, err = client.New(kubeConfig, client.Options{Scheme: kubeScheme})
 		if err != nil {
 			return nil, nil, nil, fmt.Errorf("create Kubernetes client for session activation: %w", err)
 		}
@@ -130,8 +133,38 @@ func runtimeFromEnvironment(repository conversation.Repository) (runnerapi.Messa
 		}
 		resolver = kubernetes.SessionEndpointResolver{Namespace: namespace}
 	}
+	var authTokens runnerapi.ChatGPTAuthBroker
+	if encodedKey := os.Getenv("RUNNER_AUTH_ENCRYPTION_KEY"); encodedKey != "" {
+		if kubeClient == nil {
+			return nil, nil, nil, errors.New("ChatGPT auth broker requires Kubernetes session endpoints")
+		}
+		key, err := authbroker.ParseEncryptionKey(encodedKey)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		store := kubernetes.ChatGPTAuthSecretStore{Client: kubeClient, Namespace: namespaceFromEnvironment()}
+		broker, err := authbroker.New(store, key, nil)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		authTokens = broker
+	}
 	factory := agentclient.NewRunClientFactoryWithToken(resolver, params, os.Getenv("RUNNER_AGENT_TOKEN"))
-	return runs.NewMessageDispatcherWithFactory(runStore, factory), activator, factory, nil
+	if authTokens != nil {
+		factory.WithAuthTokenProvider(authTokens)
+	}
+	return runs.NewMessageDispatcherWithFactory(runStore, factory), activator, authTokens, nil
+}
+
+func namespaceFromEnvironment() string {
+	namespace := strings.TrimSpace(os.Getenv("RUNNER_SESSION_NAMESPACE"))
+	if namespace == "" {
+		namespace = strings.TrimSpace(os.Getenv("KUBERNETES_NAMESPACE"))
+	}
+	if namespace == "" {
+		namespace = kubernetes.DefaultSessionNamespace
+	}
+	return namespace
 }
 
 func gitCredentialsSecretNameFromEnvironment() string {

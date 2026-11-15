@@ -33,6 +33,8 @@ spec:
               value: http://runner-api.codex-system.svc.cluster.local:8080/internal/runs
             - name: RUNNER_HEARTBEAT_URL
               value: http://runner-api.codex-system.svc.cluster.local:8080/internal/sessions
+            - name: RUNNER_AUTH_REFRESH_URL
+              value: http://runner-api.codex-system.svc.cluster.local:8080/internal/auth/refresh
             - name: RUNNER_AGENT_TOKEN_SECRET_NAME
               value: codex-runner-tokens
             - name: RUNNER_AGENT_TOKEN_SECRET_KEY

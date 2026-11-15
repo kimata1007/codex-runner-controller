@@ -1,20 +1,32 @@
-# Codex App Server認証
+# Codex RunnerのChatGPT認証
 
-## PWAからサインイン
+## 認証の共有
 
-`ACCESS_TOKEN`を設定していない場合、最初のメッセージ送信前にRunner APIが会話用PodのCodex App Serverへ`account/read`を送り、認証状態を確認します。サインインが必要なら`account/login/start`のdevice-codeフローを開始し、PWAに認証ページと一時コードを表示します。認証完了を確認してから、保留中のメッセージを送ります。ブラウザーにはOAuth tokenを渡さず、App Serverが会話Pod内の`CODEX_HOME`へ保存します。
+ChatGPTへの接続はRunner全体で一度行います。会話用Podごとにサインインする必要はありません。
 
-Codex App Serverと作業ディレクトリは会話ごとのPod/PVCに分かれています。そのため、Secretを使わない構成では新しい会話ごとにサインインを求められる場合があります。インストール全体で一度だけサインインする共有アカウント管理は、会話間で安全に認証情報を共有する仕組みが別途必要です。
+1. PWAで会話を送信すると、未接続の場合に一時コマンドを表示します。
+2. リポジトリのルートで `go run ./cmd/codex-runner auth connect --server <Runner URL> --attempt <one-time ID> --host-id <host ID>` を実行します。
+3. ローカルヘルパーが `127.0.0.1` の一時コールバックを開き、ChatGPTの認証・同意を受け付けます。
+4. ヘルパーはOAuthトークンをPWAへ渡さず、TLS経由でRunner APIへ直接送ります。APIはID tokenの署名、audience、nonce、有効期限と、ChatGPTプラン利用scopeを検証します。
+5. Runner APIはトークン一式をAES-GCMで暗号化し、専用Kubernetes Secretへ保存します。Kubernetes Secretへのアクセス権はRunner APIのServiceAccountに限定します。
+6. 各会話Podには短命のaccess tokenだけを渡します。App Serverが401を受けるとRunner APIへrefreshを依頼し、APIがrefresh tokenを一元的に更新して置き換えます。
 
-## 外部tokenを使う場合
+OpenAIのSIWC OSSフローは `127.0.0.1` のコールバックを指定しているため、PWAのHTTPS URLへ直接コールバックしません。セルフホスト環境ではローカル認証とリモート環境への保護された資格情報転送が案内されています。
 
-既存のSign in with ChatGPTフローなどで取得したOAuth access tokenをKubernetes Secretへ保存できます。Controller Deploymentに次の環境変数を設定すると、各セッションPodへSecretKeyRefで`ACCESS_TOKEN`として注入します。
+## App Server連携
 
-```text
-CODEX_ACCESS_TOKEN_SECRET_NAME=codex-auth
-CODEX_ACCESS_TOKEN_SECRET_KEY=accessToken
+会話Pod内のrunner-agentは、初回にApp Serverの `chatgptAuthTokens` 認証モードを設定します。期限切れ時の `account/chatgptAuthTokens/refresh` JSON-RPC要求をRunner APIへ中継します。このApp Server APIは現在experimentalです。Codex Runnerは会話ごとのPod分離を保つため、この方式を採用します。
+
+## デプロイ設定
+
+`codex-runner-tokens` Secretに、32バイトのランダム暗号化鍵をBase64で登録します。値はSecret管理基盤で生成してください。
+
+```sh
+openssl rand -base64 32
 ```
 
-Secretの値はPod spec、CRD、libSQL、ログへ平文コピーしません。`CODEX_APP_SERVER_ARGS`が未設定で`ACCESS_TOKEN`が存在する場合、runner-agentは公式provider設定（`openai_chatgpt_plan`、Responses API、`env_key=ACCESS_TOKEN`）を付けてApp Serverを起動します。明示的な`CODEX_APP_SERVER_ARGS`を設定した場合は、その引数を優先します。
+生成値のSecret key名は `runner-auth-encryption-key` です。暗号化済みトークンは `codex-runner-chatgpt-auth` Secretに保存されます。Kustomizeはこの専用Secretを作成します。APIのServiceAccountには当該Secretのget/updateだけを許可します。
 
-OAuth tokenの更新時は、Secretをローテーションした後に対象セッションPodを再起動し、保存済みthread IDで`thread/resume`します。Token更新処理そのものはSecret管理基盤または運用側の責務です。
+Runner APIは1 replicaで動かしてください。refresh tokenはローテーションされるため、複数API replicaでの同時refreshはサポート対象外です。
+
+既存の静的 `ACCESS_TOKEN` Secret構成も引き続き利用できます。`CODEX_ACCESS_TOKEN_SECRET_NAME`と`CODEX_ACCESS_TOKEN_SECRET_KEY`は会話Podへ固定トークンを注入するための従来設定です。
