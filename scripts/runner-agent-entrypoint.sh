@@ -36,4 +36,5 @@ if [ -n "${CODEX_REPOSITORY_URL:-}" ]; then
 	git_cmd -C "$workspace" reset --hard "$CODEX_REPOSITORY_REVISION"
 fi
 
+unset GIT_AUTH_TOKEN
 exec /runner-agent

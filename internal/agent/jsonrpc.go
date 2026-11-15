@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"strconv"
+	"strings"
 	"sync"
 )
 
@@ -243,6 +245,7 @@ type Process struct {
 
 func StartProcess(ctx context.Context, command string, args []string, handler NotificationHandler) (*Process, error) {
 	cmd := exec.CommandContext(ctx, command, args...)
+	cmd.Env = appServerEnvironment(os.Environ())
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, fmt.Errorf("app-server stdout: %w", err)
@@ -258,6 +261,29 @@ func StartProcess(ctx context.Context, command string, args []string, handler No
 	process.Client = NewJSONRPCClient(stdout, stdin, handler)
 	go func() { process.waitErr <- cmd.Wait() }()
 	return process, nil
+}
+
+// appServerEnvironment keeps control-plane credentials in runner-agent. The
+// App Server can execute commands on behalf of a conversation, so it must not
+// inherit service-to-service tokens or the Git clone token.
+func appServerEnvironment(environment []string) []string {
+	blocked := map[string]struct{}{
+		"GIT_AUTH_TOKEN":     {},
+		"RUNNER_AGENT_TOKEN": {},
+		"RUNNER_API_TOKEN":   {},
+	}
+	filtered := make([]string, 0, len(environment))
+	for _, entry := range environment {
+		name, _, ok := strings.Cut(entry, "=")
+		if !ok {
+			filtered = append(filtered, entry)
+			continue
+		}
+		if _, secret := blocked[name]; !secret {
+			filtered = append(filtered, entry)
+		}
+	}
+	return filtered
 }
 
 func (p *Process) Wait() error { return <-p.waitErr }
