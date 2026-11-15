@@ -3,6 +3,8 @@ package memory
 import (
 	"context"
 	"fmt"
+	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -61,6 +63,30 @@ func (r *Repository) GetConversation(ctx context.Context, id string) (conversati
 		return conversation.Conversation{}, fmt.Errorf("%w: %s", conversation.ErrNotFound, id)
 	}
 	return *value, nil
+}
+
+func (r *Repository) ListConversations(ctx context.Context) ([]conversation.Conversation, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	r.mu.RLock()
+	values := make([]conversation.Conversation, 0, len(r.conversations))
+	for _, value := range r.conversations {
+		clone := cloneConversation(value)
+		for _, message := range clone.Messages {
+			if message.Role == "user" {
+				clone.Title = conversationTitle(message.Content)
+				break
+			}
+		}
+		values = append(values, *clone)
+	}
+	r.mu.RUnlock()
+	sort.Slice(values, func(i, j int) bool { return values[i].UpdatedAt.After(values[j].UpdatedAt) })
+	if len(values) > 100 {
+		values = values[:100]
+	}
+	return values, nil
 }
 
 func (r *Repository) ListMessages(ctx context.Context, id string) ([]conversation.Message, error) {
@@ -166,4 +192,13 @@ func cloneConversation(value *conversation.Conversation) *conversation.Conversat
 	}
 	clone.Messages = append([]conversation.Message(nil), value.Messages...)
 	return &clone
+}
+
+func conversationTitle(content string) string {
+	content = strings.Join(strings.Fields(content), " ")
+	runes := []rune(content)
+	if len(runes) > 48 {
+		return string(runes[:48]) + "…"
+	}
+	return content
 }

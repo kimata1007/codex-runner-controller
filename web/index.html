@@ -2,44 +2,96 @@
 <html lang="ja">
   <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="theme-color" content="#111827">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#f7f7f5">
+    <meta name="color-scheme" content="light">
     <link rel="manifest" href="manifest.webmanifest">
     <link rel="stylesheet" href="styles.css">
     <title>Codex Runner</title>
   </head>
   <body>
-    <main class="shell">
-      <header>
-        <p class="eyebrow">CODEX RUNNER</p>
-        <h1>セッション会話</h1>
-        <p id="status" class="status" role="status" aria-live="polite">接続確認中…</p>
-      </header>
-
-      <section class="settings" aria-label="会話設定">
-        <p class="settings-help">接続設定は済んでいます。この画面からそのまま会話できます。</p>
-        <label>モード
-          <select id="mode">
-            <option value="chat">chat（相談）</option>
-            <option value="implement">implement（実装）</option>
-          </select>
-        </label>
-        <label id="repository-fields" class="hidden">リポジトリURL <input id="repository-url" type="url" placeholder="https://github.com/org/repo.git"></label>
-        <label id="revision-fields" class="hidden">リビジョン <input id="repository-revision" value="main"></label>
-      </section>
-
-      <section class="conversation" aria-label="会話">
-        <div class="conversation-toolbar">
-          <button id="new-conversation" type="button">新しい会話</button>
-          <span id="conversation-id" class="muted">会話未作成</span>
+    <a class="skip-link" href="#main">会話へ移動</a>
+    <div class="app-shell">
+      <aside id="sidebar" class="sidebar" aria-label="チャット履歴">
+        <div class="sidebar-top">
+          <a class="brand" href="/" aria-label="Codex Runner ホーム">Codex Runner</a>
+          <button id="new-conversation" class="new-chat" type="button">
+            <svg aria-hidden="true" viewBox="0 0 20 20"><path d="M10 4v12M4 10h12"/></svg>
+            <span>新しいチャット</span>
+          </button>
         </div>
-        <ol id="messages" class="messages" aria-live="polite"></ol>
-        <form id="message-form" class="composer">
-          <textarea id="message" rows="3" placeholder="Codexに相談する、または実装を依頼する" required></textarea>
-          <button type="submit">送信</button>
-        </form>
-      </section>
-    </main>
+        <nav id="history-list" class="history-list" aria-label="過去のチャット" aria-live="polite"></nav>
+        <p id="history-error" class="sidebar-error" hidden></p>
+      </aside>
+
+      <button id="sidebar-backdrop" class="sidebar-backdrop" type="button" aria-label="履歴を閉じる" hidden></button>
+
+      <main id="main" class="main-pane" tabindex="-1">
+        <header class="topbar">
+          <button id="history-toggle" class="icon-button mobile-history" type="button" aria-label="チャット履歴を表示" aria-controls="sidebar" aria-expanded="false">
+            <svg aria-hidden="true" viewBox="0 0 20 20"><path d="M3 5h14M3 10h14M3 15h14"/></svg>
+          </button>
+          <div class="topbar-title">
+            <h1 id="conversation-title">新しいチャット</h1>
+            <div id="conversation-context" class="conversation-context" hidden></div>
+          </div>
+          <div id="status" class="status" aria-live="polite" aria-atomic="true"></div>
+        </header>
+
+        <section id="transcript" class="transcript" aria-label="会話">
+          <div id="empty-state" class="empty-state">
+            <h2>何を進めますか？</h2>
+          </div>
+          <ol id="messages" class="messages" aria-live="polite" aria-relevant="additions text"></ol>
+        </section>
+
+        <footer class="composer-dock">
+          <div id="selected-repository" class="repository-chip" hidden>
+            <svg aria-hidden="true" viewBox="0 0 20 20"><path d="M3 5.5h5l1.6 1.8H17v8.2H3z"/><path d="M3 5.5V4h5l1.6 1.5"/></svg>
+            <span id="repository-label"></span>
+            <button id="remove-repository" class="chip-remove" type="button" aria-label="リポジトリを外す">
+              <svg aria-hidden="true" viewBox="0 0 20 20"><path d="m6 6 8 8M14 6l-8 8"/></svg>
+            </button>
+          </div>
+          <form id="message-form" class="composer" autocomplete="off">
+            <div class="composer-leading">
+              <button id="context-toggle" class="icon-button add-context" type="button" aria-label="リポジトリを追加" aria-haspopup="menu" aria-expanded="false" aria-controls="context-menu">
+                <svg aria-hidden="true" viewBox="0 0 20 20"><path d="M10 4v12M4 10h12"/></svg>
+              </button>
+              <div id="context-menu" class="context-menu" role="menu" aria-label="メッセージに追加" hidden></div>
+            </div>
+            <textarea id="message" name="message" rows="1" aria-label="メッセージ" placeholder="メッセージを入力…" required></textarea>
+            <button id="send-message" class="send-button" type="submit" aria-label="メッセージを送信">
+              <svg aria-hidden="true" viewBox="0 0 20 20"><path d="M3 10 17 3l-4.5 14-2.2-5.3L3 10Z"/><path d="m10.3 11.7 3.5-3.5"/></svg>
+            </button>
+          </form>
+        </footer>
+      </main>
+    </div>
+
+    <dialog id="repository-dialog" class="repository-dialog" aria-labelledby="repository-dialog-title">
+      <form id="repository-form" class="repository-form">
+        <div class="dialog-heading">
+          <div>
+            <p class="dialog-eyebrow">作業先</p>
+            <h2 id="repository-dialog-title">リポジトリを追加</h2>
+          </div>
+          <button id="close-repository-dialog" class="icon-button dialog-close" type="button" aria-label="閉じる">
+            <svg aria-hidden="true" viewBox="0 0 20 20"><path d="m6 6 8 8M14 6l-8 8"/></svg>
+          </button>
+        </div>
+        <label class="field-label" for="repository-url">リポジトリ URL</label>
+        <input id="repository-url" name="repository-url" type="url" placeholder="https://github.com/org/repo.git" autocomplete="url" required>
+        <label class="field-label" for="repository-revision">ブランチまたはリビジョン</label>
+        <input id="repository-revision" name="repository-revision" value="main" autocomplete="off" required>
+        <p id="repository-error" class="field-error" aria-live="polite" hidden></p>
+        <div class="dialog-actions">
+          <button id="cancel-repository" class="button-secondary" type="button">キャンセル</button>
+          <button class="button-primary" type="submit">追加する</button>
+        </div>
+      </form>
+    </dialog>
+
     <script type="module" src="app.js"></script>
   </body>
 </html>

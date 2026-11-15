@@ -3,6 +3,7 @@ package libsql
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -93,6 +94,41 @@ func (r *Repository) GetConversation(ctx context.Context, id string) (conversati
 		return conversation.Conversation{}, err
 	}
 	return value, nil
+}
+
+func (r *Repository) ListConversations(ctx context.Context) ([]conversation.Conversation, error) {
+	result, err := r.client.Exec(ctx, `SELECT c.id, c.status, c.created_at, c.updated_at,
+		COALESCE((SELECT m.content FROM messages m WHERE m.conversation_id = c.id AND m.role = 'user' ORDER BY m.sequence LIMIT 1), c.title, '')
+		FROM conversations c
+		WHERE c.user_id = ?
+		ORDER BY c.updated_at DESC
+		LIMIT 100`, []Value{Text(r.userID)}, true)
+	if err != nil {
+		return nil, err
+	}
+	values := make([]conversation.Conversation, 0, len(result.Rows))
+	for _, row := range result.Rows {
+		if len(row) < 5 {
+			return nil, fmt.Errorf("libsql: conversation list row has %d columns", len(row))
+		}
+		createdAt, err := parseTime(row[2])
+		if err != nil {
+			return nil, err
+		}
+		updatedAt, err := parseTime(row[3])
+		if err != nil {
+			return nil, err
+		}
+		value := conversation.Conversation{
+			ID:        row[0].Value,
+			Status:    row[1].Value,
+			CreatedAt: createdAt,
+			UpdatedAt: updatedAt,
+			Title:     conversationTitle(row[4].Value),
+		}
+		values = append(values, value)
+	}
+	return values, nil
 }
 
 func (r *Repository) ListMessages(ctx context.Context, id string) ([]conversation.Message, error) {
@@ -260,4 +296,13 @@ func parseTime(value Value) (time.Time, error) {
 		return time.Time{}, fmt.Errorf("libsql: expected timestamp text, got %q", value.Type)
 	}
 	return time.Parse(time.RFC3339Nano, value.Value)
+}
+
+func conversationTitle(content string) string {
+	content = strings.Join(strings.Fields(content), " ")
+	runes := []rune(content)
+	if len(runes) > 48 {
+		return string(runes[:48]) + "…"
+	}
+	return content
 }

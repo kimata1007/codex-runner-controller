@@ -41,7 +41,6 @@ func TestRoutesUseExpectedHTTPMethods(t *testing.T) {
 		path   string
 	}{
 		{name: "health rejects post", method: http.MethodPost, path: "/healthz"},
-		{name: "conversation collection rejects get", method: http.MethodGet, path: "/v1/conversations"},
 		{name: "conversation rejects post", method: http.MethodPost, path: "/v1/conversations/conversation-1"},
 		{name: "messages rejects put", method: http.MethodPut, path: "/v1/conversations/conversation-1/messages"},
 	}
