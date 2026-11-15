@@ -23,7 +23,9 @@ func (r *CodexSessionController) Reconcile(ctx context.Context, request reconcil
 		return reconcile.Result{}, client.IgnoreNotFound(err)
 	}
 
-	logic := CodexSessionReconciler{Client: KubernetesResourceClient{Client: r.Client, Owner: session}, Builder: r.Builder}
+	logic := CodexSessionReconciler{Client: KubernetesResourceClient{
+		Client: r.Client, Owner: session, RetainPVC: session.Spec.SessionData.Retain,
+	}, Builder: r.Builder}
 	result, err := logic.ReconcileStatus(ctx, session.Namespace, session.Name, session.Spec, session.Status)
 	if err != nil {
 		return reconcile.Result{}, err

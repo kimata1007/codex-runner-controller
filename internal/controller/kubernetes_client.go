@@ -11,8 +11,9 @@ import (
 )
 
 type KubernetesResourceClient struct {
-	Client client.Client
-	Owner  client.Object
+	Client    client.Client
+	Owner     client.Object
+	RetainPVC bool
 }
 
 func (c KubernetesResourceClient) GetPVC(ctx context.Context, namespace, name string) (*corev1.PersistentVolumeClaim, error) {
@@ -27,8 +28,10 @@ func (c KubernetesResourceClient) GetPVC(ctx context.Context, namespace, name st
 }
 
 func (c KubernetesResourceClient) CreatePVC(ctx context.Context, pvc *corev1.PersistentVolumeClaim) error {
-	if err := controllerutil.SetControllerReference(c.Owner, pvc, c.Client.Scheme()); err != nil {
-		return err
+	if !c.RetainPVC {
+		if err := controllerutil.SetControllerReference(c.Owner, pvc, c.Client.Scheme()); err != nil {
+			return err
+		}
 	}
 	return c.Client.Create(ctx, pvc)
 }
