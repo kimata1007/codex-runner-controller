@@ -6,6 +6,13 @@ import (
 	"strings"
 )
 
+type Approval struct {
+	RunID     string          `json:"runId"`
+	RequestID string          `json:"requestId"`
+	Method    string          `json:"method"`
+	Params    json.RawMessage `json:"params"`
+}
+
 const (
 	ApprovalPending  = "pending"
 	ApprovalApproved = "approved"

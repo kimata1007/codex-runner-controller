@@ -98,6 +98,10 @@ type RunEventProjector interface {
 	ApplyAppServerEvent(context.Context, string, string, string) error
 }
 
+type ApprovalLister interface {
+	ListPendingApprovals(context.Context, string) ([]runs.Approval, error)
+}
+
 func NewRouter(handler *Handler) *echo.Echo {
 	e := echo.New()
 	e.HideBanner = true
@@ -117,6 +121,9 @@ func NewRouter(handler *Handler) *echo.Echo {
 	e.POST("/v1/conversations/:id/messages", handler.createMessage)
 	if handler.approvalResponder != nil {
 		e.POST("/v1/approvals/:runID/:requestID", handler.respondApproval)
+	}
+	if _, ok := handler.repository.(ApprovalLister); ok {
+		e.GET("/v1/conversations/:id/approvals", handler.listPendingApprovals)
 	}
 	if handler.eventStore != nil && handler.eventHub != nil {
 		e.POST("/internal/runs/:runID/events", handler.receiveAppServerRunEvent)
@@ -284,6 +291,22 @@ func (h *Handler) respondApproval(c echo.Context) error {
 		return writeError(c, http.StatusBadGateway, "failed to respond to approval")
 	}
 	return writeJSON(c, http.StatusAccepted, map[string]string{"status": "accepted"})
+}
+
+func (h *Handler) listPendingApprovals(c echo.Context) error {
+	lister, ok := h.repository.(ApprovalLister)
+	if !ok {
+		return writeError(c, http.StatusNotImplemented, "approval listing is not supported")
+	}
+	conversationID := c.Param("id")
+	if _, err := h.repository.GetConversation(c.Request().Context(), conversationID); err != nil {
+		return writeRepositoryError(c, err)
+	}
+	approvals, err := lister.ListPendingApprovals(c.Request().Context(), conversationID)
+	if err != nil {
+		return writeRepositoryError(c, err)
+	}
+	return writeJSON(c, http.StatusOK, map[string]any{"approvals": approvals})
 }
 
 func (h *Handler) createConversation(c echo.Context) error {

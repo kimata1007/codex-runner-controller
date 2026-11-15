@@ -181,6 +181,32 @@ func (r *Repository) ResolveApproval(ctx context.Context, runID, requestID, stat
 	return err
 }
 
+func (r *Repository) ListPendingApprovals(ctx context.Context, conversationID string) ([]runs.Approval, error) {
+	result, err := r.client.Exec(ctx, `SELECT a.run_id, a.request_id, a.action_type, a.summary
+		FROM approvals a
+		JOIN runs r ON r.id = a.run_id
+		JOIN conversations c ON c.id = r.conversation_id
+		WHERE c.id = ? AND c.user_id = ? AND a.status = 'pending'
+		ORDER BY a.created_at, a.request_id`, []Value{Text(conversationID), Text(r.userID)}, true)
+	if err != nil {
+		return nil, err
+	}
+	approvals := make([]runs.Approval, 0, len(result.Rows))
+	for _, row := range result.Rows {
+		if len(row) < 4 {
+			return nil, fmt.Errorf("libsql: pending approval row has %d columns", len(row))
+		}
+		params := json.RawMessage(row[3].Value)
+		if len(params) == 0 || !json.Valid(params) {
+			params = json.RawMessage(`{}`)
+		}
+		approvals = append(approvals, runs.Approval{
+			RunID: row[0].Value, RequestID: row[1].Value, Method: row[2].Value, Params: params,
+		})
+	}
+	return approvals, nil
+}
+
 func (r *Repository) persistAssistantMessage(ctx context.Context, runID string) error {
 	run, found, err := r.GetRun(ctx, runID)
 	if err != nil || !found {
