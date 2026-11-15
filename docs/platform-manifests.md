@@ -13,6 +13,7 @@ libSQLのデータディレクトリは`/var/lib/sqld`へPVCをマウントし�
 
 - `api-token`: runner-agentからRunner APIへイベントを送るBearer token
 - `agent-token`: Runner APIとrunner-agent間のheartbeat・制御通信に使うBearer token
+- `runner-auth-encryption-key`: ChatGPTログインを使う場合に必須の32バイト暗号化鍵。Base64値を設定する（生成方法は[ChatGPT認証ガイド](codex-authentication.md)を参照）
 - `CODEX_GIT_CREDENTIALS_SECRET_NAME`で参照するGit token Secretは、private repositoryを使う場合だけ別途作成する
 - `libsqlAuthToken`: sqldの認証を有効にする場合に使用するtoken
 

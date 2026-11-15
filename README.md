@@ -46,7 +46,11 @@ docker build -f Dockerfile.runner-pwa \
 ## Kubernetesデプロイ
 
 1. リリースPRをマージすると、SemVerタグ付きの4つのイメージがGHCRへ公開され、共通Kustomizeマニフェストのイメージタグも同じバージョンに更新されます。リリース方法は[リリース手順](docs/release-process.md)を参照してください。
-2. 同じNamespaceにRunner APIとrunner-agent間で共有するSecretを作成します。
+2. 同じNamespaceにRunner APIとrunner-agent間で共有するSecretを作成します。ChatGPTログインを使う場合は、認証情報を暗号化する32バイト鍵を生成し、`runner-auth-encryption-key` に設定してください。生成方法と専用認証Secretの説明は[ChatGPT認証ガイド](docs/codex-authentication.md)を参照してください。
+
+```bash
+openssl rand -base64 32
+```
 
 ```yaml
 apiVersion: v1
@@ -58,6 +62,7 @@ type: Opaque
 stringData:
   api-token: replace-me
   agent-token: replace-me
+  runner-auth-encryption-key: replace-with-openssl-output
 ```
 
 `api-token` is for runner-agent event requests to the internal Runner API. `agent-token` is used for heartbeat requests and Runner API calls to runner-agent. The PWA does not ask users for a Bearer token; restrict access to it through Tailnet policy.
