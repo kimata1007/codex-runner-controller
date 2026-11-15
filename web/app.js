@@ -401,6 +401,18 @@ async function openConversation(id) {
     elements.messages.replaceChildren();
     for (const message of result.messages || []) addMessage(message.role, message.content);
     elements.emptyState.hidden = Boolean((result.messages || []).length);
+    try {
+      const pending = await request(`/v1/conversations/${encodeURIComponent(result.id)}/approvals`);
+      for (const approval of pending.approvals || []) {
+        addApproval(approval.runId, {
+          requestId: approval.requestId,
+          method: approval.method,
+          params: approval.params,
+        });
+      }
+    } catch (_) {
+      // Older or development repositories may not persist approval records.
+    }
     setStatus('');
     await loadConversationList();
   } catch (error) {

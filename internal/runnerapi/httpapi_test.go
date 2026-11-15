@@ -282,6 +282,40 @@ func TestReceiveAppServerRunEventRequiresEventType(t *testing.T) {
 	}
 }
 
+type approvalListRepository struct {
+	conversation.Repository
+	approvals []runs.Approval
+}
+
+func (r approvalListRepository) ListPendingApprovals(context.Context, string) ([]runs.Approval, error) {
+	return r.approvals, nil
+}
+
+func TestListPendingApprovalsForConversation(t *testing.T) {
+	repository := approvalListRepository{
+		Repository: memory.NewRepository(),
+		approvals:  []runs.Approval{{RunID: "run-1", RequestID: "17", Method: "item/commandExecution/requestApproval", Params: json.RawMessage(`{"command":"go test ./..."}`)}},
+	}
+	conversationValue, err := repository.CreateConversation(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	router := NewRouter(NewHandler(HandlerDependencies{Repository: repository}))
+	response := serveJSON(t, router, http.MethodGet, "/v1/conversations/"+conversationValue.ID+"/approvals", "")
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	var body struct {
+		Approvals []runs.Approval `json:"approvals"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(body.Approvals) != 1 || body.Approvals[0].RunID != "run-1" || body.Approvals[0].RequestID != "17" {
+		t.Fatalf("approvals = %+v", body.Approvals)
+	}
+}
+
 type failingRepository struct{}
 
 func (failingRepository) CreateConversation(context.Context) (conversation.Conversation, error) {

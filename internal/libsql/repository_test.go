@@ -152,3 +152,29 @@ func TestRepositoryLatestThreadID(t *testing.T) {
 		t.Fatalf("thread = %q, found=%v", threadID, found)
 	}
 }
+
+func TestRepositoryListsPendingApprovalsForConversation(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		var body pipelineRequest
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			t.Errorf("decode request: %v", err)
+			return
+		}
+		query := body.Requests[0].Stmt
+		if !strings.Contains(query.SQL, "a.status = 'pending'") || !strings.Contains(query.SQL, "c.user_id = ?") {
+			t.Errorf("query does not filter pending approvals by owner: %s", query.SQL)
+		}
+		response := json.RawMessage(`{"type":"execute","result":{"cols":[{"name":"run_id"},{"name":"request_id"},{"name":"action_type"},{"name":"summary"}],"rows":[[{"type":"text","value":"run-1"},{"type":"text","value":"17"},{"type":"text","value":"item/commandExecution/requestApproval"},{"type":"text","value":"{\"command\":\"go test ./...\"}"}]],"affected_row_count":0}}`)
+		_ = json.NewEncoder(writer).Encode(pipelineResponse{Results: []streamResult{{Type: "ok", Response: response}}})
+	}))
+	defer server.Close()
+
+	repository := NewRepository(NewClient(server.URL, "").WithHTTPClient(server.Client()), "user-1")
+	approvals, err := repository.ListPendingApprovals(context.Background(), "conversation-1")
+	if err != nil {
+		t.Fatalf("list pending approvals: %v", err)
+	}
+	if len(approvals) != 1 || approvals[0].RunID != "run-1" || approvals[0].RequestID != "17" || string(approvals[0].Params) != `{"command":"go test ./..."}` {
+		t.Fatalf("approvals = %+v", approvals)
+	}
+}
