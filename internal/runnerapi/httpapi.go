@@ -98,6 +98,10 @@ type RunEventProjector interface {
 	ApplyAppServerEvent(context.Context, string, string, string) error
 }
 
+type ActiveRunLister interface {
+	ListActiveRuns(context.Context, string) ([]runs.ActiveRun, error)
+}
+
 func NewRouter(handler *Handler) *echo.Echo {
 	e := echo.New()
 	e.HideBanner = true
@@ -114,6 +118,9 @@ func NewRouter(handler *Handler) *echo.Echo {
 	e.POST("/v1/conversations", handler.createConversation)
 	e.GET("/v1/conversations/:id", handler.getConversation)
 	e.GET("/v1/conversations/:id/messages", handler.getMessages)
+	if _, ok := handler.repository.(ActiveRunLister); ok {
+		e.GET("/v1/conversations/:id/runs/active", handler.listActiveRuns)
+	}
 	e.POST("/v1/conversations/:id/messages", handler.createMessage)
 	if handler.approvalResponder != nil {
 		e.POST("/v1/approvals/:runID/:requestID", handler.respondApproval)
@@ -358,6 +365,22 @@ func (h *Handler) getMessages(c echo.Context) error {
 		response = append(response, messageResponseFrom(message))
 	}
 	return writeJSON(c, http.StatusOK, map[string]any{"messages": response})
+}
+
+func (h *Handler) listActiveRuns(c echo.Context) error {
+	lister, ok := h.repository.(ActiveRunLister)
+	if !ok {
+		return writeError(c, http.StatusNotImplemented, "active run listing is not supported")
+	}
+	conversationID := c.Param("id")
+	if _, err := h.repository.GetConversation(c.Request().Context(), conversationID); err != nil {
+		return writeRepositoryError(c, err)
+	}
+	active, err := lister.ListActiveRuns(c.Request().Context(), conversationID)
+	if err != nil {
+		return writeRepositoryError(c, err)
+	}
+	return writeJSON(c, http.StatusOK, map[string]any{"runs": active})
 }
 
 func (h *Handler) createMessage(c echo.Context) error {

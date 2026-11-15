@@ -152,3 +152,29 @@ func TestRepositoryLatestThreadID(t *testing.T) {
 		t.Fatalf("thread = %q, found=%v", threadID, found)
 	}
 }
+
+func TestRepositoryListsActiveRunsForConversation(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		var body pipelineRequest
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			t.Errorf("decode request: %v", err)
+			return
+		}
+		query := body.Requests[0].Stmt
+		if !strings.Contains(query.SQL, "runs.status IN ('running', 'waiting_approval')") || !strings.Contains(query.SQL, "conversations.user_id = ?") {
+			t.Errorf("query does not filter active runs by owner: %s", query.SQL)
+		}
+		response := json.RawMessage(`{"type":"execute","result":{"cols":[{"name":"id"},{"name":"status"}],"rows":[[{"type":"text","value":"run-1"},{"type":"text","value":"running"}]],"affected_row_count":0}}`)
+		_ = json.NewEncoder(writer).Encode(pipelineResponse{Results: []streamResult{{Type: "ok", Response: response}}})
+	}))
+	defer server.Close()
+
+	repository := NewRepository(NewClient(server.URL, "").WithHTTPClient(server.Client()), "user-1")
+	active, err := repository.ListActiveRuns(context.Background(), "conversation-1")
+	if err != nil {
+		t.Fatalf("list active runs: %v", err)
+	}
+	if len(active) != 1 || active[0].ID != "run-1" || active[0].Status != "running" {
+		t.Fatalf("active = %+v", active)
+	}
+}

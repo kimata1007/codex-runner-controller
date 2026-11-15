@@ -401,6 +401,20 @@ async function openConversation(id) {
     elements.messages.replaceChildren();
     for (const message of result.messages || []) addMessage(message.role, message.content);
     elements.emptyState.hidden = Boolean((result.messages || []).length);
+    try {
+      const active = await request(`/v1/conversations/${encodeURIComponent(result.id)}/runs/active`);
+      for (const run of active.runs || []) {
+        setStatus(run.status === 'waiting_approval' ? '承認待ち' : '応答を再接続しています…', 'working');
+        const assistantMessage = addMessage('assistant', '');
+        const outcome = await streamEvents(run.id, assistantMessage);
+        if (outcome === 'completed') setStatus('完了');
+        else if (outcome === 'failed') setStatus('実行に失敗しました', 'error');
+        else if (outcome === 'interrupted') setStatus('応答が中断されました');
+        else setStatus('応答が終了しました');
+      }
+    } catch (_) {
+      // Older or development repositories may not expose active run state.
+    }
     setStatus('');
     await loadConversationList();
   } catch (error) {
