@@ -109,7 +109,7 @@ HTTPで接続できることはクライアントPodをステートレスにで�
       sessionData:
         storageClassName: local-path
         size: 10Gi
-        retain: true
+        retain: false
       execution:
         model: default
         approvalPolicy: user
