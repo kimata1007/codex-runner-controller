@@ -9,6 +9,6 @@
 
 `RUNNER_API_TOKEN`はrunner-agent→Runner APIの`/internal/runs/`に、`RUNNER_AGENT_TOKEN`はrunner-agent→Runner APIの`/internal/sessions/`とRunner API→runner-agentに使います。PWAが使う`/v1/` APIではどちらも要求しません。空の場合は該当する内部APIの認証を開発用に無効化しますが、本番マニフェストでは両方必須です。
 
-`/v1/` とhealth probeの `/healthz`、`/readyz` はBearer tokenを要求しません。`/internal/` は `Authorization: Bearer <token>` が必要です。トークンは定数時間比較し、レスポンスにトークン値を含めません。
+`/v1/` とhealth probeの `/healthz`、`/readyz` はBearer tokenを要求しません。`/internal/runs/` と`/internal/sessions/`はそれぞれ対応する `Authorization: Bearer <token>` が必要です。トークンは定数時間比較し、レスポンスにトークン値を含めません。
 
-利用者向けAPIはTailnet内だけから到達できるようにしてください。現時点ではRunner APIに利用者の個人識別情報を渡していないため、アプリ内で利用者ごとの認可や監査は行いません。`/internal/` APIはBearer tokenで保護します。
+利用者向けAPIはTailnet内だけから到達できるようにしてください。現時点ではRunner APIに利用者の個人識別情報を渡していないため、アプリ内で利用者ごとの認可や監査は行いません。
