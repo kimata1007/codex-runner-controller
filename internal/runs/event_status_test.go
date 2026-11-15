@@ -10,6 +10,9 @@ func TestStatusForEvent(t *testing.T) {
 		{"turn/completed", `{"threadId":"thread-1","turn":{"status":"completed"}}`, StatusCompleted, true},
 		{"turn/completed", `{"turn":{"status":"failed"}}`, StatusFailed, true},
 		{"turn/completed", `{"turn":{"status":"interrupted"}}`, StatusInterrupted, true},
+		{"turn/failed", `{"error":{"message":"tool failed"}}`, StatusFailed, true},
+		{"turn/interrupted", `{}`, StatusInterrupted, true},
+		{"turn/aborted", `{}`, StatusInterrupted, true},
 		{"turn/completed", `{"turn":{"status":"inProgress"}}`, "", false},
 		{"turn/completed", `{}`, "", false},
 		{"item/updated", `{}`, "", false},
@@ -27,5 +30,8 @@ func TestErrorMessageForEvent(t *testing.T) {
 	got := ErrorMessageForEvent("turn/completed", `{"turn":{"status":"failed","error":{"message":"model error"}}}`)
 	if got != "model error" {
 		t.Fatalf("ErrorMessageForEvent() = %q, want %q", got, "model error")
+	}
+	if got := ErrorMessageForEvent("turn/failed", `{"error":{"message":"tool failed"}}`); got != "tool failed" {
+		t.Fatalf("ErrorMessageForEvent(turn/failed) = %q, want %q", got, "tool failed")
 	}
 }
