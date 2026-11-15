@@ -14,6 +14,7 @@ type fakeSession struct {
 	resumed  string
 	turnID   string
 	turnText string
+	turnErr  error
 }
 
 func (f *fakeSession) StartThread(context.Context, ThreadStartParams) (Thread, error) {
@@ -29,7 +30,29 @@ func (f *fakeSession) ResumeThread(_ context.Context, id string, _ ThreadStartPa
 func (f *fakeSession) StartTurn(_ context.Context, id string, input []TurnInput) error {
 	f.turnID = id
 	f.turnText = input[0].Text
-	return nil
+	return f.turnErr
+}
+
+func TestHTTPHandlerAllowsOnlyOneActiveTurn(t *testing.T) {
+	tracker := NewRunTracker()
+	tracker.Set("run-1")
+	handler := NewHTTPHandlerWithTracker(new(fakeSession), tracker)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/v1/threads/thread-1/turns", strings.NewReader(`{"text":"hello","runId":"run-2"}`)))
+	if response.Code != http.StatusConflict || tracker.Current() != "run-1" {
+		t.Fatalf("status=%d current=%q body=%s", response.Code, tracker.Current(), response.Body.String())
+	}
+}
+
+func TestHTTPHandlerClearsTurnClaimWhenStartFails(t *testing.T) {
+	tracker := NewRunTracker()
+	fake := &fakeSession{turnErr: context.DeadlineExceeded}
+	handler := NewHTTPHandlerWithTracker(fake, tracker)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/v1/threads/thread-1/turns", strings.NewReader(`{"text":"hello","runId":"run-1"}`)))
+	if response.Code != http.StatusBadGateway || tracker.Current() != "" {
+		t.Fatalf("status=%d current=%q body=%s", response.Code, tracker.Current(), response.Body.String())
+	}
 }
 
 func TestHTTPHandlerCreatesResumesAndStartsTurn(t *testing.T) {
