@@ -282,6 +282,37 @@ func TestReceiveAppServerRunEventRequiresEventType(t *testing.T) {
 	}
 }
 
+type activeRunRepository struct {
+	conversation.Repository
+	active []runs.ActiveRun
+}
+
+func (r activeRunRepository) ListActiveRuns(context.Context, string) ([]runs.ActiveRun, error) {
+	return r.active, nil
+}
+
+func TestListActiveRunsForConversation(t *testing.T) {
+	repository := activeRunRepository{Repository: memory.NewRepository(), active: []runs.ActiveRun{{ID: "run-1", Status: runs.StatusRunning}}}
+	conversationValue, err := repository.CreateConversation(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	router := NewRouter(NewHandler(HandlerDependencies{Repository: repository}))
+	response := serveJSON(t, router, http.MethodGet, "/v1/conversations/"+conversationValue.ID+"/runs/active", "")
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	var body struct {
+		Runs []runs.ActiveRun `json:"runs"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(body.Runs) != 1 || body.Runs[0].ID != "run-1" || body.Runs[0].Status != runs.StatusRunning {
+		t.Fatalf("active runs = %+v", body.Runs)
+	}
+}
+
 type failingRepository struct{}
 
 func (failingRepository) CreateConversation(context.Context) (conversation.Conversation, error) {

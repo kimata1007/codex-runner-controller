@@ -32,3 +32,8 @@ type Event struct {
 	Payload   string
 	CreatedAt time.Time
 }
+
+type ActiveRun struct {
+	ID     string `json:"id"`
+	Status string `json:"status"`
+}
