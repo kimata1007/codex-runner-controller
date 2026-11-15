@@ -145,7 +145,10 @@ func (a *SessionActivator) newSpec(conversationID string, repository *session.Re
 		SessionData: v1alpha1.SessionData{
 			StorageClassName: a.StorageClassName,
 			Size:             size,
-			Retain:           true,
+			// The PVC outlives idle Pod deletion because the CodexSession
+			// remains. Delete it with the CodexSession unless an operator
+			// explicitly opts into retaining it after session deletion.
+			Retain: false,
 		},
 		Execution: v1alpha1.Execution{Model: a.Model, ApprovalPolicy: approvalPolicy},
 	}
