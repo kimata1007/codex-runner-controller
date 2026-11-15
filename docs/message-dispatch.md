@@ -10,4 +10,4 @@
 
 `Dispatch`はrunner-agentが`turn/start`を受け付けた時点で戻ります。Codexの回答や進捗イベントの保存・配信は、この処理の後に別経路で行います。
 
-PR17は、この順序をインターフェース越しに調整する処理とその単体テストを追加します。Runner APIのメッセージ受付から呼び出す接続は、このPRには含みません。
+Runner APIはメッセージを永続化してからdispatcherを呼び出します。Kubernetes構成では、先にCodexSessionをReadyにしてからdispatcherへ渡します。
