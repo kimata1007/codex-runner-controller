@@ -49,6 +49,14 @@ func (f *RunClientFactory) WithHTTPClient(client *http.Client) *RunClientFactory
 	return f
 }
 func (f *RunClientFactory) CreateClientForConversation(ctx context.Context, conversationID string) (runs.ThreadClient, error) {
+	client, err := f.CreateAccountClientForConversation(ctx, conversationID)
+	if err != nil {
+		return nil, err
+	}
+	return NewRunAdapter(client, f.params), nil
+}
+
+func (f *RunClientFactory) CreateAccountClientForConversation(ctx context.Context, conversationID string) (agent.AccountClient, error) {
 	if f == nil || f.resolver == nil {
 		return nil, fmt.Errorf("runner-agent endpoint resolver is required")
 	}
@@ -60,7 +68,7 @@ func (f *RunClientFactory) CreateClientForConversation(ctx context.Context, conv
 	if f.httpClient != nil {
 		client.WithHTTPClient(f.httpClient)
 	}
-	return NewRunAdapter(client, f.params), nil
+	return client, nil
 }
 
 var _ runs.ThreadClientFactory = (*RunClientFactory)(nil)

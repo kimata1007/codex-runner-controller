@@ -30,6 +30,9 @@ const elements = {
   sendButton: document.querySelector('#send-message'),
   contextToggle: document.querySelector('#context-toggle'),
   contextMenu: document.querySelector('#context-menu'),
+  accountIndicator: document.querySelector('#codex-account'),
+  accountLabel: document.querySelector('#codex-account-label'),
+  manageUsage: document.querySelector('#manage-usage'),
   repositoryChip: document.querySelector('#selected-repository'),
   repositoryLabel: document.querySelector('#repository-label'),
   removeRepository: document.querySelector('#remove-repository'),
@@ -112,6 +115,21 @@ function renderRepository() {
   } else {
     elements.conversationContext.hidden = true;
   }
+}
+
+function setCodexAccount(account) {
+  elements.accountIndicator.hidden = false;
+  const usesChatGPTPlan = account?.type === 'chatgpt';
+  elements.accountLabel.textContent = usesChatGPTPlan
+    ? `ChatGPT${account.planType ? ` · ${account.planType}` : ''} でCodexを実行しています`
+    : 'Codex に接続済み';
+  elements.manageUsage.hidden = !usesChatGPTPlan;
+}
+
+function clearCodexAccount() {
+  elements.accountIndicator.hidden = true;
+  elements.accountLabel.textContent = '';
+  elements.manageUsage.hidden = true;
 }
 
 function makeIcon(path) {
@@ -358,6 +376,7 @@ function scrollTranscriptToEnd() {
 
 async function openConversation(id) {
   closeSidebar();
+  clearCodexAccount();
   setStatus('チャットを開いています…');
   try {
     const result = await request(`/v1/conversations/${encodeURIComponent(id)}`);
@@ -391,6 +410,7 @@ function startNewConversation() {
   elements.messages.replaceChildren();
   elements.conversationTitle.textContent = '新しいチャット';
   elements.emptyState.hidden = false;
+  clearCodexAccount();
   setStatus('');
   renderRepository();
   renderHistorySelection();
@@ -465,6 +485,110 @@ async function streamEvents(runID, assistantMessage) {
   }
 }
 
+function addAuthGate(challenge) {
+  const verificationURL = new URL(challenge.verificationUrl);
+  if (verificationURL.protocol !== 'https:' || verificationURL.hostname !== 'auth.openai.com') {
+    throw new Error('Codex から安全な認証 URL を受け取れませんでした');
+  }
+
+  const item = document.createElement('li');
+  item.className = 'auth-gate';
+  const icon = document.createElement('span');
+  icon.className = 'auth-gate-mark';
+  icon.append(makeIcon('<path d="M6.5 9V6.8a3.5 3.5 0 0 1 7 0V9"/><rect x="4.5" y="9" width="11" height="8" rx="1.8"/><path d="M10 12v2"/>'));
+  const title = document.createElement('h2');
+  title.textContent = 'Codex の認証が必要です';
+  const description = document.createElement('p');
+  description.textContent = 'サインインすると、このチャットでChatGPTプランを使ってCodexを実行します。認証後、入力したメッセージを送信します。';
+  const open = document.createElement('a');
+  open.className = 'auth-open';
+  open.href = verificationURL.href;
+  open.target = '_blank';
+  open.rel = 'noopener noreferrer';
+  open.textContent = 'ChatGPTで続ける';
+  const codeLabel = document.createElement('span');
+  codeLabel.className = 'auth-code-label';
+  codeLabel.textContent = '表示された画面にこのコードを入力';
+  const codeRow = document.createElement('div');
+  codeRow.className = 'auth-code-row';
+  const code = document.createElement('code');
+  code.className = 'auth-code';
+  code.textContent = challenge.userCode;
+  code.setAttribute('aria-label', `認証コード ${challenge.userCode}`);
+  const copy = document.createElement('button');
+  copy.type = 'button';
+  copy.className = 'auth-copy';
+  copy.textContent = 'コピー';
+  copy.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(challenge.userCode);
+      copy.textContent = 'コピーしました';
+    } catch (_) {
+      copy.textContent = 'コピーできません';
+    }
+  });
+  codeRow.append(code, copy);
+  const waiting = document.createElement('p');
+  waiting.className = 'auth-waiting';
+  waiting.setAttribute('role', 'status');
+  waiting.textContent = '認証を確認しています…';
+  const cancel = document.createElement('button');
+  cancel.type = 'button';
+  cancel.className = 'auth-cancel';
+  cancel.textContent = 'あとで';
+  item.append(icon, title, description, open, codeLabel, codeRow, waiting, cancel);
+  elements.messages.append(item);
+  elements.emptyState.hidden = true;
+  scrollTranscriptToEnd();
+  open.focus({preventScroll: true});
+  return {item, waiting, cancel};
+}
+
+function waitForCodexAuth(conversationID, challenge) {
+  const gate = addAuthGate(challenge);
+  setStatus('ChatGPT へのサインインを待っています…', 'working');
+  return new Promise((resolve) => {
+    let finished = false;
+    let checking = false;
+    const deadline = Date.now() + 5 * 60 * 1000;
+    const timer = setInterval(check, 2000);
+    const finish = (authenticated, message = '', status = null) => {
+      if (finished) return;
+      finished = true;
+      clearInterval(timer);
+      gate.cancel.removeEventListener('click', cancel);
+      gate.item.remove();
+      if (!elements.messages.children.length) elements.emptyState.hidden = false;
+      setStatus(message || (authenticated ? '認証済みです。会話を開始します…' : '認証を中断しました'));
+      resolve(authenticated ? status : null);
+    };
+    const cancel = async () => {
+      gate.cancel.disabled = true;
+      try {
+        await request(`/v1/conversations/${encodeURIComponent(conversationID)}/auth/login/${encodeURIComponent(challenge.loginId)}`, {method: 'DELETE'});
+      } catch (_) { /* The local draft can still be restored if cancellation cannot reach the server. */ }
+      finish(false);
+    };
+    gate.cancel.addEventListener('click', cancel);
+    async function check() {
+      if (finished || checking) return;
+      if (Date.now() >= deadline) {
+        finish(false, '認証を確認できませんでした。もう一度送信してやり直してください。');
+        return;
+      }
+      checking = true;
+      try {
+        const status = await request(`/v1/conversations/${encodeURIComponent(conversationID)}/auth`);
+        if (status.authenticated) finish(true, '', status);
+      } catch (_) {
+        gate.waiting.textContent = '接続を確認しています…';
+      } finally {
+        checking = false;
+      }
+    }
+  });
+}
+
 async function sendMessage(event) {
   event.preventDefault();
   const content = elements.message.value.trim();
@@ -474,7 +598,7 @@ async function sendMessage(event) {
   elements.sendButton.disabled = true;
   elements.message.value = '';
   resizeComposer();
-  const userMessage = addMessage('user', content);
+  let userMessage = null;
   let conversationCreated = false;
 
   try {
@@ -482,6 +606,16 @@ async function sendMessage(event) {
       await createConversation();
       conversationCreated = true;
     }
+    const auth = await request(`/v1/conversations/${encodeURIComponent(state.conversationID)}/auth/login`, {method: 'POST'});
+    const authStatus = auth.authenticated ? auth : await waitForCodexAuth(state.conversationID, auth);
+    if (!authStatus) {
+      elements.message.value = content;
+      resizeComposer();
+      elements.message.focus({preventScroll: true});
+      return;
+    }
+    setCodexAccount(authStatus.account);
+    userMessage = addMessage('user', content);
     setStatus('Codex を起動しています…', 'working');
     const result = await request(`/v1/conversations/${encodeURIComponent(state.conversationID)}/messages`, {
       method: 'POST',
@@ -503,8 +637,12 @@ async function sendMessage(event) {
     setStatus(completed ? '完了' : '応答が終了しました');
     await loadConversationList();
   } catch (error) {
-    if (!userMessage.item.isConnected) return;
-    if (conversationCreated) {
+    if (userMessage && !userMessage.item.isConnected) return;
+    if (!userMessage) {
+      elements.message.value = content;
+      resizeComposer();
+    }
+    if (conversationCreated && userMessage) {
       const errorMessage = document.createElement('p');
       errorMessage.className = 'message-error';
       errorMessage.textContent = `送信できませんでした: ${error.message}`;

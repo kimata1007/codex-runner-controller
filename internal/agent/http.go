@@ -19,6 +19,10 @@ type SessionAPI interface {
 	StartTurn(context.Context, string, []TurnInput) error
 }
 
+type AccountAPI interface {
+	AccountClient
+}
+
 type HTTPServer struct {
 	session   SessionAPI
 	tracker   *RunTracker
@@ -50,6 +54,11 @@ func NewHTTPHandlerWithTrackerAndApprovals(session SessionAPI, tracker *RunTrack
 	e.POST("/v1/threads/:id/resume", server.resumeThread)
 	e.POST("/v1/threads/:id/turns", server.startTurn)
 	e.POST("/v1/approvals/:id", server.approval)
+	if _, ok := session.(AccountAPI); ok {
+		e.GET("/v1/auth/status", server.authStatus)
+		e.POST("/v1/auth/login", server.startAuthLogin)
+		e.DELETE("/v1/auth/login/:id", server.cancelAuthLogin)
+	}
 	return e
 }
 
@@ -144,6 +153,42 @@ func (s *HTTPServer) approval(c echo.Context) error {
 		return writeError(c, http.StatusNotFound, "approval request not found")
 	}
 	return writeJSON(c, http.StatusAccepted, map[string]string{"status": "accepted"})
+}
+
+func (s *HTTPServer) authStatus(c echo.Context) error {
+	status, err := s.session.(AccountAPI).ReadAccountStatus(c.Request().Context())
+	if err != nil {
+		return writeError(c, http.StatusBadGateway, err.Error())
+	}
+	return writeJSON(c, http.StatusOK, status)
+}
+
+func (s *HTTPServer) startAuthLogin(c echo.Context) error {
+	account := s.session.(AccountAPI)
+	status, err := account.ReadAccountStatus(c.Request().Context())
+	if err != nil {
+		return writeError(c, http.StatusBadGateway, err.Error())
+	}
+	if !status.RequiresOpenAIAuth {
+		return writeJSON(c, http.StatusOK, map[string]any{"authenticated": true, "account": status.Account})
+	}
+	challenge, err := account.StartChatGPTDeviceCodeLogin(c.Request().Context())
+	if err != nil {
+		return writeError(c, http.StatusBadGateway, err.Error())
+	}
+	return writeJSON(c, http.StatusOK, map[string]any{
+		"authenticated":   false,
+		"loginId":         challenge.LoginID,
+		"verificationUrl": challenge.VerificationURL,
+		"userCode":        challenge.UserCode,
+	})
+}
+
+func (s *HTTPServer) cancelAuthLogin(c echo.Context) error {
+	if err := s.session.(AccountAPI).CancelChatGPTLogin(c.Request().Context(), c.Param("id")); err != nil {
+		return writeError(c, http.StatusBadGateway, err.Error())
+	}
+	return writeJSON(c, http.StatusAccepted, map[string]string{"status": "cancelled"})
 }
 
 func decodeJSON(c echo.Context, destination any) error {

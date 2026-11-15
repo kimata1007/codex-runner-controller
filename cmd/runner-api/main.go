@@ -40,11 +40,11 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	dispatcher, activator, err := runtimeFromEnvironment(repository)
+	dispatcher, activator, authClients, err := runtimeFromEnvironment(repository)
 	if err != nil {
 		log.Fatal(err)
 	}
-	dependencies := runnerapi.HandlerDependencies{Repository: repository, Dispatcher: dispatcher, Activator: activator}
+	dependencies := runnerapi.HandlerDependencies{Repository: repository, Dispatcher: dispatcher, Activator: activator, AuthClients: authClients}
 	if eventStore, ok := repository.(runnerapi.RunEventStore); ok {
 		dependencies.EventStore = eventStore
 		dependencies.EventHub = events.NewBroker()
@@ -80,14 +80,14 @@ func main() {
 	}
 }
 
-func runtimeFromEnvironment(repository conversation.Repository) (runnerapi.MessageDispatcher, session.Activator, error) {
+func runtimeFromEnvironment(repository conversation.Repository) (runnerapi.MessageDispatcher, session.Activator, runnerapi.AccountClientFactory, error) {
 	agentURL := os.Getenv("RUNNER_AGENT_URL")
 	runStore, ok := repository.(runs.Store)
 	if !ok {
 		if agentURL != "" {
-			return nil, nil, errors.New("RUNNER_AGENT_URL requires a run-capable libSQL repository")
+			return nil, nil, nil, errors.New("RUNNER_AGENT_URL requires a run-capable libSQL repository")
 		}
-		return nil, nil, nil
+		return nil, nil, nil, nil
 	}
 	params := agent.ThreadStartParams{
 		Model:          os.Getenv("CODEX_MODEL"),
@@ -108,15 +108,15 @@ func runtimeFromEnvironment(repository conversation.Repository) (runnerapi.Messa
 		}
 		kubeScheme := runtime.NewScheme()
 		if err := kubernetes.AddToScheme(kubeScheme); err != nil {
-			return nil, nil, fmt.Errorf("register Kubernetes types: %w", err)
+			return nil, nil, nil, fmt.Errorf("register Kubernetes types: %w", err)
 		}
 		kubeConfig, err := config.GetConfig()
 		if err != nil {
-			return nil, nil, fmt.Errorf("load Kubernetes configuration for session activation: %w", err)
+			return nil, nil, nil, fmt.Errorf("load Kubernetes configuration for session activation: %w", err)
 		}
 		kubeClient, err := client.New(kubeConfig, client.Options{Scheme: kubeScheme})
 		if err != nil {
-			return nil, nil, fmt.Errorf("create Kubernetes client for session activation: %w", err)
+			return nil, nil, nil, fmt.Errorf("create Kubernetes client for session activation: %w", err)
 		}
 		activator = &kubernetes.SessionActivator{
 			Client:             kubeClient,
@@ -131,7 +131,7 @@ func runtimeFromEnvironment(repository conversation.Repository) (runnerapi.Messa
 		resolver = kubernetes.SessionEndpointResolver{Namespace: namespace}
 	}
 	factory := agentclient.NewRunClientFactoryWithToken(resolver, params, os.Getenv("RUNNER_AGENT_TOKEN"))
-	return runs.NewMessageDispatcherWithFactory(runStore, factory), activator, nil
+	return runs.NewMessageDispatcherWithFactory(runStore, factory), activator, factory, nil
 }
 
 func gitCredentialsSecretNameFromEnvironment() string {
