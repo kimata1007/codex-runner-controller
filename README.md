@@ -56,9 +56,11 @@ metadata:
   namespace: codex-system
 type: Opaque
 stringData:
-  runnerApiToken: replace-me
-  runnerAgentToken: replace-me
+  api-token: replace-me
+  agent-token: replace-me
 ```
+
+`api-token` is for runner-agent event requests to the internal Runner API. `agent-token` is used for heartbeat requests and Runner API calls to runner-agent. The PWA does not ask users for a Bearer token; restrict access to it through Tailnet policy.
 
 3. GitHubなどのprivate HTTPSリポジトリを使う場合は、Git tokenを別Secretの `token` キーへ保存し、Runner API Deploymentの `CODEX_GIT_CREDENTIALS_SECRET_NAME` にそのSecret名を設定します。Secretの値をURLやCRDへ埋め込まないでください。詳細は [docs/repository-workspace-bootstrap.md](docs/repository-workspace-bootstrap.md) を参照してください。
 4. Tailscaleのサーバーまたはクラスタ内からのみPWA/APIへ到達できるよう、Tailnet側のリバースプロキシ、Service公開、またはport-forwardを設定します。Ingressをインターネットへ公開する設定はこのリポジトリには含めていません。
