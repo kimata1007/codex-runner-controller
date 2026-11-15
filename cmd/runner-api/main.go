@@ -60,8 +60,9 @@ func main() {
 		Handler:           httpHandler,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
-		WriteTimeout:      5 * time.Minute,
-		IdleTimeout:       60 * time.Second,
+		// The run-event endpoint uses long-lived SSE responses. A fixed
+		// WriteTimeout would close valid streams while a turn is still running.
+		IdleTimeout: 60 * time.Second,
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
