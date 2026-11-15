@@ -55,6 +55,20 @@ type AuthTokenClient interface {
 	SetChatGPTAuthTokens(context.Context, ChatGPTAuthTokens) error
 }
 
+type DeviceLogin struct {
+	LoginID         string `json:"loginId"`
+	VerificationURL string `json:"verificationUrl"`
+	UserCode        string `json:"userCode"`
+}
+
+type AccountStatus struct {
+	Account *struct {
+		Type     string `json:"type"`
+		Email    string `json:"email"`
+		PlanType string `json:"planType"`
+	} `json:"account"`
+}
+
 // Session owns the App Server lifecycle for one CodexSession.
 // It deliberately does not persist thread state: the controller/API persists
 // the thread ID, while this object only manages the live child process.
@@ -112,6 +126,33 @@ func (s *Session) LoginWithChatGPTAuthTokens(ctx context.Context, tokens ChatGPT
 
 func (s *Session) SetChatGPTAuthTokens(ctx context.Context, tokens ChatGPTAuthTokens) error {
 	return s.LoginWithChatGPTAuthTokens(ctx, tokens)
+}
+
+func (s *Session) StartDeviceLogin(ctx context.Context) (DeviceLogin, error) {
+	var result DeviceLogin
+	if err := s.client.Call(ctx, "account/login/start", map[string]string{"type": "chatgptDeviceCode"}, &result); err != nil {
+		return DeviceLogin{}, fmt.Errorf("start ChatGPT device login: %w", err)
+	}
+	if result.LoginID == "" || result.VerificationURL == "" || result.UserCode == "" {
+		return DeviceLogin{}, fmt.Errorf("start ChatGPT device login: incomplete response")
+	}
+	return result, nil
+}
+
+func (s *Session) ReadAccount(ctx context.Context) (AccountStatus, error) {
+	var result AccountStatus
+	if err := s.client.Call(ctx, "account/read", map[string]bool{"refreshToken": false}, &result); err != nil {
+		return AccountStatus{}, fmt.Errorf("read ChatGPT account: %w", err)
+	}
+	return result, nil
+}
+
+func (s *Session) CancelDeviceLogin(ctx context.Context, loginID string) error {
+	return s.client.Call(ctx, "account/login/cancel", map[string]string{"loginId": loginID}, nil)
+}
+
+func (s *Session) Logout(ctx context.Context) error {
+	return s.client.Call(ctx, "account/logout", map[string]any{}, nil)
 }
 
 func (s *Session) SetRequestHandler(handler RequestHandler) {

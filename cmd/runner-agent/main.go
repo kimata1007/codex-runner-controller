@@ -87,7 +87,7 @@ func main() {
 	}
 	server := &http.Server{
 		Addr:              address,
-		Handler:           auth.BearerToken(agent.NewHTTPHandlerWithTrackerAndApprovals(session, tracker, approvals), os.Getenv("RUNNER_AGENT_TOKEN")),
+		Handler:           auth.BearerToken(agent.NewHTTPHandlerWithAuthBroker(session, tracker, approvals, os.Getenv("RUNNER_AUTH_BROKER") == "true"), os.Getenv("RUNNER_AGENT_TOKEN")),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,
