@@ -31,6 +31,9 @@ func main() {
 	var runEventSender agent.RunEventSender
 	if eventURL := os.Getenv("RUNNER_EVENT_URL"); eventURL != "" {
 		runEventSender = agent.NewHTTPRunEventSender(eventURL).WithBearerToken(os.Getenv("RUNNER_API_TOKEN"))
+		runEventSender = agent.NewQueuedRunEventSender(ctx, runEventSender, func(err error) {
+			log.Printf("forward App Server run event: %v", err)
+		})
 	}
 	approvals := agent.NewApprovalManager(runEventSender, tracker)
 	process, err := agent.StartProcess(ctx, command, args, func(notification agent.AppServerNotification) {
@@ -42,18 +45,11 @@ func main() {
 			}
 			return
 		}
-		// Notification handling must not block the JSON-RPC reader. A short
-		// timeout bounds delivery while the durable event store remains the
-		// source of truth for replay.
-		go func() {
-			eventCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			if err := runEventSender.Send(eventCtx, agent.AppServerRunEvent{
-				RunID: runID, EventType: notification.Method, Payload: notification.Params,
-			}); err != nil {
-				log.Printf("send App Server run event: %v", err)
-			}
-		}()
+		if err := runEventSender.Send(ctx, agent.AppServerRunEvent{
+			RunID: runID, EventType: notification.Method, Payload: notification.Params,
+		}); err != nil {
+			log.Printf("queue App Server run event: %v", err)
+		}
 		if terminalAppServerEvent(notification.Method) {
 			tracker.Clear(runID)
 		}

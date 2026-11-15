@@ -47,9 +47,7 @@ func (m *ApprovalManager) Handle(ctx context.Context, message Message) (any, err
 			Method    string          `json:"method"`
 			Params    json.RawMessage `json:"params"`
 		}{RequestID: requestID, Method: message.Method, Params: message.Params})
-		go func() {
-			_ = m.sender.Send(context.Background(), AppServerRunEvent{RunID: runID, EventType: "approval/requested", Payload: payload})
-		}()
+		_ = m.sender.Send(context.Background(), AppServerRunEvent{RunID: runID, EventType: "approval/requested", Payload: payload})
 	}
 	select {
 	case response := <-decision:
