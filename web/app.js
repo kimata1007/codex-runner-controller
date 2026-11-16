@@ -277,7 +277,7 @@ async function deleteConversation(id, title) {
     setStatus('応答中はチャットを削除できません', 'error');
     return;
   }
-  if (!window.confirm(`「${title}」を完全に削除しますか？\\nメッセージ履歴とセッションの作業データも削除され、元に戻せません。`)) return;
+  if (!window.confirm(`「${title}」を完全に削除しますか？\nメッセージ履歴とセッションの作業データも削除され、元に戻せません。`)) return;
   state.deleting = true;
   try {
     await request(`/v1/conversations/${encodeURIComponent(id)}`, {method: 'DELETE'});
