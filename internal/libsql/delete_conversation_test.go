@@ -101,3 +101,46 @@ func TestDeleteConversationUnknownOwnerDoesNotRunBatch(t *testing.T) {
  if err:=repo.DeleteConversation(context.Background(),"conversation-1");err==nil { t.Fatal("missing conversation unexpectedly deleted") }
  if calls!=1 { t.Fatalf("unexpected delete batch: %d calls",calls) }
 }
+
+func TestExecTransactionRejectsUnconfirmedRollback(t *testing.T) {
+ server:=httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){
+  var request pipelineRequest
+  if err:=json.NewDecoder(r.Body).Decode(&request);err!=nil { t.Error(err);return }
+  count:=len(request.Requests[0].Batch.Steps)
+  reply:=batchSuccessResponse(count,1)
+  var batch batchResponse
+  if err:=json.Unmarshal(reply.Results[0].Response,&batch);err!=nil { t.Error(err);return }
+  batch.Result.StepResults[count-1]=json.RawMessage(`null`)
+  encoded,_:=json.Marshal(batch)
+  reply.Results[0].Response=encoded
+  _=json.NewEncoder(w).Encode(reply)
+ }))
+ defer server.Close()
+ client:=NewClient(server.URL,"").WithHTTPClient(server.Client())
+ err:=client.ExecTransaction(context.Background(),[]TxStatement{{SQL:"SELECT 1"}})
+ if err==nil || !strings.Contains(err.Error(),"rollback not confirmed") {
+  t.Fatalf("unexpected error: %v",err)
+ }
+}
+
+func TestExecTransactionRejectsMalformedResponse(t *testing.T) {
+ server:=httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){
+  _=json.NewEncoder(w).Encode(pipelineResponse{Results:[]streamResult{{Type:"ok",Response:json.RawMessage(`{"type":"batch","result":{"step_results":[],"step_errors":[]}}`)}}})
+ }))
+ defer server.Close()
+ client:=NewClient(server.URL,"").WithHTTPClient(server.Client())
+ if err:=client.ExecTransaction(context.Background(),[]TxStatement{{SQL:"DELETE FROM messages"}});err==nil {
+  t.Fatal("invalid batch accepted as committed")
+ }
+}
+
+func TestExecTransactionCanceledDoesNotSendRequest(t *testing.T) {
+ requests:=0
+ server:=httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){ requests++ }))
+ defer server.Close()
+ client:=NewClient(server.URL,"").WithHTTPClient(server.Client())
+ ctx,cancel:=context.WithCancel(context.Background())
+ cancel()
+ if err:=client.ExecTransaction(ctx,[]TxStatement{{SQL:"DELETE FROM messages"}});err==nil { t.Fatal("canceled transaction succeeded") }
+ if requests!=0 { t.Fatalf("sent %d requests despite cancellation",requests) }
+}
