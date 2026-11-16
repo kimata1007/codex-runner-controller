@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -13,8 +14,8 @@ import (
 	"github.com/kimata1007/codex-runner-controller/internal/agent"
 	"github.com/kimata1007/codex-runner-controller/internal/authbroker"
 	"github.com/kimata1007/codex-runner-controller/internal/conversation"
-	"github.com/kimata1007/codex-runner-controller/internal/diagnostics"
 	"github.com/kimata1007/codex-runner-controller/internal/events"
+	"github.com/kimata1007/codex-runner-controller/internal/logging"
 	"github.com/kimata1007/codex-runner-controller/internal/runs"
 	"github.com/kimata1007/codex-runner-controller/internal/session"
 	"github.com/labstack/echo/v4"
@@ -106,6 +107,7 @@ type ApprovalLister interface {
 func NewRouter(handler *Handler) *echo.Echo {
 	e := echo.New()
 	e.HideBanner = true
+	e.Use(logging.EchoRequestLogger(slog.Default()))
 	e.GET("/healthz", handler.checkHealth)
 	e.GET("/readyz", handler.checkHealth)
 	e.GET("/v1/conversations", handler.listConversations)
@@ -448,7 +450,10 @@ func (h *Handler) createMessage(c echo.Context) error {
 			if h.phase != nil {
 				_ = h.phase.SetPhase(c.Request().Context(), message.ConversationID, v1alpha1.PhaseFailed)
 			}
-			return writeOperationalError(c, http.StatusBadGateway, "failed to start run", "run_start", err)
+			return writeOperationalErrorWithAttributes(c, http.StatusBadGateway, "failed to start run", "run_start", err,
+				"conversation_id", message.ConversationID,
+				"message_id", message.ID,
+			)
 		}
 		if h.phase != nil {
 			_ = h.phase.SetPhase(c.Request().Context(), message.ConversationID, v1alpha1.PhaseBusy)
@@ -577,8 +582,17 @@ func writeError(c echo.Context, status int, message string) error {
 }
 
 func writeOperationalError(c echo.Context, status int, message, operation string, cause error) error {
-	id := diagnostics.Report(operation, cause)
-	return writeError(c, status, diagnostics.ClientMessage(message, id))
+	return writeOperationalErrorWithAttributes(c, status, message, operation, cause)
+}
+
+func writeOperationalErrorWithAttributes(c echo.Context, status int, message, operation string, cause error, attributes ...any) error {
+	attributes = append(attributes,
+		"operation", operation,
+		"http.response.status_code", status,
+		"error.type", logging.ErrorType(cause),
+	)
+	slog.ErrorContext(c.Request().Context(), message, attributes...)
+	return writeError(c, status, message)
 }
 
 func writeRepositoryError(c echo.Context, err error) error {

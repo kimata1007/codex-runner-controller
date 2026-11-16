@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -12,10 +12,11 @@ import (
 
 	"github.com/kimata1007/codex-runner-controller/internal/agent"
 	"github.com/kimata1007/codex-runner-controller/internal/auth"
-	"github.com/kimata1007/codex-runner-controller/internal/diagnostics"
+	"github.com/kimata1007/codex-runner-controller/internal/logging"
 )
 
 func main() {
+	slog.SetDefault(logging.New("runner-agent"))
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -33,13 +34,13 @@ func main() {
 	if eventURL := os.Getenv("RUNNER_EVENT_URL"); eventURL != "" {
 		runEventSender = agent.NewHTTPRunEventSender(eventURL).WithBearerToken(os.Getenv("RUNNER_API_TOKEN"))
 		runEventSender = agent.NewQueuedRunEventSender(ctx, runEventSender, func(err error) {
-			log.Printf("forward App Server run event: %s", diagnostics.Report("runtime_failure", err))
+			slog.Error("failed to forward App Server run event", "operation", "event.forward", "error.type", logging.ErrorType(err))
 		})
 	}
 	approvals := agent.NewApprovalManager(runEventSender, tracker)
 	process, err := agent.StartProcess(ctx, command, args, func(notification agent.AppServerNotification) {
 		runID := tracker.Current()
-		log.Printf("app-server notification received: associated_with_run=%t", runID != "")
+		slog.Debug("App Server notification received", "associated_with_run", runID != "", "method", notification.Method)
 		if runEventSender == nil || runID == "" {
 			if terminalAppServerEvent(notification.Method) {
 				tracker.Clear(runID)
@@ -49,19 +50,20 @@ func main() {
 		if err := runEventSender.Send(ctx, agent.AppServerRunEvent{
 			RunID: runID, EventType: notification.Method, Payload: notification.Params,
 		}); err != nil {
-			log.Printf("queue App Server run event: %s", diagnostics.Report("runtime_failure", err))
+			slog.Error("failed to queue App Server run event", "operation", "event.queue", "run_id", runID, "event_type", notification.Method, "error.type", logging.ErrorType(err))
 		}
 		if terminalAppServerEvent(notification.Method) {
 			tracker.Clear(runID)
 		}
 	})
 	if err != nil {
-		log.Fatal("fatal failure diagnostic ID: ", diagnostics.Report("startup_failure", err))
+		slog.Error("failed to start App Server", "operation", "app_server.start", "error.type", logging.ErrorType(err))
+		os.Exit(1)
 	}
 	if heartbeatURL := os.Getenv("RUNNER_HEARTBEAT_URL"); heartbeatURL != "" {
 		heartbeat, heartbeatErr := agent.NewHTTPHeartbeatSinkWithToken(heartbeatURL, os.Getenv("CODEX_CONVERSATION_ID"), os.Getenv("RUNNER_AGENT_TOKEN"))
 		if heartbeatErr != nil {
-			log.Printf("configure heartbeat: %s", diagnostics.Report("heartbeat_setup", heartbeatErr))
+			slog.Error("failed to configure heartbeat", "operation", "heartbeat.configure", "error.type", logging.ErrorType(heartbeatErr))
 		} else {
 			go runHeartbeat(ctx, heartbeat, tracker)
 		}
@@ -75,7 +77,8 @@ func main() {
 		Title:   "Codex Runner Controller",
 		Version: "0.1.0",
 	}); err != nil {
-		log.Fatal("fatal failure diagnostic ID: ", diagnostics.Report("startup_failure", err))
+		slog.Error("failed to initialize App Server session", "operation", "app_server.initialize", "error.type", logging.ErrorType(err))
+		os.Exit(1)
 	}
 
 	address := os.Getenv("RUNNER_AGENT_ADDR")
@@ -92,7 +95,7 @@ func main() {
 	}
 	serverErr := make(chan error, 1)
 	go func() {
-		log.Printf("runner-agent listening on %s", address)
+		slog.Info("HTTP server listening", "address", address)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			serverErr <- err
 		}
@@ -103,10 +106,12 @@ func main() {
 	select {
 	case err := <-serverErr:
 		_ = process.Close()
-		log.Fatal("fatal failure diagnostic ID: ", diagnostics.Report("startup_failure", err))
+		slog.Error("HTTP server failed", "operation", "http.server_start", "error.type", logging.ErrorType(err))
+		os.Exit(1)
 	case err := <-processErr:
 		if ctx.Err() == nil {
-			log.Fatalf("app-server exited: %s", diagnostics.Report("runtime_failure", err))
+			slog.Error("App Server exited unexpectedly", "operation", "app_server.exit", "error.type", logging.ErrorType(err))
+			os.Exit(1)
 		}
 	case <-ctx.Done():
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -143,7 +148,7 @@ func runHeartbeat(ctx context.Context, heartbeat *agent.HTTPHeartbeatSink, track
 		heartbeatCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
 		if err := heartbeat.Report(heartbeatCtx); err != nil && ctx.Err() == nil {
-			log.Printf("report heartbeat: %s", diagnostics.Report("runtime_failure", err))
+			slog.Error("failed to report session heartbeat", "operation", "heartbeat.report", "error.type", logging.ErrorType(err))
 		}
 	}
 	report()

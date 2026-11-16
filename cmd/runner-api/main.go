@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -17,10 +17,10 @@ import (
 	"github.com/kimata1007/codex-runner-controller/internal/auth"
 	"github.com/kimata1007/codex-runner-controller/internal/authbroker"
 	"github.com/kimata1007/codex-runner-controller/internal/conversation"
-	"github.com/kimata1007/codex-runner-controller/internal/diagnostics"
 	"github.com/kimata1007/codex-runner-controller/internal/events"
 	"github.com/kimata1007/codex-runner-controller/internal/kubernetes"
 	"github.com/kimata1007/codex-runner-controller/internal/libsql"
+	"github.com/kimata1007/codex-runner-controller/internal/logging"
 	"github.com/kimata1007/codex-runner-controller/internal/memory"
 	"github.com/kimata1007/codex-runner-controller/internal/runnerapi"
 	"github.com/kimata1007/codex-runner-controller/internal/runs"
@@ -31,6 +31,7 @@ import (
 )
 
 func main() {
+	slog.SetDefault(logging.New("runner-api"))
 	addr := os.Getenv("RUNNER_API_ADDR")
 	if addr == "" {
 		addr = ":8080"
@@ -40,11 +41,13 @@ func main() {
 	repository, err := repositoryFromEnvironment(migrationContext)
 	cancel()
 	if err != nil {
-		log.Fatal("fatal failure diagnostic ID: ", diagnostics.Report("startup_failure", err))
+		slog.Error("failed to initialize repository", "operation", "startup.repository", "error.type", logging.ErrorType(err))
+		os.Exit(1)
 	}
 	dispatcher, activator, authBroker, err := runtimeFromEnvironment(repository)
 	if err != nil {
-		log.Fatal("fatal failure diagnostic ID: ", diagnostics.Report("startup_failure", err))
+		slog.Error("failed to initialize runtime", "operation", "startup.runtime", "error.type", logging.ErrorType(err))
+		os.Exit(1)
 	}
 	dependencies := runnerapi.HandlerDependencies{Repository: repository, Dispatcher: dispatcher, Activator: activator, AuthBroker: authBroker}
 	if eventStore, ok := repository.(runnerapi.RunEventStore); ok {
@@ -74,13 +77,14 @@ func main() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if err := server.Shutdown(shutdownCtx); err != nil {
-			log.Printf("server shutdown: %s", diagnostics.Report("runtime_failure", err))
+			slog.Error("HTTP server shutdown failed", "operation", "http.server_shutdown", "error.type", logging.ErrorType(err))
 		}
 	}()
 
-	log.Printf("runner-api listening on %s", addr)
+	slog.Info("HTTP server listening", "address", addr)
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		log.Fatal("fatal failure diagnostic ID: ", diagnostics.Report("startup_failure", err))
+		slog.Error("HTTP server failed", "operation", "http.server_start", "error.type", logging.ErrorType(err))
+		os.Exit(1)
 	}
 }
 
