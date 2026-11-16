@@ -39,7 +39,7 @@ func main() {
 	approvals := agent.NewApprovalManager(runEventSender, tracker)
 	process, err := agent.StartProcess(ctx, command, args, func(notification agent.AppServerNotification) {
 		runID := tracker.Current()
-		log.Printf("app-server notification: run=%s method=%s", runID, notification.Method)
+		log.Printf("app-server notification received: associated_with_run=%t", runID != "")
 		if runEventSender == nil || runID == "" {
 			if terminalAppServerEvent(notification.Method) {
 				tracker.Clear(runID)
