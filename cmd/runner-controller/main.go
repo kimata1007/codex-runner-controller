@@ -37,7 +37,7 @@ func main() {
 		os.Exit(1)
 	}
 	if err := v1alpha1.AddToScheme(scheme); err != nil {
-		logger.Error(err, "add CodexSession scheme")
+		logger.Error(fmt.Errorf("diagnostic ID: %s", diagnostics.Report("controller_failure", err)), "add CodexSession scheme")
 		os.Exit(1)
 	}
 	mgr, err := manager.New(ctrl.GetConfigOrDie(), manager.Options{
@@ -47,7 +47,7 @@ func main() {
 		},
 	})
 	if err != nil {
-		logger.Error(err, "create manager")
+		logger.Error(fmt.Errorf("diagnostic ID: %s", diagnostics.Report("controller_failure", err)), "create manager")
 		os.Exit(1)
 	}
 	serviceAccountName := os.Getenv("RUNNER_SERVICE_ACCOUNT_NAME")
@@ -76,11 +76,11 @@ func main() {
 		RunnerServiceAccountName:   serviceAccountName,
 	}
 	if err := (&controller.CodexSessionController{Client: mgr.GetClient(), Builder: builder}).SetupWithManager(mgr); err != nil {
-		logger.Error(err, "setup controller")
+		logger.Error(fmt.Errorf("diagnostic ID: %s", diagnostics.Report("controller_failure", err)), "setup controller")
 		os.Exit(1)
 	}
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
-		logger.Error(err, "start manager")
+		logger.Error(fmt.Errorf("diagnostic ID: %s", diagnostics.Report("controller_failure", err)), "start manager")
 		os.Exit(1)
 	}
 }
