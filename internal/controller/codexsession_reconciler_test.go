@@ -64,7 +64,7 @@ func reconcileSpec() v1alpha1.CodexSessionSpec {
 		ConversationID: "conversation-1",
 		DesiredState:   v1alpha1.DesiredStateActive,
 		SessionData:    v1alpha1.SessionData{Size: "1Gi", Retain: true},
-		Execution:      v1alpha1.Execution{ApprovalPolicy: "user"},
+		Execution:      v1alpha1.Execution{ApprovalPolicy: "never"},
 	}
 }
 
