@@ -56,7 +56,7 @@ spec:
                   key: runner-auth-encryption-key
                   optional: true
             - name: CODEX_APPROVAL_POLICY
-              value: user
+              value: never
             - name: CODEX_CWD
               value: /var/lib/codex/workspace
           readinessProbe:
