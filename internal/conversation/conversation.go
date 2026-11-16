@@ -52,3 +52,8 @@ type Lister interface {
 type RepositoryConfigurer interface {
 	CreateConversationWithRepository(context.Context, *RepositoryConfig) (Conversation, error)
 }
+
+// Deleter permanently removes a conversation and its dependent records.
+type Deleter interface {
+	DeleteConversation(context.Context, string) error
+}
