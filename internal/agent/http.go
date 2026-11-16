@@ -4,11 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"strings"
 
-	"github.com/kimata1007/codex-runner-controller/internal/diagnostics"
+	"github.com/kimata1007/codex-runner-controller/internal/logging"
 	"github.com/labstack/echo/v4"
 )
 
@@ -50,6 +51,7 @@ func NewHTTPHandlerWithAuthBroker(session SessionAPI, tracker *RunTracker, appro
 	server := &HTTPServer{session: session, tracker: tracker, approvals: approvals}
 	e := echo.New()
 	e.HideBanner = true
+	e.Use(logging.EchoRequestLogger(slog.Default()))
 	e.GET("/healthz", server.health)
 	e.GET("/readyz", server.health)
 	e.POST("/v1/threads", server.startThread)
@@ -261,8 +263,12 @@ func writeJSON(c echo.Context, status int, value any) error {
 }
 
 func writeAgentOperationalError(c echo.Context, status int, message, operation string, cause error) error {
-	id := diagnostics.Report(operation, cause)
-	return writeError(c, status, diagnostics.ClientMessage(message, id))
+	slog.ErrorContext(c.Request().Context(), message,
+		"operation", operation,
+		"http.response.status_code", status,
+		"error.type", logging.ErrorType(cause),
+	)
+	return writeError(c, status, message)
 }
 
 func writeError(c echo.Context, status int, message string) error {
