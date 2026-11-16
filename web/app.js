@@ -3,6 +3,8 @@ const state = {
   repository: readStoredRepository(),
   repositories: readStoredRepositories(),
   sending: false,
+  deleting: false,
+  deleteTarget: null,
 };
 
 // Preserve repositories selected by earlier versions, before the recent list existed.
@@ -28,6 +30,7 @@ const elements = {
   composer: document.querySelector('#message-form'),
   message: document.querySelector('#message'),
   sendButton: document.querySelector('#send-message'),
+  deleteSelected: document.querySelector('#delete-selected-conversation'),
   contextToggle: document.querySelector('#context-toggle'),
   contextMenu: document.querySelector('#context-menu'),
   accountIndicator: document.querySelector('#codex-account'),
@@ -258,8 +261,40 @@ async function loadConversationList() {
   }
 }
 
+function selectConversationForDeletion(id, title) {
+  state.deleteTarget = {id, title};
+  elements.deleteSelected.hidden = false;
+  elements.deleteSelected.setAttribute('aria-label', `「${title}」を削除`);
+}
+
+function clearDeleteSelection() {
+  state.deleteTarget = null;
+  elements.deleteSelected.hidden = true;
+}
+
+async function deleteConversation(id, title) {
+  if (state.deleting || state.sending) {
+    setStatus('応答中はチャットを削除できません', 'error');
+    return;
+  }
+  if (!window.confirm(`「${title}」を完全に削除しますか？\\nメッセージ履歴とセッションの作業データも削除され、元に戻せません。`)) return;
+  state.deleting = true;
+  try {
+    await request(`/v1/conversations/${encodeURIComponent(id)}`, {method: 'DELETE'});
+    clearDeleteSelection();
+    if (state.conversationID === id) startNewConversation();
+    await loadConversationList();
+    setStatus('チャットを削除しました');
+  } catch (error) {
+    setStatus(`削除できませんでした: ${error.message}`, 'error');
+  } finally {
+    state.deleting = false;
+  }
+}
+
 function renderHistory(conversations) {
   elements.historyList.replaceChildren();
+  if (state.deleteTarget && !conversations.some((item) => item.id === state.deleteTarget.id)) clearDeleteSelection();
   const groups = new Map();
   for (const conversation of conversations) {
     const groupName = formatConversationDate(conversation.updatedAt || conversation.createdAt);
@@ -277,14 +312,80 @@ function renderHistory(conversations) {
     const list = document.createElement('div');
     list.className = 'history-items';
     for (const conversation of items) {
+      const title = conversation.title || '新しいチャット';
+      const row = document.createElement('div');
+      row.className = 'history-row';
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'history-item';
-      button.textContent = conversation.title || '新しいチャット';
-      button.title = conversation.title || '新しいチャット';
+      button.textContent = title;
+      button.title = title;
       if (conversation.id === state.conversationID) button.setAttribute('aria-current', 'page');
-      button.addEventListener('click', () => openConversation(conversation.id));
-      list.append(button);
+      let suppressClick = false;
+      let pressTimer = null;
+      const cancelPress = () => {
+        if (pressTimer !== null) clearTimeout(pressTimer);
+        pressTimer = null;
+      };
+      button.addEventListener('pointerdown', (event) => {
+        if (event.pointerType === 'mouse' || event.button !== 0) return;
+        cancelPress();
+        pressTimer = setTimeout(() => {
+          pressTimer = null;
+          suppressClick = true;
+          selectConversationForDeletion(conversation.id, title);
+          menu.hidden = false;
+          options.setAttribute('aria-expanded', 'true');
+        }, 550);
+      });
+      button.addEventListener('pointerup', cancelPress);
+      button.addEventListener('pointercancel', cancelPress);
+      button.addEventListener('pointerleave', cancelPress);
+      button.addEventListener('contextmenu', (event) => {
+        event.preventDefault();
+        cancelPress();
+        suppressClick = true;
+        selectConversationForDeletion(conversation.id, title);
+        menu.hidden = false;
+        options.setAttribute('aria-expanded', 'true');
+      });
+      button.addEventListener('click', () => {
+        if (suppressClick) { suppressClick = false; return; }
+        clearDeleteSelection();
+        openConversation(conversation.id);
+      });
+
+      const options = document.createElement('button');
+      options.className = 'history-options';
+      options.type = 'button';
+      options.textContent = '⋯';
+      options.setAttribute('aria-label', `「${title}」の操作`);
+      options.setAttribute('aria-haspopup', 'menu');
+      options.setAttribute('aria-expanded', 'false');
+      const menu = document.createElement('div');
+      menu.className = 'history-options-menu';
+      menu.setAttribute('role', 'menu');
+      menu.hidden = true;
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.setAttribute('role', 'menuitem');
+      remove.className = 'history-delete-action';
+      remove.textContent = 'チャットを削除';
+      remove.addEventListener('click', () => {
+        menu.hidden = true;
+        options.setAttribute('aria-expanded', 'false');
+        deleteConversation(conversation.id, title);
+      });
+      menu.append(remove);
+      options.addEventListener('click', () => {
+        const opening = menu.hidden;
+        elements.historyList.querySelectorAll('.history-options-menu').forEach((item) => { item.hidden = true; });
+        elements.historyList.querySelectorAll('.history-options').forEach((item) => item.setAttribute('aria-expanded', 'false'));
+        menu.hidden = !opening;
+        options.setAttribute('aria-expanded', String(opening));
+      });
+      row.append(button, options, menu);
+      list.append(row);
     }
     group.append(heading, list);
     elements.historyList.append(group);
@@ -429,6 +530,7 @@ function conversationTitle(conversation) {
 }
 
 function startNewConversation() {
+  clearDeleteSelection();
   state.conversationID = '';
   localStorage.removeItem('codex.currentConversation');
   setConversationURL('');
@@ -706,6 +808,9 @@ elements.contextToggle.addEventListener('click', () => {
 });
 elements.removeRepository.addEventListener('click', () => setRepository(null));
 elements.composer.addEventListener('submit', sendMessage);
+elements.deleteSelected.addEventListener('click', () => {
+  if (state.deleteTarget) deleteConversation(state.deleteTarget.id, state.deleteTarget.title);
+});
 elements.message.addEventListener('input', resizeComposer);
 elements.message.addEventListener('keydown', (event) => {
   if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
@@ -721,6 +826,10 @@ elements.repositoryDialog.addEventListener('click', (event) => {
 });
 elements.repositoryDialog.addEventListener('close', () => elements.contextToggle.focus({preventScroll: true}));
 document.addEventListener('click', (event) => {
+  if (!event.target.closest('.history-row')) {
+    elements.historyList.querySelectorAll('.history-options-menu').forEach((item) => { item.hidden = true; });
+    elements.historyList.querySelectorAll('.history-options').forEach((item) => item.setAttribute('aria-expanded', 'false'));
+  }
   if (!elements.contextMenu.hidden && !elements.contextMenu.contains(event.target) && !elements.contextToggle.contains(event.target)) closeContextMenu();
 });
 document.addEventListener('keydown', (event) => {
