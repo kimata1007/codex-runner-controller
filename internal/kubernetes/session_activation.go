@@ -289,6 +289,7 @@ var _ session.Activator = (*SessionActivator)(nil)
 // DeleteSession removes the session resource. Kubernetes owner references clean up
 // its Pod, Service and (unless retained) PVC asynchronously.
 func (a *SessionActivator) DeleteSession(ctx context.Context, conversationID string) error {
+ if err := ctx.Err(); err != nil { return err }
 	if a == nil || a.Client == nil { return fmt.Errorf("Kubernetes client is required to delete a session") }
 	name, err := SessionName(conversationID)
 	if err != nil { return err }
