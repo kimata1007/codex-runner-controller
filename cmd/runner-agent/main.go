@@ -12,6 +12,7 @@ import (
 
 	"github.com/kimata1007/codex-runner-controller/internal/agent"
 	"github.com/kimata1007/codex-runner-controller/internal/auth"
+	"github.com/kimata1007/codex-runner-controller/internal/diagnostics"
 )
 
 func main() {
@@ -32,13 +33,13 @@ func main() {
 	if eventURL := os.Getenv("RUNNER_EVENT_URL"); eventURL != "" {
 		runEventSender = agent.NewHTTPRunEventSender(eventURL).WithBearerToken(os.Getenv("RUNNER_API_TOKEN"))
 		runEventSender = agent.NewQueuedRunEventSender(ctx, runEventSender, func(err error) {
-			log.Printf("forward App Server run event: %v", err)
+			log.Printf("forward App Server run event: %s", diagnostics.Report("runtime_failure", err))
 		})
 	}
 	approvals := agent.NewApprovalManager(runEventSender, tracker)
 	process, err := agent.StartProcess(ctx, command, args, func(notification agent.AppServerNotification) {
 		runID := tracker.Current()
-		log.Printf("app-server notification: run=%s method=%s", runID, notification.Method)
+		log.Printf("app-server notification received: associated_with_run=%t", runID != "")
 		if runEventSender == nil || runID == "" {
 			if terminalAppServerEvent(notification.Method) {
 				tracker.Clear(runID)
@@ -48,19 +49,19 @@ func main() {
 		if err := runEventSender.Send(ctx, agent.AppServerRunEvent{
 			RunID: runID, EventType: notification.Method, Payload: notification.Params,
 		}); err != nil {
-			log.Printf("queue App Server run event: %v", err)
+			log.Printf("queue App Server run event: %s", diagnostics.Report("runtime_failure", err))
 		}
 		if terminalAppServerEvent(notification.Method) {
 			tracker.Clear(runID)
 		}
 	})
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("fatal failure diagnostic ID: ", diagnostics.Report("startup_failure", err))
 	}
 	if heartbeatURL := os.Getenv("RUNNER_HEARTBEAT_URL"); heartbeatURL != "" {
 		heartbeat, heartbeatErr := agent.NewHTTPHeartbeatSinkWithToken(heartbeatURL, os.Getenv("CODEX_CONVERSATION_ID"), os.Getenv("RUNNER_AGENT_TOKEN"))
 		if heartbeatErr != nil {
-			log.Printf("configure heartbeat: %v", heartbeatErr)
+			log.Printf("configure heartbeat: %s", diagnostics.Report("heartbeat_setup", heartbeatErr))
 		} else {
 			go runHeartbeat(ctx, heartbeat, tracker)
 		}
@@ -74,7 +75,7 @@ func main() {
 		Title:   "Codex Runner Controller",
 		Version: "0.1.0",
 	}); err != nil {
-		log.Fatal(err)
+		log.Fatal("fatal failure diagnostic ID: ", diagnostics.Report("startup_failure", err))
 	}
 
 	address := os.Getenv("RUNNER_AGENT_ADDR")
@@ -102,10 +103,10 @@ func main() {
 	select {
 	case err := <-serverErr:
 		_ = process.Close()
-		log.Fatal(err)
+		log.Fatal("fatal failure diagnostic ID: ", diagnostics.Report("startup_failure", err))
 	case err := <-processErr:
 		if ctx.Err() == nil {
-			log.Fatalf("app-server exited: %v", err)
+			log.Fatalf("app-server exited: %s", diagnostics.Report("runtime_failure", err))
 		}
 	case <-ctx.Done():
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -142,7 +143,7 @@ func runHeartbeat(ctx context.Context, heartbeat *agent.HTTPHeartbeatSink, track
 		heartbeatCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
 		if err := heartbeat.Report(heartbeatCtx); err != nil && ctx.Err() == nil {
-			log.Printf("report heartbeat: %v", err)
+			log.Printf("report heartbeat: %s", diagnostics.Report("runtime_failure", err))
 		}
 	}
 	report()

@@ -17,6 +17,7 @@ import (
 	"github.com/kimata1007/codex-runner-controller/internal/auth"
 	"github.com/kimata1007/codex-runner-controller/internal/authbroker"
 	"github.com/kimata1007/codex-runner-controller/internal/conversation"
+	"github.com/kimata1007/codex-runner-controller/internal/diagnostics"
 	"github.com/kimata1007/codex-runner-controller/internal/events"
 	"github.com/kimata1007/codex-runner-controller/internal/kubernetes"
 	"github.com/kimata1007/codex-runner-controller/internal/libsql"
@@ -39,11 +40,11 @@ func main() {
 	repository, err := repositoryFromEnvironment(migrationContext)
 	cancel()
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("fatal failure diagnostic ID: ", diagnostics.Report("startup_failure", err))
 	}
 	dispatcher, activator, authBroker, err := runtimeFromEnvironment(repository)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("fatal failure diagnostic ID: ", diagnostics.Report("startup_failure", err))
 	}
 	dependencies := runnerapi.HandlerDependencies{Repository: repository, Dispatcher: dispatcher, Activator: activator, AuthBroker: authBroker}
 	if eventStore, ok := repository.(runnerapi.RunEventStore); ok {
@@ -73,13 +74,13 @@ func main() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if err := server.Shutdown(shutdownCtx); err != nil {
-			log.Printf("server shutdown: %v", err)
+			log.Printf("server shutdown: %s", diagnostics.Report("runtime_failure", err))
 		}
 	}()
 
 	log.Printf("runner-api listening on %s", addr)
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		log.Fatal(err)
+		log.Fatal("fatal failure diagnostic ID: ", diagnostics.Report("startup_failure", err))
 	}
 }
 

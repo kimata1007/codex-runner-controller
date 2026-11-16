@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/kimata1007/codex-runner-controller/internal/diagnostics"
 	"github.com/labstack/echo/v4"
 )
 
@@ -92,7 +93,7 @@ func (s *HTTPServer) startThread(c echo.Context) error {
 		ApprovalPolicy: request.ApprovalPolicy,
 	})
 	if err != nil {
-		return writeError(c, http.StatusBadGateway, err.Error())
+		return writeAgentOperationalError(c, http.StatusBadGateway, "Codex App Server request failed", "app_server_request", err)
 	}
 	return writeJSON(c, http.StatusCreated, thread)
 }
@@ -108,7 +109,7 @@ func (s *HTTPServer) resumeThread(c echo.Context) error {
 		ApprovalPolicy: request.ApprovalPolicy,
 	})
 	if err != nil {
-		return writeError(c, http.StatusBadGateway, err.Error())
+		return writeAgentOperationalError(c, http.StatusBadGateway, "Codex App Server request failed", "app_server_request", err)
 	}
 	return writeJSON(c, http.StatusOK, thread)
 }
@@ -127,7 +128,7 @@ func (s *HTTPServer) startTurn(c echo.Context) error {
 	}
 	if err := s.session.StartTurn(c.Request().Context(), c.Param("id"), []TurnInput{{Type: "text", Text: request.Text}}); err != nil {
 		s.tracker.Clear(request.RunID)
-		return writeError(c, http.StatusBadGateway, err.Error())
+		return writeAgentOperationalError(c, http.StatusBadGateway, "Codex App Server request failed", "app_server_request", err)
 	}
 	return writeJSON(c, http.StatusAccepted, map[string]string{"status": "accepted"})
 }
@@ -172,7 +173,7 @@ func (s *HTTPServer) setAuthTokens(c echo.Context) error {
 		return err
 	}
 	if err := account.LoginWithChatGPTAuthTokens(c.Request().Context(), tokens); err != nil {
-		return writeError(c, http.StatusBadGateway, "failed to configure ChatGPT authentication")
+		return writeAgentOperationalError(c, http.StatusBadGateway, "failed to configure ChatGPT authentication", "agent_auth_configure", err)
 	}
 	return writeJSON(c, http.StatusOK, map[string]string{"status": "authenticated"})
 }
@@ -186,7 +187,7 @@ func (s *HTTPServer) startDeviceLogin(c echo.Context) error {
 	}
 	result, err := login.StartDeviceLogin(c.Request().Context())
 	if err != nil {
-		return writeError(c, http.StatusBadGateway, "could not start ChatGPT sign-in")
+		return writeAgentOperationalError(c, http.StatusBadGateway, "could not start ChatGPT sign-in", "agent_auth_login", err)
 	}
 	return writeJSON(c, http.StatusCreated, result)
 }
@@ -200,7 +201,7 @@ func (s *HTTPServer) deviceLoginStatus(c echo.Context) error {
 	}
 	status, err := login.ReadAccount(c.Request().Context())
 	if err != nil {
-		return writeError(c, http.StatusBadGateway, "could not read ChatGPT sign-in status")
+		return writeAgentOperationalError(c, http.StatusBadGateway, "could not read ChatGPT sign-in status", "agent_auth_status", err)
 	}
 	return writeJSON(c, http.StatusOK, status)
 }
@@ -213,7 +214,7 @@ func (s *HTTPServer) cancelDeviceLogin(c echo.Context) error {
 		return writeError(c, http.StatusServiceUnavailable, "device sign-in is unavailable")
 	}
 	if err := login.CancelDeviceLogin(c.Request().Context(), c.Param("loginID")); err != nil {
-		return writeError(c, http.StatusBadGateway, "could not cancel ChatGPT sign-in")
+		return writeAgentOperationalError(c, http.StatusBadGateway, "could not cancel ChatGPT sign-in", "agent_auth_cancel", err)
 	}
 	return writeJSON(c, http.StatusAccepted, map[string]string{"status": "cancelled"})
 }
@@ -221,11 +222,11 @@ func (s *HTTPServer) cancelDeviceLogin(c echo.Context) error {
 func (s *HTTPServer) authCredentials(c echo.Context) error {
 	data, err := os.ReadFile(os.Getenv("CODEX_HOME") + "/auth.json")
 	if err != nil {
-		return writeError(c, http.StatusNotFound, "ChatGPT credentials are not available")
+		return writeAgentOperationalError(c, http.StatusNotFound, "ChatGPT credentials are not available", "agent_auth_read", err)
 	}
 	var value map[string]any
 	if err := json.Unmarshal(data, &value); err != nil {
-		return writeError(c, http.StatusBadGateway, "ChatGPT credentials are invalid")
+		return writeAgentOperationalError(c, http.StatusBadGateway, "ChatGPT credentials are invalid", "agent_auth_decode", err)
 	}
 	return writeJSON(c, http.StatusOK, value)
 }
@@ -236,7 +237,7 @@ func (s *HTTPServer) logoutAccount(c echo.Context) error {
 		return writeError(c, http.StatusServiceUnavailable, "sign-out is unavailable")
 	}
 	if err := logout.Logout(c.Request().Context()); err != nil {
-		return writeError(c, http.StatusBadGateway, "could not sign out of ChatGPT")
+		return writeAgentOperationalError(c, http.StatusBadGateway, "could not sign out of ChatGPT", "agent_auth_logout", err)
 	}
 	return writeJSON(c, http.StatusOK, map[string]string{"status": "disconnected"})
 }
@@ -257,6 +258,11 @@ func decodeJSON(c echo.Context, destination any) error {
 
 func writeJSON(c echo.Context, status int, value any) error {
 	return c.JSON(status, value)
+}
+
+func writeAgentOperationalError(c echo.Context, status int, message, operation string, cause error) error {
+	id := diagnostics.Report(operation, cause)
+	return writeError(c, status, diagnostics.ClientMessage(message, id))
 }
 
 func writeError(c echo.Context, status int, message string) error {
