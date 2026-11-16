@@ -59,6 +59,37 @@ type streamRequest struct {
 	Type string     `json:"type"`
 	Stmt *statement `json:"stmt,omitempty"`
 	SQL  string     `json:"sql,omitempty"`
+	Batch *batchRequest `json:"batch,omitempty"`
+}
+
+// TxStatement is one parameterized statement in an atomic Hrana batch.
+type TxStatement struct {
+ SQL string
+ Args []Value
+}
+
+type batchRequest struct {
+ Steps []batchStep `json:"steps"`
+}
+
+type batchStep struct {
+ Condition *batchCondition `json:"condition,omitempty"`
+ Stmt statement `json:"stmt"`
+}
+
+type batchCondition struct {
+ Type string `json:"type"`
+ Step int `json:"step,omitempty"`
+ Cond *batchCondition `json:"cond,omitempty"`
+ Conds []batchCondition `json:"conds,omitempty"`
+}
+
+type batchResponse struct {
+ Type string `json:"type"`
+ Result struct {
+  StepResults []json.RawMessage `json:"step_results"`
+  StepErrors []json.RawMessage `json:"step_errors"`
+ } `json:"result"`
 }
 
 type statement struct {
@@ -145,6 +176,51 @@ func (c *Client) Exec(ctx context.Context, sql string, args []Value, wantRows bo
 		columns[i] = column.Name
 	}
 	return ExecResult{Columns: columns, Rows: execute.Result.Rows, AffectedRowCount: execute.Result.AffectedRowCount}, nil
+}
+
+// ExecTransaction executes parameterized statements on a single Hrana stream
+// with BEGIN IMMEDIATE, COMMIT on success, and ROLLBACK on any step failure.
+// The commit and rollback are conditional steps in the same HTTP request.
+func (c *Client) ExecTransaction(ctx context.Context, statements []TxStatement) error {
+ if len(statements) == 0 { return fmt.Errorf("libsql: empty transaction") }
+ c.mu.Lock()
+ defer c.mu.Unlock()
+ steps := make([]batchStep, 0, len(statements)+3)
+ steps = append(steps, batchStep{Stmt: statement{SQL:"BEGIN IMMEDIATE"}})
+ for i, item := range statements {
+  steps = append(steps, batchStep{
+   Condition: &batchCondition{Type:"ok",Step:i},
+   Stmt: statement{SQL:item.SQL, Args:item.Args},
+  })
+ }
+ commit := len(steps)
+ steps = append(steps, batchStep{
+  Condition: &batchCondition{Type:"ok",Step:commit-1},
+  Stmt:statement{SQL:"COMMIT"},
+ })
+ steps = append(steps, batchStep{
+  Condition: &batchCondition{Type:"and", Conds:[]batchCondition{
+   {Type:"ok",Step:0},
+   {Type:"not",Cond:&batchCondition{Type:"ok",Step:commit}},
+  }},
+  Stmt:statement{SQL:"ROLLBACK"},
+ })
+ response, err := c.pipeline(ctx, []streamRequest{{Type:"batch",Batch:&batchRequest{Steps:steps}}})
+ if err != nil { return fmt.Errorf("libsql: transaction outcome unknown: %w",err) }
+ if len(response.Results) != 1 { return fmt.Errorf("libsql: invalid transaction response") }
+ if response.Results[0].Type == "error" { return fmt.Errorf("libsql: transaction request rejected") }
+ var data batchResponse
+ if err := json.Unmarshal(response.Results[0].Response,&data);err != nil { return fmt.Errorf("libsql: decode transaction response: %w",err) }
+ if data.Type != "batch" || len(data.Result.StepResults) != len(steps) || len(data.Result.StepErrors) != len(steps) { return fmt.Errorf("libsql: invalid transaction batch results") }
+ for i := range data.Result.StepErrors {
+  if len(data.Result.StepErrors[i]) > 0 && string(data.Result.StepErrors[i]) != "null" {
+   return fmt.Errorf("libsql: transaction step %d failed",i)
+  }
+ }
+ if len(data.Result.StepResults[commit]) == 0 || string(data.Result.StepResults[commit]) == "null" {
+  return fmt.Errorf("libsql: transaction did not commit")
+ }
+ return nil
 }
 
 func (c *Client) ApplySchema(ctx context.Context, schema string) error {
