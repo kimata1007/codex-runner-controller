@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kimata1007/codex-runner-controller/internal/conversation"
 )
@@ -63,15 +64,19 @@ func TestRepositoryCreateFirstMessage(t *testing.T) {
 	if len(*queries) != 2 {
 		t.Fatalf("got %d queries, want insert and timestamp update", len(*queries))
 	}
-	insert := (*queries)[0]
+	updatedAt := (*queries)[0]
+	if !strings.HasPrefix(updatedAt, "UPDATE conversations SET updated_at") {
+		t.Errorf("first message activity was not recorded first: %s", updatedAt)
+	}
+	insert := (*queries)[1]
 	if !strings.Contains(insert, "COALESCE((SELECT MAX(sequence) FROM messages WHERE conversation_id = ?), 0) + 1") {
 		t.Errorf("first message sequence is not initialized to 1: %s", insert)
 	}
-	if !strings.Contains(insert, "WHERE EXISTS (SELECT 1 FROM conversations WHERE id = ? AND user_id = ?)") {
+	if !strings.Contains(insert, "WHERE EXISTS (SELECT 1 FROM conversations WHERE id = ? AND user_id = ? AND status != 'archived')") {
 		t.Errorf("insert is not scoped to the conversation owner: %s", insert)
 	}
-	if len((*args)[0]) != 8 || !containsTextValue((*args)[0], "user-1") {
-		t.Errorf("unexpected insert arguments: %+v", (*args)[0])
+	if len((*args)[1]) != 8 || !containsTextValue((*args)[1], "user-1") {
+		t.Errorf("unexpected insert arguments: %+v", (*args)[1])
 	}
 }
 
@@ -79,6 +84,7 @@ func newRepositoryTestServer(t *testing.T) (*httptest.Server, *[]string, *[][]Va
 	t.Helper()
 	queries := make([]string, 0, 8)
 	args := make([][]Value, 0, 8)
+	now := time.Now().UTC().Format(time.RFC3339Nano)
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		var body pipelineRequest
 		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
@@ -97,9 +103,11 @@ func newRepositoryTestServer(t *testing.T) (*httptest.Server, *[]string, *[][]Va
 		result := statementResult{}
 		switch {
 		case strings.HasPrefix(statement.SQL, "SELECT c.id, c.status"):
-			result.Rows = [][]Value{{Text("conversation-1"), Text("active"), Text("2026-01-01T00:00:00Z"), Text("2026-01-01T00:00:00Z"), Null(), Null()}}
+			result.Rows = [][]Value{{Text("conversation-1"), Text("active"), Text(now), Text(now), Null(), Null()}}
 		case strings.HasPrefix(statement.SQL, "SELECT id FROM conversations"):
 			result.Rows = [][]Value{{Text("conversation-1")}}
+		case strings.HasPrefix(statement.SQL, "UPDATE conversations SET updated_at"):
+			result.AffectedRowCount = 1
 		case strings.HasPrefix(statement.SQL, "INSERT INTO messages"):
 			result.AffectedRowCount = 1
 		}

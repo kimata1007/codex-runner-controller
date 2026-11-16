@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/kimata1007/codex-runner-controller/internal/conversation"
+	"github.com/kimata1007/codex-runner-controller/internal/session"
 )
 
 var _ conversation.Repository = (*Repository)(nil)
@@ -55,8 +56,14 @@ func (r *Repository) GetConversation(ctx context.Context, id string) (conversati
 
 	r.mu.RLock()
 	value, ok := r.conversations[id]
+	if ok && (value.Status == "archived" || !value.UpdatedAt.Add(session.DefaultRetentionPeriod).After(time.Now().UTC())) {
+		r.mu.RUnlock()
+		return conversation.Conversation{}, fmt.Errorf("%w: %s", conversation.ErrArchived, id)
+	}
 	if ok {
 		value = cloneConversation(value)
+	} else {
+		ok = false
 	}
 	r.mu.RUnlock()
 	if !ok {
@@ -72,6 +79,9 @@ func (r *Repository) ListConversations(ctx context.Context) ([]conversation.Conv
 	r.mu.RLock()
 	values := make([]conversation.Conversation, 0, len(r.conversations))
 	for _, value := range r.conversations {
+		if value.Status == "archived" || !value.UpdatedAt.Add(session.DefaultRetentionPeriod).After(time.Now().UTC()) {
+			continue
+		}
 		clone := cloneConversation(value)
 		for _, message := range clone.Messages {
 			if message.Role == "user" {
@@ -96,6 +106,10 @@ func (r *Repository) ListMessages(ctx context.Context, id string) ([]conversatio
 
 	r.mu.RLock()
 	value, ok := r.conversations[id]
+	if ok && (value.Status == "archived" || !value.UpdatedAt.Add(session.DefaultRetentionPeriod).After(time.Now().UTC())) {
+		r.mu.RUnlock()
+		return nil, fmt.Errorf("%w: %s", conversation.ErrArchived, id)
+	}
 	if ok {
 		messages := append([]conversation.Message(nil), value.Messages...)
 		r.mu.RUnlock()
@@ -115,6 +129,13 @@ func (r *Repository) CreateMessage(ctx context.Context, id string, input convers
 	value, ok := r.conversations[id]
 	if !ok {
 		return conversation.Message{}, false, fmt.Errorf("%w: %s", conversation.ErrNotFound, id)
+	}
+	if value.Status == "archived" {
+		return conversation.Message{}, false, fmt.Errorf("%w: %s", conversation.ErrArchived, id)
+	}
+	if !value.UpdatedAt.Add(session.DefaultRetentionPeriod).After(time.Now().UTC()) {
+		value.Status = "archived"
+		return conversation.Message{}, false, fmt.Errorf("%w: %s", conversation.ErrArchived, id)
 	}
 	if input.ClientMessageID != "" {
 		for _, message := range value.Messages {
@@ -177,6 +198,46 @@ func (r *Repository) SetMessageStatus(ctx context.Context, id, status string) er
 		}
 	}
 	return fmt.Errorf("message %q not found", id)
+}
+
+func (r *Repository) TouchConversation(ctx context.Context, id string, at time.Time) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	value, ok := r.conversations[id]
+	if !ok {
+		return fmt.Errorf("%w: %s", conversation.ErrNotFound, id)
+	}
+	if value.Status == "archived" {
+		return fmt.Errorf("%w: %s", conversation.ErrArchived, id)
+	}
+	if !value.UpdatedAt.Add(session.DefaultRetentionPeriod).After(time.Now().UTC()) {
+		value.Status = "archived"
+		return fmt.Errorf("%w: %s", conversation.ErrArchived, id)
+	}
+	if at.IsZero() {
+		at = time.Now().UTC()
+	}
+	if at.After(value.UpdatedAt) {
+		value.UpdatedAt = at.UTC()
+	}
+	return nil
+}
+
+func (r *Repository) ArchiveInactiveConversations(ctx context.Context, cutoff time.Time) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, value := range r.conversations {
+		if value.Status != "archived" && value.UpdatedAt.Before(cutoff) {
+			value.Status = "archived"
+		}
+	}
+	return nil
 }
 
 func (r *Repository) newID(prefix string) string {

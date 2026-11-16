@@ -96,6 +96,37 @@ func TestCreateConversationAndMessage(t *testing.T) {
 	}
 }
 
+func TestArchivedConversationIsHiddenAndCannotResume(t *testing.T) {
+	repository := memory.NewRepository()
+	value, err := repository.CreateConversation(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := repository.CreateMessage(context.Background(), value.ID, conversation.NewMessage{Content: "saved history"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.ArchiveInactiveConversations(context.Background(), time.Now().Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	router := NewRouter(NewHandler(HandlerDependencies{Repository: repository}))
+	list := serveJSON(t, router, http.MethodGet, "/v1/conversations", "")
+	var listBody struct {
+		Conversations []conversationListResponse `json:"conversations"`
+	}
+	decodeResponse(t, list, &listBody)
+	if len(listBody.Conversations) != 0 {
+		t.Fatalf("visible archived conversations = %d", len(listBody.Conversations))
+	}
+	get := serveJSON(t, router, http.MethodGet, "/v1/conversations/"+value.ID, "")
+	if get.Code != http.StatusGone {
+		t.Fatalf("get status = %d, want 410", get.Code)
+	}
+	message := serveJSON(t, router, http.MethodPost, "/v1/conversations/"+value.ID+"/messages", `{"content":"resume"}`)
+	if message.Code != http.StatusGone {
+		t.Fatalf("message status = %d, want 410", message.Code)
+	}
+}
+
 func TestCreateConversationPersistsRepositoryConfiguration(t *testing.T) {
 	router := newTestRouter()
 	response := serveJSON(t, router, http.MethodPost, "/v1/conversations", `{"repository":{"url":"https://example.test/repo.git","revision":"main"}}`)

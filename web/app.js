@@ -81,7 +81,9 @@ async function request(path, options = {}) {
       const body = await response.json();
       detail = body.message || body.error || '';
     } catch (_) { /* Use the status-based message when the response is not JSON. */ }
-    throw new Error(detail || `リクエストに失敗しました（${response.status}）`);
+    const error = new Error(detail || `リクエストに失敗しました（${response.status}）`);
+    error.status = response.status;
+    throw error;
   }
   if (response.status === 204) return null;
   return response.json();
@@ -416,8 +418,24 @@ async function openConversation(id) {
     setStatus('');
     await loadConversationList();
   } catch (error) {
+    if (error.status === 410) {
+      expireCurrentConversation();
+      return;
+    }
     setStatus(`チャットを開けませんでした: ${error.message}`, 'error');
   }
+}
+
+function expireCurrentConversation() {
+  state.conversationID = '';
+  localStorage.removeItem('codex.currentConversation');
+  setConversationURL('');
+  elements.messages.replaceChildren();
+  elements.conversationTitle.textContent = '新しいチャット';
+  elements.emptyState.hidden = false;
+  setRepository(null);
+  renderHistorySelection();
+  setStatus('1週間使われなかったため、このセッションは終了しました。会話記録は保持されています。新しいチャットを開始してください。', 'error');
 }
 
 function conversationTitle(conversation) {
@@ -643,6 +661,13 @@ async function sendMessage(event) {
     else setStatus('応答が終了しました');
     await loadConversationList();
   } catch (error) {
+    if (error.status === 410) {
+      expireCurrentConversation();
+      elements.message.value = content;
+      resizeComposer();
+      elements.message.focus({preventScroll: true});
+      return;
+    }
     if (userMessage && !userMessage.item.isConnected) return;
     if (!userMessage) {
       elements.message.value = content;

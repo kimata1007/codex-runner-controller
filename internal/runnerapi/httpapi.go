@@ -22,17 +22,18 @@ import (
 const maxRequestBodyBytes = 1 << 20
 
 type Handler struct {
-	repository        conversation.Repository
-	statusStore       MessageStatusStore
-	dispatcher        MessageDispatcher
-	approvalResponder ApprovalResponder
-	activator         session.Activator
-	activity          session.ActivityRecorder
-	phase             SessionPhaseRecorder
-	eventStore        RunEventStore
-	eventProjector    RunEventProjector
-	eventHub          RunEventHub
-	authBroker        ChatGPTAuthBroker
+	repository           conversation.Repository
+	statusStore          MessageStatusStore
+	dispatcher           MessageDispatcher
+	approvalResponder    ApprovalResponder
+	activator            session.Activator
+	activity             session.ActivityRecorder
+	conversationActivity conversation.ActivityRecorder
+	phase                SessionPhaseRecorder
+	eventStore           RunEventStore
+	eventProjector       RunEventProjector
+	eventHub             RunEventHub
+	authBroker           ChatGPTAuthBroker
 }
 
 // HandlerDependencies groups the optional collaborators used by the HTTP API.
@@ -61,18 +62,20 @@ func NewHandler(dependencies HandlerDependencies) *Handler {
 	approvalResponder, _ := dependencies.Dispatcher.(ApprovalResponder)
 	activity, _ := dependencies.Activator.(session.ActivityRecorder)
 	phase, _ := dependencies.Activator.(SessionPhaseRecorder)
+	conversationActivity, _ := dependencies.Repository.(conversation.ActivityRecorder)
 	return &Handler{
-		repository:        dependencies.Repository,
-		statusStore:       statusStore,
-		dispatcher:        dependencies.Dispatcher,
-		approvalResponder: approvalResponder,
-		activator:         dependencies.Activator,
-		activity:          activity,
-		phase:             phase,
-		eventStore:        dependencies.EventStore,
-		eventProjector:    eventProjector,
-		eventHub:          dependencies.EventHub,
-		authBroker:        dependencies.AuthBroker,
+		repository:           dependencies.Repository,
+		statusStore:          statusStore,
+		dispatcher:           dependencies.Dispatcher,
+		approvalResponder:    approvalResponder,
+		activator:            dependencies.Activator,
+		activity:             activity,
+		conversationActivity: conversationActivity,
+		phase:                phase,
+		eventStore:           dependencies.EventStore,
+		eventProjector:       eventProjector,
+		eventHub:             dependencies.EventHub,
+		authBroker:           dependencies.AuthBroker,
 	}
 }
 
@@ -267,8 +270,16 @@ func (h *Handler) checkHealth(c echo.Context) error {
 }
 
 func (h *Handler) receiveHeartbeat(c echo.Context) error {
-	if err := h.activity.Touch(c.Request().Context(), c.Param("conversationID"), time.Now().UTC()); err != nil {
+	ctx := c.Request().Context()
+	conversationID := c.Param("conversationID")
+	at := time.Now().UTC()
+	if err := h.activity.Touch(ctx, conversationID, at); err != nil {
 		return writeError(c, http.StatusBadGateway, "failed to record heartbeat")
+	}
+	if h.conversationActivity != nil {
+		if err := h.conversationActivity.TouchConversation(ctx, conversationID, at); err != nil {
+			return writeError(c, http.StatusBadGateway, "failed to record conversation activity")
+		}
 	}
 	return writeJSON(c, http.StatusAccepted, map[string]string{"status": "accepted"})
 }
@@ -576,6 +587,9 @@ func writeError(c echo.Context, status int, message string) error {
 }
 
 func writeRepositoryError(c echo.Context, err error) error {
+	if errors.Is(err, conversation.ErrArchived) {
+		return writeError(c, http.StatusGone, "conversation has been archived after a week without activity")
+	}
 	if errors.Is(err, conversation.ErrNotFound) {
 		return writeError(c, http.StatusNotFound, "conversation not found")
 	}
