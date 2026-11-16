@@ -13,6 +13,7 @@ import (
 
 	v1alpha1 "github.com/kimata1007/codex-runner-controller/api/v1alpha1"
 	"github.com/kimata1007/codex-runner-controller/internal/controller"
+	"github.com/kimata1007/codex-runner-controller/internal/diagnostics"
 	"github.com/kimata1007/codex-runner-controller/internal/kubernetes"
 )
 
