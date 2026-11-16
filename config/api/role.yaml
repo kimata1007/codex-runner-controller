@@ -5,7 +5,7 @@ metadata:
 rules:
   - apiGroups: ["codexrunner.io"]
     resources: ["codexsessions"]
-    verbs: ["get", "create", "patch", "update"]
+    verbs: ["get", "create", "patch", "update", "delete"]
   - apiGroups: ["codexrunner.io"]
     resources: ["codexsessions/status"]
     verbs: ["get", "patch", "update"]
