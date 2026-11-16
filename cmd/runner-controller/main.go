@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 
 	corev1 "k8s.io/api/core/v1"
@@ -32,7 +33,7 @@ func main() {
 
 	scheme := runtime.NewScheme()
 	if err := corev1.AddToScheme(scheme); err != nil {
-		logger.Error(err, "add core scheme")
+		logger.Error(fmt.Errorf("diagnostic ID: %s", diagnostics.Report("controller_failure", err)), "add core scheme")
 		os.Exit(1)
 	}
 	if err := v1alpha1.AddToScheme(scheme); err != nil {
