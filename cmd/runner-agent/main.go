@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"log"
-	"github.com/kimata1007/codex-runner-controller/internal/diagnostics"
 	"net/http"
 	"os"
 	"os/signal"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/kimata1007/codex-runner-controller/internal/agent"
 	"github.com/kimata1007/codex-runner-controller/internal/auth"
+	"github.com/kimata1007/codex-runner-controller/internal/diagnostics"
 )
 
 func main() {
