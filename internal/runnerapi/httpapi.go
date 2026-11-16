@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"github.com/kimata1007/codex-runner-controller/internal/diagnostics"
 	"net/http"
 	"strings"
 	"time"
@@ -138,7 +139,7 @@ func NewRouter(handler *Handler) *echo.Echo {
 func (h *Handler) getGlobalAuthStatus(c echo.Context) error {
 	status, err := h.authBroker.Status(c.Request().Context())
 	if err != nil {
-		return writeError(c, http.StatusServiceUnavailable, "ChatGPT authentication status is unavailable")
+		return writeOperationalError(c, http.StatusServiceUnavailable, "ChatGPT authentication status is unavailable", "auth_status", err)
 	}
 	return writeJSON(c, http.StatusOK, status)
 }
@@ -146,7 +147,7 @@ func (h *Handler) getGlobalAuthStatus(c echo.Context) error {
 func (h *Handler) beginGlobalAuth(c echo.Context) error {
 	login, err := h.authBroker.BeginLogin(c.Request().Context())
 	if err != nil {
-		return writeError(c, http.StatusServiceUnavailable, "could not begin ChatGPT sign-in")
+		return writeOperationalError(c, http.StatusServiceUnavailable, "could not begin ChatGPT sign-in", "auth_login", err)
 	}
 	return writeJSON(c, http.StatusCreated, login)
 }
@@ -158,7 +159,7 @@ func (h *Handler) cancelGlobalAuth(c echo.Context) error {
 
 func (h *Handler) logoutGlobalAuth(c echo.Context) error {
 	if err := h.authBroker.Logout(c.Request().Context()); err != nil {
-		return writeError(c, http.StatusServiceUnavailable, "could not disconnect ChatGPT")
+		return writeOperationalError(c, http.StatusServiceUnavailable, "could not disconnect ChatGPT", "auth_logout", err)
 	}
 	return writeJSON(c, http.StatusOK, map[string]string{"status": "disconnected"})
 }
@@ -172,7 +173,7 @@ func (h *Handler) refreshGlobalAuth(c echo.Context) error {
 	}
 	tokens, err := h.authBroker.RefreshChatGPTAuthTokens(c.Request().Context(), request.PreviousAccountID)
 	if err != nil {
-		return writeError(c, http.StatusUnauthorized, "ChatGPT credentials need to be reconnected")
+		return writeOperationalError(c, http.StatusUnauthorized, "ChatGPT credentials need to be reconnected", "auth_refresh", err)
 	}
 	return writeJSON(c, http.StatusOK, tokens)
 }
@@ -219,11 +220,11 @@ func (h *Handler) receiveAppServerRunEvent(c echo.Context) error {
 
 	event, err := h.eventStore.AppendEvent(c.Request().Context(), c.Param("runID"), request.EventType, string(request.Payload))
 	if err != nil {
-		return writeError(c, http.StatusBadGateway, "failed to persist event")
+		return writeOperationalError(c, http.StatusBadGateway, "failed to persist event", "event_persist", err)
 	}
 	if h.eventProjector != nil {
 		if err := h.eventProjector.ApplyAppServerEvent(c.Request().Context(), event.RunID, event.EventType, event.Payload); err != nil {
-			return writeError(c, http.StatusBadGateway, "failed to update run status")
+			return writeOperationalError(c, http.StatusBadGateway, "failed to update run status", "event_projection", err)
 		}
 	}
 	h.projectSessionPhase(c.Request().Context(), event.RunID, event.EventType, event.Payload)
@@ -268,7 +269,7 @@ func (h *Handler) checkHealth(c echo.Context) error {
 
 func (h *Handler) receiveHeartbeat(c echo.Context) error {
 	if err := h.activity.Touch(c.Request().Context(), c.Param("conversationID"), time.Now().UTC()); err != nil {
-		return writeError(c, http.StatusBadGateway, "failed to record heartbeat")
+		return writeOperationalError(c, http.StatusBadGateway, "failed to record heartbeat", "session_heartbeat", err)
 	}
 	return writeJSON(c, http.StatusAccepted, map[string]string{"status": "accepted"})
 }
@@ -288,7 +289,7 @@ func (h *Handler) respondApproval(c echo.Context) error {
 		return writeError(c, http.StatusBadRequest, "response must be valid JSON")
 	}
 	if err := h.approvalResponder.RespondApproval(c.Request().Context(), c.Param("runID"), c.Param("requestID"), response); err != nil {
-		return writeError(c, http.StatusBadGateway, "failed to respond to approval")
+		return writeOperationalError(c, http.StatusBadGateway, "failed to respond to approval", "approval_response", err)
 	}
 	return writeJSON(c, http.StatusAccepted, map[string]string{"status": "accepted"})
 }
@@ -407,7 +408,7 @@ func (h *Handler) createMessage(c echo.Context) error {
 		}
 		claimed, err := h.statusStore.ClaimQueuedMessage(c.Request().Context(), message.ID)
 		if err != nil {
-			return writeError(c, http.StatusInternalServerError, "failed to claim message for dispatch")
+			return writeOperationalError(c, http.StatusInternalServerError, "failed to claim message for dispatch", "message_claim", err)
 		}
 		if !claimed {
 			dispatchable = false
@@ -437,7 +438,7 @@ func (h *Handler) createMessage(c echo.Context) error {
 		}
 		if err := h.activator.Activate(c.Request().Context(), session.Activation{ConversationID: conversationID, RequestedAt: time.Now().UTC(), Repository: repository}); err != nil {
 			h.resetQueuedMessage(c, message.ID)
-			return writeError(c, http.StatusServiceUnavailable, "failed to activate session")
+			return writeOperationalError(c, http.StatusServiceUnavailable, "failed to activate session", "session_activate", err)
 		}
 	}
 	if dispatchable && h.dispatcher != nil {
@@ -447,7 +448,7 @@ func (h *Handler) createMessage(c echo.Context) error {
 			if h.phase != nil {
 				_ = h.phase.SetPhase(c.Request().Context(), message.ConversationID, v1alpha1.PhaseFailed)
 			}
-			return writeError(c, http.StatusBadGateway, "failed to start run")
+			return writeOperationalError(c, http.StatusBadGateway, "failed to start run", "run_start", err)
 		}
 		if h.phase != nil {
 			_ = h.phase.SetPhase(c.Request().Context(), message.ConversationID, v1alpha1.PhaseBusy)
@@ -575,9 +576,14 @@ func writeError(c echo.Context, status int, message string) error {
 	return writeJSON(c, status, map[string]string{"error": message})
 }
 
+func writeOperationalError(c echo.Context, status int, message, operation string, cause error) error {
+	id := diagnostics.Report(operation, cause)
+	return writeError(c, status, diagnostics.ClientMessage(message, id))
+}
+
 func writeRepositoryError(c echo.Context, err error) error {
 	if errors.Is(err, conversation.ErrNotFound) {
 		return writeError(c, http.StatusNotFound, "conversation not found")
 	}
-	return writeError(c, http.StatusInternalServerError, "internal server error")
+	return writeOperationalError(c, http.StatusInternalServerError, "internal server error", "repository", err)
 }
