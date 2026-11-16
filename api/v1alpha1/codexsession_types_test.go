@@ -7,7 +7,7 @@ func validSpec() CodexSessionSpec {
 		ConversationID: "conversation-1",
 		DesiredState:   DesiredStateActive,
 		SessionData:    SessionData{Size: "10Gi", Retain: true},
-		Execution:      Execution{ApprovalPolicy: "user"},
+		Execution:      Execution{ApprovalPolicy: "never"},
 	}
 }
 

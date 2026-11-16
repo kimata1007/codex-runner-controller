@@ -20,7 +20,7 @@ import (
 const (
 	DefaultSessionNamespace    = "codex-system"
 	DefaultSessionDataSize     = "10Gi"
-	DefaultApprovalPolicy      = "user"
+	DefaultApprovalPolicy      = "never"
 	DefaultSessionReadyTimeout = 60 * time.Second
 )
 

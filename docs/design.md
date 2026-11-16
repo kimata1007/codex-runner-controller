@@ -112,7 +112,7 @@ HTTPで接続できることはクライアントPodをステートレスにで�
         retain: false
       execution:
         model: default
-        approvalPolicy: user
+        approvalPolicy: never
       repository:
         url: https://github.com/kimata1007/example.git
         revision: main
