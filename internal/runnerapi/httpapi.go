@@ -117,6 +117,7 @@ func NewRouter(handler *Handler) *echo.Echo {
 	}
 	e.POST("/v1/conversations", handler.createConversation)
 	e.GET("/v1/conversations/:id", handler.getConversation)
+	e.DELETE("/v1/conversations/:id", handler.deleteConversation)
 	e.GET("/v1/conversations/:id/messages", handler.getMessages)
 	e.POST("/v1/conversations/:id/messages", handler.createMessage)
 	if handler.approvalResponder != nil {
@@ -360,6 +361,25 @@ func (h *Handler) listConversations(c echo.Context) error {
 		})
 	}
 	return writeJSON(c, http.StatusOK, map[string]any{"conversations": response})
+}
+
+// deleteConversation removes the Kubernetes session first, so no new work is
+// dispatched after its persisted history is deleted. The caller owns the
+// conversation and deletion is only available when the repository supports it.
+func (h *Handler) deleteConversation(c echo.Context) error {
+	deleter, ok := h.repository.(conversation.Deleter)
+	if !ok { return writeError(c, http.StatusNotImplemented, "conversation deletion is not supported") }
+	id := c.Param("id")
+	if _, err := h.repository.GetConversation(c.Request().Context(), id); err != nil { return writeRepositoryError(c, err) }
+	if h.activator != nil {
+		cleaner, ok := h.activator.(interface{ DeleteSession(context.Context, string) error })
+		if !ok { return writeError(c, http.StatusServiceUnavailable, "session deletion is unavailable") }
+		if err := cleaner.DeleteSession(c.Request().Context(), id); err != nil {
+			return writeError(c, http.StatusServiceUnavailable, "failed to delete session")
+		}
+	}
+	if err := deleter.DeleteConversation(c.Request().Context(), id); err != nil { return writeRepositoryError(c, err) }
+	return c.NoContent(http.StatusNoContent)
 }
 
 func (h *Handler) getConversation(c echo.Context) error {
