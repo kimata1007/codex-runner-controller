@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.0.7](https://github.com/kimata1007/codex-runner-controller/compare/v0.0.6...v0.0.7) - 2026-11-16
+
+- fix: set Codex approval policy to never by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/99
+- feat: add correlated error diagnostics without logging secrets by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/100
+
 ## [v0.0.6](https://github.com/kimata1007/codex-runner-controller/compare/v0.0.5...v0.0.6) - 2026-11-15
 
 - fix: use numeric runner-agent UID by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/97
