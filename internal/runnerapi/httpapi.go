@@ -368,17 +368,27 @@ func (h *Handler) listConversations(c echo.Context) error {
 // conversation and deletion is only available when the repository supports it.
 func (h *Handler) deleteConversation(c echo.Context) error {
 	deleter, ok := h.repository.(conversation.Deleter)
-	if !ok { return writeError(c, http.StatusNotImplemented, "conversation deletion is not supported") }
+	if !ok {
+		return writeError(c, http.StatusNotImplemented, "conversation deletion is not supported")
+	}
 	id := c.Param("id")
-	if _, err := h.repository.GetConversation(c.Request().Context(), id); err != nil { return writeRepositoryError(c, err) }
+	if _, err := h.repository.GetConversation(c.Request().Context(), id); err != nil {
+		return writeRepositoryError(c, err)
+	}
 	if h.activator != nil {
-		cleaner, ok := h.activator.(interface{ DeleteSession(context.Context, string) error })
-		if !ok { return writeError(c, http.StatusServiceUnavailable, "session deletion is unavailable") }
+		cleaner, ok := h.activator.(interface {
+			DeleteSession(context.Context, string) error
+		})
+		if !ok {
+			return writeError(c, http.StatusServiceUnavailable, "session deletion is unavailable")
+		}
 		if err := cleaner.DeleteSession(c.Request().Context(), id); err != nil {
 			return writeError(c, http.StatusServiceUnavailable, "failed to delete session")
 		}
 	}
-	if err := deleter.DeleteConversation(c.Request().Context(), id); err != nil { return writeRepositoryError(c, err) }
+	if err := deleter.DeleteConversation(c.Request().Context(), id); err != nil {
+		return writeRepositoryError(c, err)
+	}
 	return c.NoContent(http.StatusNoContent)
 }
 
