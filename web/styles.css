@@ -366,3 +366,16 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
 }
+
+/* Conversation history actions: independent touch target, keyboard-accessible menu. */
+.history-row { position: relative; display: flex; align-items: center; min-width: 0; }
+.history-row .history-item { flex: 1; min-width: 0; touch-action: pan-y; }
+.history-options { width: 40px; min-height: 44px; flex: 0 0 auto; border: 0; border-radius: 7px; background: transparent; color: var(--muted); font-size: 22px; cursor: pointer; }
+.history-options:hover, .history-options[aria-expanded="true"] { background: var(--hover); }
+.history-options-menu { position: absolute; z-index: 15; top: calc(100% - 4px); right: 0; min-width: 174px; padding: 5px; border: 1px solid #ddd; border-radius: 9px; background: var(--surface); box-shadow: 0 10px 22px #0002; }
+.history-options-menu[hidden], .topbar-delete[hidden] { display: none; }
+.history-delete-action { width: 100%; min-height: 44px; padding: 9px 12px; border: 0; border-radius: 6px; background: transparent; color: var(--danger); text-align: left; cursor: pointer; }
+.history-delete-action:hover { background: #fff0ef; }
+.topbar-delete { min-height: 40px; padding: 0 12px; flex: 0 0 auto; border: 1px solid var(--danger); border-radius: 8px; background: transparent; color: var(--danger); font-size: 13px; cursor: pointer; }
+.topbar-delete:hover { background: #fff0ef; }
+.history-options:focus-visible, .history-delete-action:focus-visible, .topbar-delete:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
