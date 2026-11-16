@@ -214,6 +214,11 @@ func (c *Client) ExecTransaction(ctx context.Context, statements []TxStatement) 
  if data.Type != "batch" || len(data.Result.StepResults) != len(steps) || len(data.Result.StepErrors) != len(steps) { return fmt.Errorf("libsql: invalid transaction batch results") }
  for i := range data.Result.StepErrors {
   if len(data.Result.StepErrors[i]) > 0 && string(data.Result.StepErrors[i]) != "null" {
+   // When BEGIN succeeded, rollback must be confirmed for a failed step.
+   // Avoid reporting the upstream SQL error text (it can contain sensitive data).
+   if i > 0 && i <= commit && (len(data.Result.StepResults[commit+1]) == 0 || string(data.Result.StepResults[commit+1]) == "null") {
+    return fmt.Errorf("libsql: transaction step %d failed; rollback not confirmed",i)
+   }
    return fmt.Errorf("libsql: transaction step %d failed",i)
   }
  }
