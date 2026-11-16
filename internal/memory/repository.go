@@ -202,3 +202,12 @@ func conversationTitle(content string) string {
 	}
 	return content
 }
+
+func (r *Repository) DeleteConversation(ctx context.Context, id string) error {
+	if err := ctx.Err(); err != nil { return err }
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.conversations[id]; !ok { return fmt.Errorf("%w: %s", conversation.ErrNotFound, id) }
+	delete(r.conversations, id)
+	return nil
+}
