@@ -74,6 +74,7 @@ func main() {
 	}
 	builder := kubernetes.ResourceBuilder{
 		RunnerImage:                runnerImage,
+		OTLPEndpoint:               os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
 		RunnerEventURL:             os.Getenv("RUNNER_EVENT_URL"),
 		RunnerHeartbeatURL:         os.Getenv("RUNNER_HEARTBEAT_URL"),
 		RunnerAuthRefreshURL:       os.Getenv("RUNNER_AUTH_REFRESH_URL"),
