@@ -1,4 +1,4 @@
-name: Temporary OpenTelemetry dependency and gofmt update
+name: Temporary OpenTelemetry format and full-test validation
 on:
   push:
     branches: [feat/opentelemetry-tracing]
