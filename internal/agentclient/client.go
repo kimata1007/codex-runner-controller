@@ -25,7 +25,7 @@ type Client struct {
 func NewClient(baseURL string) *Client { return NewClientWithToken(baseURL, "") }
 
 func NewClientWithToken(baseURL, token string) *Client {
-	return &Client{baseURL: strings.TrimRight(baseURL, "/"), token: token, httpClient: http.DefaultClient}
+	return &Client{baseURL: strings.TrimRight(baseURL, "/"), token: token, httpClient: &http.Client{Transport: telemetry.HTTPTransport(nil)}}
 }
 
 func (c *Client) WithHTTPClient(client *http.Client) *Client {
