@@ -1,0 +1,53 @@
+name: Kubernetes E2E (Kind)
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  kind-e2e:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Create Kind Kubernetes cluster
+        uses: helm/kind-action@ea822c7bf1874f08e5a491df991c228edffc3376 # v1.15.2
+        with:
+          cluster_name: codex-e2e
+          wait: 120s
+
+      - name: Build the images under test
+        run: |
+          docker build -f Dockerfile.runner-api -t local/runner-api:e2e .
+          docker build -f Dockerfile.runner-controller -t local/runner-controller:e2e .
+          docker build -f tests/e2e/fake-app-server/Dockerfile -t local/runner-agent:e2e .
+
+      - name: Load images into Kind
+        run: |
+          kind load docker-image --name codex-e2e \
+            local/runner-api:e2e \
+            local/runner-controller:e2e \
+            local/runner-agent:e2e
+          kubectl get nodes
+
+      - name: Run E2E checks
+        run: bash tests/e2e/run.sh
+
+      - name: Collect Kubernetes diagnostics
+        if: always()
+        run: bash tests/e2e/collect-debug.sh "${{ runner.temp }}/kind-e2e-debug"
+
+      - name: Upload diagnostics when failed
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kind-e2e-debug
+          path: ${{ runner.temp }}/kind-e2e-debug/
+          if-no-files-found: warn
+          retention-days: 7
