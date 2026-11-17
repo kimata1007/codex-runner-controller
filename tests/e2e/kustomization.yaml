@@ -39,9 +39,9 @@ patches:
                 env:
                   - name: RUNNER_AGENT_IMAGE
                     value: local/runner-agent:e2e
-  # Kind's local-path volume is owned by root. The pinned libSQL image
-  # changes iku.db ownership during startup; use root only in this test pod.
-  # Production's StatefulSet remains unchanged.
+  # The upstream libSQL docker-wrapper.sh attempts chown during startup.
+  # Kind CI bypasses that wrapper and invokes sqld directly as root; the
+  # production StatefulSet and its entrypoint remain unchanged.
   - target:
       kind: StatefulSet
       name: libsql
@@ -55,6 +55,14 @@ patches:
           spec:
             containers:
               - name: libsql
+                command: ["/bin/sqld"]
+                args:
+                  - --db-path
+                  - /var/lib/sqld/iku.db
+                  - --http-listen-addr
+                  - 0.0.0.0:8080
+                  - --grpc-listen-addr
+                  - 0.0.0.0:5001
                 securityContext:
                   runAsUser: 0
                   runAsGroup: 0
