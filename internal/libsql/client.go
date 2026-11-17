@@ -166,6 +166,25 @@ func (c *Client) ApplySchema(ctx context.Context, schema string) error {
 }
 
 func (c *Client) pipeline(ctx context.Context, requests []streamRequest) (pipelineResponse, error) {
+	for attempt := 0; attempt < 2; attempt++ {
+		response, err := c.doPipeline(ctx, requests)
+		if err != nil {
+			return pipelineResponse{}, err
+		}
+		if !hasExpiredStreamError(response) {
+			return response, nil
+		}
+
+		// Hrana reports an expired stream as a result error in an otherwise
+		// successful HTTP response. Discard its baton and retry this pipeline
+		// once on a new stream.
+		c.baton = nil
+	}
+
+	return pipelineResponse{}, fmt.Errorf("libsql: stream handle expired after retry")
+}
+
+func (c *Client) doPipeline(ctx context.Context, requests []streamRequest) (pipelineResponse, error) {
 	payload, err := json.Marshal(pipelineRequest{Baton: c.baton, Requests: requests})
 	if err != nil {
 		return pipelineResponse{}, fmt.Errorf("libsql: encode pipeline request: %w", err)
@@ -198,6 +217,20 @@ func (c *Client) pipeline(ctx context.Context, requests []streamRequest) (pipeli
 		c.pipelineURL = strings.TrimRight(response.BaseURL, "/") + "/v3/pipeline"
 	}
 	return response, nil
+}
+
+func hasExpiredStreamError(response pipelineResponse) bool {
+	for _, result := range response.Results {
+		if result.Type != "error" || result.Error == nil {
+			continue
+		}
+		message := strings.ToLower(result.Error.Message)
+		if strings.Contains(message, "stream handle") &&
+			(strings.Contains(message, "expired") || strings.Contains(message, "not found")) {
+			return true
+		}
+	}
+	return false
 }
 
 func Text(value string) Value {
