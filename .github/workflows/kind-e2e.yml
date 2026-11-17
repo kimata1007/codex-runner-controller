@@ -26,7 +26,7 @@ jobs:
         run: |
           docker build -f Dockerfile.runner-api -t local/runner-api:e2e .
           docker build -f Dockerfile.runner-controller -t local/runner-controller:e2e .
-          docker build -f tests/e2e/fake-agent/Dockerfile -t local/runner-agent:e2e .
+          docker build -f tests/e2e/fake-app-server/Dockerfile -t local/runner-agent:e2e .
 
       - name: Load images into Kind
         run: |
