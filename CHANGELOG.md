@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.0.9](https://github.com/kimata1007/codex-runner-controller/compare/v0.0.8...v0.0.9) - 2026-11-17
+
+- Retry expired libSQL streams by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/108
+- fix: reset libsql baton on transport errors by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/91
+
 ## [v0.0.8](https://github.com/kimata1007/codex-runner-controller/compare/v0.0.7...v0.0.8) - 2026-11-17
 
 - feat: standardize structured console logs by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/104
