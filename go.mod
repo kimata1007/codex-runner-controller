@@ -3,6 +3,10 @@ module github.com/kimata1007/codex-runner-controller
 go 1.24.0
 
 require (
+	go.opentelemetry.io/otel v1.41.0
+	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.41.0
+	go.opentelemetry.io/otel/sdk v1.41.0
+	go.opentelemetry.io/otel/trace v1.41.0
 	github.com/go-logr/logr v1.4.3
 	github.com/labstack/echo/v4 v4.13.4
 	k8s.io/api v0.33.13
