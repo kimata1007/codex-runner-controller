@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -134,7 +135,7 @@ func defaultAppServerArgs() []string {
 		// Codex has its own OTLP trace exporter; its configuration is not
 		// inherited from the Go OpenTelemetry SDK environment alone.
 		// Avoid exporting logs, prompts, tool output and credentials.
-		args = append([]string{"-c", "otel.trace_exporter={otlp-http={endpoint=\\\"" + endpoint + "/v1/traces\\\",protocol=\\\"binary\\\"}}", "-c", "otel.log_user_prompt=false", "-c", "otel.exporter=\\\"none\\\""}, args...)
+		args = append([]string{"-c", "otel.trace_exporter={otlp-http={endpoint=" + strconv.Quote(endpoint+"/v1/traces") + ",protocol=\"binary\"}}", "-c", "otel.log_user_prompt=false", "-c", "otel.exporter=\"none\""}, args...)
 	}
 	if strings.TrimSpace(os.Getenv("ACCESS_TOKEN")) == "" {
 		return args
