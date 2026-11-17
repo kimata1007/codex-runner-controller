@@ -58,3 +58,17 @@ patches:
                 securityContext:
                   runAsUser: 0
                   runAsGroup: 0
+  # The libSQL database only needs ephemeral storage for this CI run.
+  # Kind's host-path PVC prevents the pinned image from chown-ing iku.db.
+  # Keep the production StatefulSet untouched while using an emptyDir here.
+  - target:
+      kind: StatefulSet
+      name: libsql
+    patch: |-
+      - op: remove
+        path: /spec/volumeClaimTemplates
+      - op: add
+        path: /spec/template/spec/volumes
+        value:
+          - name: data
+            emptyDir: {}
