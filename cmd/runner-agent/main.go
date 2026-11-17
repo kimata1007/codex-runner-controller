@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -13,10 +14,17 @@ import (
 	"github.com/kimata1007/codex-runner-controller/internal/agent"
 	"github.com/kimata1007/codex-runner-controller/internal/auth"
 	"github.com/kimata1007/codex-runner-controller/internal/logging"
+	"github.com/kimata1007/codex-runner-controller/internal/telemetry"
 )
 
 func main() {
 	slog.SetDefault(logging.New("runner-agent"))
+	shutdown, err := telemetry.Start(context.Background(), "runner-agent")
+	if err != nil {
+		slog.Error("failed to initialize tracing", "operation", "startup.tracing", "error.type", logging.ErrorType(err))
+		os.Exit(1)
+	}
+	defer telemetry.Shutdown(context.Background(), shutdown)
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -87,7 +95,7 @@ func main() {
 	}
 	server := &http.Server{
 		Addr:              address,
-		Handler:           auth.BearerToken(agent.NewHTTPHandlerWithAuthBroker(session, tracker, approvals, os.Getenv("RUNNER_AUTH_BROKER") == "true"), os.Getenv("RUNNER_AGENT_TOKEN")),
+		Handler:           telemetry.HTTPHandler(auth.BearerToken(agent.NewHTTPHandlerWithAuthBroker(session, tracker, approvals, os.Getenv("RUNNER_AUTH_BROKER") == "true"), os.Getenv("RUNNER_AGENT_TOKEN"))),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,
@@ -123,6 +131,12 @@ func main() {
 
 func defaultAppServerArgs() []string {
 	args := []string{"app-server", "--listen", "stdio://"}
+	if endpoint := strings.TrimRight(os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"), "/"); endpoint != "" {
+		// Codex has its own OTLP trace exporter; its configuration is not
+		// inherited from the Go OpenTelemetry SDK environment alone.
+		// Avoid exporting logs, prompts, tool output and credentials.
+		args = append([]string{"-c", "otel.trace_exporter={otlp-http={endpoint=" + strconv.Quote(endpoint+"/v1/traces") + ",protocol=\"binary\"}}", "-c", "otel.log_user_prompt=false", "-c", "otel.exporter=\"none\""}, args...)
+	}
 	if strings.TrimSpace(os.Getenv("ACCESS_TOKEN")) == "" {
 		return args
 	}

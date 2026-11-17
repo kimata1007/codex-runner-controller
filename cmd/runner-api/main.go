@@ -25,6 +25,7 @@ import (
 	"github.com/kimata1007/codex-runner-controller/internal/runnerapi"
 	"github.com/kimata1007/codex-runner-controller/internal/runs"
 	"github.com/kimata1007/codex-runner-controller/internal/session"
+	"github.com/kimata1007/codex-runner-controller/internal/telemetry"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
@@ -32,6 +33,12 @@ import (
 
 func main() {
 	slog.SetDefault(logging.New("runner-api"))
+	shutdown, err := telemetry.Start(context.Background(), "runner-api")
+	if err != nil {
+		slog.Error("failed to initialize tracing", "operation", "startup.tracing", "error.type", logging.ErrorType(err))
+		os.Exit(1)
+	}
+	defer telemetry.Shutdown(context.Background(), shutdown)
 	addr := os.Getenv("RUNNER_API_ADDR")
 	if addr == "" {
 		addr = ":8080"
@@ -59,6 +66,7 @@ func main() {
 	httpHandler = auth.BearerTokenForPathPrefix(httpHandler, os.Getenv("RUNNER_API_TOKEN"), "/internal/runs/")
 	httpHandler = auth.BearerTokenForPathPrefix(httpHandler, os.Getenv("RUNNER_AGENT_TOKEN"), "/internal/sessions/")
 	httpHandler = auth.BearerTokenForPathPrefix(httpHandler, os.Getenv("RUNNER_AGENT_TOKEN"), "/internal/auth/")
+	httpHandler = telemetry.HTTPHandler(httpHandler)
 	server := &http.Server{
 		Addr:              addr,
 		Handler:           httpHandler,

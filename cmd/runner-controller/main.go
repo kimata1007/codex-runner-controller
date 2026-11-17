@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log/slog"
 	"os"
 
@@ -15,11 +16,18 @@ import (
 	"github.com/kimata1007/codex-runner-controller/internal/controller"
 	"github.com/kimata1007/codex-runner-controller/internal/kubernetes"
 	"github.com/kimata1007/codex-runner-controller/internal/logging"
+	"github.com/kimata1007/codex-runner-controller/internal/telemetry"
 )
 
 func main() {
 	logger := logging.New("runner-controller")
 	slog.SetDefault(logger)
+	shutdown, err := telemetry.Start(context.Background(), "runner-controller")
+	if err != nil {
+		slog.Error("failed to initialize tracing", "operation", "startup.tracing", "error.type", logging.ErrorType(err))
+		os.Exit(1)
+	}
+	defer telemetry.Shutdown(context.Background(), shutdown)
 	ctrl.SetLogger(logr.FromSlogHandler(logger.Handler()))
 	runnerImage := os.Getenv("RUNNER_AGENT_IMAGE")
 	if runnerImage == "" {
@@ -66,6 +74,7 @@ func main() {
 	}
 	builder := kubernetes.ResourceBuilder{
 		RunnerImage:                runnerImage,
+		OTLPEndpoint:               os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
 		RunnerEventURL:             os.Getenv("RUNNER_EVENT_URL"),
 		RunnerHeartbeatURL:         os.Getenv("RUNNER_HEARTBEAT_URL"),
 		RunnerAuthRefreshURL:       os.Getenv("RUNNER_AUTH_REFRESH_URL"),

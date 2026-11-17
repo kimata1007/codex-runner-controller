@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+
+	"github.com/kimata1007/codex-runner-controller/internal/telemetry"
 	"net/url"
 	"strings"
 )
@@ -31,7 +33,7 @@ func NewHTTPHeartbeatSinkWithToken(baseURL, conversationID, token string) (*HTTP
 	return &HTTPHeartbeatSink{
 		url:        baseURL + "/" + url.PathEscape(conversationID) + "/heartbeat",
 		token:      strings.TrimSpace(token),
-		httpClient: http.DefaultClient,
+		httpClient: &http.Client{Transport: telemetry.HTTPTransport(nil)},
 	}, nil
 }
 

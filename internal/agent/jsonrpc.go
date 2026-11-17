@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/kimata1007/codex-runner-controller/internal/telemetry"
 )
 
 type NotificationHandler func(AppServerNotification)
@@ -86,7 +88,12 @@ func NewJSONRPCClient(reader io.Reader, writer io.Writer, handler NotificationHa
 	}
 }
 
-func (c *JSONRPCClient) Call(ctx context.Context, method string, params any, result any) error {
+func (c *JSONRPCClient) Call(ctx context.Context, method string, params any, result any) (callErr error) {
+	ctx, span := telemetry.Tracer().Start(ctx, "codex.jsonrpc."+method)
+	defer func() {
+		telemetry.RecordError(ctx, callErr)
+		span.End()
+	}()
 	c.callMu.Lock()
 	defer c.callMu.Unlock()
 
