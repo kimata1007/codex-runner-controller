@@ -3,6 +3,8 @@ package agent
 import (
 	"bufio"
 	"context"
+
+	"github.com/kimata1007/codex-runner-controller/internal/telemetry"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -87,6 +89,8 @@ func NewJSONRPCClient(reader io.Reader, writer io.Writer, handler NotificationHa
 }
 
 func (c *JSONRPCClient) Call(ctx context.Context, method string, params any, result any) error {
+	ctx, span := telemetry.Tracer().Start(ctx, "codex.jsonrpc."+method)
+	defer span.End()
 	c.callMu.Lock()
 	defer c.callMu.Unlock()
 
