@@ -13,10 +13,17 @@ import (
 	"github.com/kimata1007/codex-runner-controller/internal/agent"
 	"github.com/kimata1007/codex-runner-controller/internal/auth"
 	"github.com/kimata1007/codex-runner-controller/internal/logging"
+	"github.com/kimata1007/codex-runner-controller/internal/telemetry"
 )
 
 func main() {
 	slog.SetDefault(logging.New("runner-agent"))
+	shutdown, err := telemetry.Start(context.Background(), "runner-agent")
+	if err != nil {
+		slog.Error("failed to initialize tracing", "operation", "startup.tracing", "error.type", logging.ErrorType(err))
+		os.Exit(1)
+	}
+	defer telemetry.Shutdown(context.Background(), shutdown)
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -87,7 +94,7 @@ func main() {
 	}
 	server := &http.Server{
 		Addr:              address,
-		Handler:           auth.BearerToken(agent.NewHTTPHandlerWithAuthBroker(session, tracker, approvals, os.Getenv("RUNNER_AUTH_BROKER") == "true"), os.Getenv("RUNNER_AGENT_TOKEN")),
+		Handler:           telemetry.HTTPHandler(auth.BearerToken(agent.NewHTTPHandlerWithAuthBroker(session, tracker, approvals, os.Getenv("RUNNER_AUTH_BROKER") == "true"), os.Getenv("RUNNER_AGENT_TOKEN"))),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,
