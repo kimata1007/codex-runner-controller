@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+
+	"github.com/kimata1007/codex-runner-controller/internal/telemetry"
 	"strings"
 	"time"
 )
@@ -42,7 +44,7 @@ func (r ChatGPTAuthTokenRefresher) Handle(ctx context.Context, message Message) 
 	}
 	client := r.HTTPClient
 	if client == nil {
-		client = &http.Client{Timeout: 8 * time.Second}
+		client = &http.Client{Timeout: 8 * time.Second, Transport: telemetry.HTTPTransport(nil)}
 	}
 	response, err := client.Do(request)
 	if err != nil {
