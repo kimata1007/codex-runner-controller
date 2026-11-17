@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+
+	"github.com/kimata1007/codex-runner-controller/internal/telemetry"
 	"strings"
 	"sync"
 )
@@ -102,7 +104,7 @@ type column struct {
 func NewClient(baseURL, token string) *Client {
 	baseURL = strings.TrimRight(baseURL, "/")
 	return &Client{
-		httpClient:  http.DefaultClient,
+		httpClient:  &http.Client{Transport: telemetry.HTTPTransport(nil)},
 		pipelineURL: baseURL + "/v3/pipeline",
 		token:       token,
 	}
