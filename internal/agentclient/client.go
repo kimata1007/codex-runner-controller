@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/kimata1007/codex-runner-controller/internal/agent"
+	"github.com/kimata1007/codex-runner-controller/internal/telemetry"
 )
 
 // Client calls the runner-agent HTTP API from the Runner API.
