@@ -3,8 +3,6 @@ package agent
 import (
 	"bufio"
 	"context"
-
-	"github.com/kimata1007/codex-runner-controller/internal/telemetry"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/kimata1007/codex-runner-controller/internal/telemetry"
 )
 
 type NotificationHandler func(AppServerNotification)
