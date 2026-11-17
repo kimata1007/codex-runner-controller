@@ -1,5 +1,11 @@
 # Changelog
 
+## [v0.0.8](https://github.com/kimata1007/codex-runner-controller/compare/v0.0.7...v0.0.8) - 2026-11-17
+
+- feat: standardize structured console logs by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/104
+- test: KindでKubernetes E2EとSecret欠落検出を追加 by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/107
+- feat: Runner API・Controller・Agent・CodexのOpenTelemetryトレース by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/106
+
 ## [v0.0.7](https://github.com/kimata1007/codex-runner-controller/compare/v0.0.6...v0.0.7) - 2026-11-16
 
 - fix: set Codex approval policy to never by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/99
