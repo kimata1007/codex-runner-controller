@@ -1,0 +1,34 @@
+name: Temporary OpenTelemetry dependency and gofmt update
+on:
+  push:
+    branches: [feat/opentelemetry-tracing]
+    paths:
+      - .github/workflows/otel-autofix.yml
+permissions:
+  contents: write
+jobs:
+  tidy-format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: Resolve dependencies and format
+        run: |
+          go mod tidy
+          git ls-files '*.go' | xargs -r gofmt -w
+          go test ./...
+      - name: Commit generated files
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add go.mod go.sum
+          git ls-files '*.go' | xargs -r git add --
+          if ! git diff --cached --quiet; then
+            git commit -m 'build: tidy OpenTelemetry dependencies and format Go source'
+            git push origin HEAD:feat/opentelemetry-tracing
+          fi
