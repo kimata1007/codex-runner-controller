@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+
+	"github.com/kimata1007/codex-runner-controller/internal/telemetry"
 	"net/url"
 	"strings"
 )
@@ -41,7 +43,7 @@ type HTTPRunEventSender struct {
 }
 
 func NewHTTPRunEventSender(baseURL string) *HTTPRunEventSender {
-	return &HTTPRunEventSender{baseURL: strings.TrimRight(baseURL, "/"), httpClient: http.DefaultClient}
+	return &HTTPRunEventSender{baseURL: strings.TrimRight(baseURL, "/"), httpClient: &http.Client{Transport: telemetry.HTTPTransport(nil)}}
 }
 
 func (s *HTTPRunEventSender) WithHTTPClient(client *http.Client) *HTTPRunEventSender {
