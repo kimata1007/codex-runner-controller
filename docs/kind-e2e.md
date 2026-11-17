@@ -12,7 +12,7 @@ GitHub Actionsで一時的なKindクラスタを作成し、**実際のRunner AP
 6. **本物のrunner-agentバイナリ**が起動し、子プロセスをJSON-RPC/stdioで初期化する
 7. APIからAgent HTTPを経由し、子プロセスが`thread/start`と`turn/start`を受信して、受信したテスト本文を検証する
 8. 子プロセスが`item/agentMessage/delta`と`turn/completed`を通知する
-9. AgentがRunner APIのイベント受信エンドポイントに通知を転送し、**libSQLにユーザーメッセージの完了状態とテスト用アシスタント応答が保存される**ことをAPIで再確認する
+9. AgentがRunner APIのイベント受信エンドポイントに通知を転送し、**Runner APIのSSEでlibSQLに保存済みの`item/agentMessage/delta`と`turn/completed`を検証**してから、ユーザーメッセージの完了状態とテスト用アシスタント応答が保存されることをAPIで再確認する
 10. 別の`CodexSession`で、存在しないSecretを参照したPodが`CreateContainerConfigError`を返すことを検証する
 
 **重要:** Codex App Serverだけはテストダブルです。実際のCodex CLIの内部実装・モデル実行・外部認証・課金を再現するものではありません。Go AgentのHTTP/JSON-RPC処理は実コードを実行します。
