@@ -88,9 +88,12 @@ func NewJSONRPCClient(reader io.Reader, writer io.Writer, handler NotificationHa
 	}
 }
 
-func (c *JSONRPCClient) Call(ctx context.Context, method string, params any, result any) error {
+func (c *JSONRPCClient) Call(ctx context.Context, method string, params any, result any) (callErr error) {
 	ctx, span := telemetry.Tracer().Start(ctx, "codex.jsonrpc."+method)
-	defer span.End()
+	defer func() {
+		telemetry.RecordError(ctx, callErr)
+		span.End()
+	}()
 	c.callMu.Lock()
 	defer c.callMu.Unlock()
 
