@@ -113,17 +113,31 @@ kubectl -n "$NAMESPACE" wait --for=condition=Ready "pod/$conversation_id" --time
 kubectl -n "$NAMESPACE" get pvc "$conversation_id" -o jsonpath='{.status.phase}' | grep -q '^Bound$'
 kubectl -n "$NAMESPACE" get svc "$conversation_id" -o jsonpath='{.spec.ports[0].port}' | grep -q '^8081$'
 
-echo "Checking fake Codex App Server child received the actual JSON-RPC turn/start"
+echo "Checking persisted App Server events for the run through Runner API SSE"
+# The real runner-agent forwards child-process notifications to Runner API,
+# which persists them in libSQL. Replayed SSE events prove this end-to-end
+# path; child-process stderr is not necessarily forwarded to pod logs.
 deadline=$((SECONDS + 60))
+events_seen=false
 while (( SECONDS < deadline )); do
-  if kubectl -n "$NAMESPACE" logs "pod/$conversation_id" --tail=100 |
-    grep -q 'E2E_CODEX_APP_SERVER_TURN_RECEIVED'; then
+  # SSE is intentionally long-lived. curl's timeout (exit 28) is expected;
+  # use the events it streamed before timing out.
+  event_stream="$(curl --silent --show-error --max-time 3 \
+    "$BASE_URL/v1/runs/$run_id/events?after=0" 2>/dev/null || true)"
+  if grep -Fxq 'event: item/agentMessage/delta' <<< "$event_stream" &&
+     grep -Fq 'e2e-response-from-app-server' <<< "$event_stream" &&
+     grep -Fxq 'event: turn/completed' <<< "$event_stream"; then
+    events_seen=true
     break
   fi
   sleep 2
 done
-kubectl -n "$NAMESPACE" logs "pod/$conversation_id" --tail=100 |
-  grep -q 'E2E_CODEX_APP_SERVER_TURN_RECEIVED'
+if [[ "$events_seen" != true ]]; then
+  echo "Timed out: expected App Server delta and turn/completed events for run $run_id" >&2
+  echo "Observed event types:" >&2
+  grep '^event: ' <<< "${event_stream:-}" >&2 || true
+  exit 1
+fi
 
 echo "Checking the asynchronous App Server notification returned to Runner API and libSQL"
 wait_for_complete_conversation "$conversation_id"
