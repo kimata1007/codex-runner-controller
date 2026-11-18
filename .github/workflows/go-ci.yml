@@ -25,7 +25,6 @@ jobs:
           unformatted="$(git ls-files '*.go' | xargs -r gofmt -l)"
           if [ -n "$unformatted" ]; then
             printf 'The following Go files require gofmt:\n%s\n' "$unformatted"
-            git ls-files '*.go' | xargs -r gofmt -d
             exit 1
           fi
       - name: Run tests
