@@ -36,6 +36,12 @@ const elements = {
   accountIndicator: document.querySelector('#codex-account'),
   accountLabel: document.querySelector('#codex-account-label'),
   manageUsage: document.querySelector('#manage-usage'),
+  showSettings: document.querySelector('#show-codex-settings'),
+  settingsDialog: document.querySelector('#codex-settings-dialog'),
+  settingsScope: document.querySelector('#codex-settings-scope'),
+  settingsMessage: document.querySelector('#codex-settings-message'),
+  settingsValues: document.querySelector('#codex-settings-values'),
+  closeSettings: document.querySelector('#close-codex-settings'),
   connectChatGPT: document.querySelector('#connect-chatgpt'),
   authDialog: document.querySelector('#auth-dialog'),
   authVerificationLink: document.querySelector('#auth-verification-link'),
@@ -138,6 +144,7 @@ function setCodexAccount(account) {
     : 'Codex に接続済み';
   elements.connectChatGPT.hidden = true;
   elements.manageUsage.hidden = !usesChatGPTPlan;
+  elements.showSettings.hidden = false;
 }
 
 function clearCodexAccount() {
@@ -147,6 +154,7 @@ function clearCodexAccount() {
   elements.accountLabel.textContent = 'ChatGPT 未接続';
   elements.connectChatGPT.hidden = false;
   elements.manageUsage.hidden = true;
+  elements.showSettings.hidden = true;
 }
 
 function makeIcon(path) {
@@ -786,8 +794,94 @@ function saveRepository(event) {
   elements.message.focus({preventScroll: true});
 }
 
+function addSettingsRow(parent, label, value) {
+  const row = document.createElement('div');
+  row.className = 'settings-row';
+  const name = document.createElement('dt');
+  name.textContent = label;
+  const detail = document.createElement('dd');
+  detail.textContent = value == null || value === '' ? '未設定（Codexの既定値）' : String(value);
+  row.append(name, detail);
+  parent.append(row);
+}
+
+function displaySettings(result) {
+  const settings = result.settings || {};
+  const source = result.source === 'conversation' ? '選択中の会話のCodex App Server' : '認証用Codex App Server';
+  elements.settingsScope.textContent = `表示対象：${source}`;
+  elements.settingsMessage.textContent = '';
+  elements.settingsValues.replaceChildren();
+  const basics = document.createElement('dl');
+  basics.className = 'settings-list';
+  addSettingsRow(basics, 'モデル', settings.model);
+  addSettingsRow(basics, '承認ポリシー', settings.approvalPolicy);
+  addSettingsRow(basics, 'Sandbox', settings.sandboxMode);
+  elements.settingsValues.append(basics);
+
+  const heading = document.createElement('h3');
+  heading.textContent = 'アプリの設定';
+  elements.settingsValues.append(heading);
+  const apps = settings.apps || {};
+  const names = Object.keys(apps).sort();
+  if (!names.length) {
+    const empty = document.createElement('p');
+    empty.textContent = 'アプリの個別設定はありません（接続済みアプリの一覧ではありません）。';
+    elements.settingsValues.append(empty);
+    return;
+  }
+  for (const name of names) {
+    const app = apps[name] || {};
+    const section = document.createElement('section');
+    section.className = 'settings-app';
+    const title = document.createElement('h4');
+    title.textContent = name === '_default' ? 'アプリ共通設定' : name;
+    section.append(title);
+    const list = document.createElement('dl');
+    list.className = 'settings-list';
+    if (app.enabled != null) addSettingsRow(list, '有効', app.enabled ? 'はい' : 'いいえ');
+    if (app.defaultToolsEnabled != null) addSettingsRow(list, 'ツールの既定状態', app.defaultToolsEnabled ? '有効' : '無効');
+    if (app.defaultToolsApprovalMode) addSettingsRow(list, 'ツールの承認モード', app.defaultToolsApprovalMode);
+    if (app.destructiveEnabled != null) addSettingsRow(list, '変更を伴うツール', app.destructiveEnabled ? '許可' : '制限');
+    if (app.openWorldEnabled != null) addSettingsRow(list, '外部アクセスツール', app.openWorldEnabled ? '許可' : '制限');
+    for (const tool of Object.keys(app.tools || {}).sort()) {
+      const policy = app.tools[tool];
+      const values = [
+        policy.enabled == null ? '' : policy.enabled ? '有効' : '無効',
+        policy.approvalMode || '',
+      ].filter(Boolean).join(' · ');
+      if (values) addSettingsRow(list, tool, values);
+    }
+    if (!list.children.length) addSettingsRow(list, '個別の制限', '未設定');
+    section.append(list);
+    elements.settingsValues.append(section);
+  }
+}
+
+async function showCodexSettings() {
+  elements.settingsDialog.showModal();
+  elements.settingsValues.replaceChildren();
+  elements.settingsScope.textContent = '';
+  elements.settingsMessage.textContent = '設定を取得しています…';
+  elements.showSettings.disabled = true;
+  const conversationID = state.conversationID;
+  const params = conversationID ? `?conversationId=${encodeURIComponent(conversationID)}` : '';
+  try {
+    const result = await request(`/v1/codex/settings${params}`);
+    if (elements.settingsDialog.open) displaySettings(result);
+  } catch (error) {
+    if (elements.settingsDialog.open) elements.settingsMessage.textContent = `設定を取得できませんでした：${error.message}`;
+  } finally {
+    elements.showSettings.disabled = false;
+  }
+}
+
 elements.newConversation.addEventListener('click', startNewConversation);
 elements.connectChatGPT.addEventListener('click', () => connectChatGPT());
+elements.showSettings.addEventListener('click', showCodexSettings);
+elements.closeSettings.addEventListener('click', () => elements.settingsDialog.close());
+elements.settingsDialog.addEventListener('click', (event) => {
+  if (event.target === elements.settingsDialog) elements.settingsDialog.close();
+});
 elements.copyAuthCode.addEventListener('click', async () => {
   try {
     await navigator.clipboard.writeText(elements.authUserCode.textContent);
