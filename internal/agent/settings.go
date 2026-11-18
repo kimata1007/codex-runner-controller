@@ -81,9 +81,9 @@ func (s *Session) ReadSettings(ctx context.Context) (CodexSettings, error) {
 func projectCodexSettings(config json.RawMessage) (CodexSettings, error) {
 	// Decode only fields intended for display; unknown fields are discarded.
 	var source struct {
-		Model          string                    `json:"model"`
-		ApprovalPolicy string                    `json:"approval_policy"`
-		SandboxMode    string                    `json:"sandbox_mode"`
+		Model          string                     `json:"model"`
+		ApprovalPolicy string                     `json:"approval_policy"`
+		SandboxMode    string                     `json:"sandbox_mode"`
 		Apps           map[string]json.RawMessage `json:"apps"`
 	}
 	if err := json.Unmarshal(config, &source); err != nil {
