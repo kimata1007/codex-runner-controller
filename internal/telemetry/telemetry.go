@@ -8,8 +8,11 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
 	"os"
 	"time"
+
+	"github.com/kimata1007/codex-runner-controller/internal/logging"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -56,7 +59,12 @@ func RecordError(ctx context.Context, err error) {
 	}
 	span := trace.SpanFromContext(ctx)
 	span.SetStatus(codes.Error, "operation failed")
-	span.SetAttributes(attribute.String("error.type", "operation_failed"))
+	kind := logging.ErrorType(err)
+	span.SetAttributes(attribute.String("error.type", kind))
+	span.AddEvent("error", trace.WithAttributes(
+		attribute.String("error.type", kind),
+		attribute.String("error.summary", safeErrorSummary(kind)),
+	))
 }
 
 // HTTPHandler instruments inbound HTTP traffic. Health checks are not traced.
@@ -96,8 +104,14 @@ func HTTPTransport(base http.RoundTripper) http.RoundTripper {
 type roundTripper struct{ base http.RoundTripper }
 
 func (t roundTripper) RoundTrip(r *http.Request) (*http.Response, error) {
-	ctx, span := Tracer().Start(r.Context(), "http.client", trace.WithSpanKind(trace.SpanKindClient),
-		trace.WithAttributes(attribute.String("http.request.method", r.Method)))
+	attrs := []attribute.KeyValue{attribute.String("http.request.method", r.Method)}
+	name := "http.client"
+	if route := safeHTTPRoute(r.URL.Path); route != "" {
+		attrs = append(attrs, attribute.String("http.route", route))
+		name = r.Method + " " + route
+	}
+	ctx, span := Tracer().Start(r.Context(), name, trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(attrs...))
 	defer span.End()
 	out := r.Clone(ctx)
 	otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(out.Header))
@@ -150,4 +164,87 @@ func Shutdown(ctx context.Context, shutdown func(context.Context) error) {
 	if err := shutdown(flushCtx); err != nil && !errors.Is(err, context.Canceled) {
 		slog.Warn("OpenTelemetry trace shutdown failed")
 	}
+}
+
+// SetHTTPRoute attaches the matched framework route, not the raw URL.
+// This prevents conversation identifiers and query parameters from leaking.
+func SetHTTPRoute(ctx context.Context, method, route string) {
+	if !strings.HasPrefix(route, "/") || len(route) > 160 {
+		return
+	}
+	span := trace.SpanFromContext(ctx)
+	span.SetName(method + " " + route)
+	span.SetAttributes(attribute.String("http.route", route))
+}
+
+// safeHTTPRoute is an allowlist of known outbound endpoints. Unknown routes
+// receive no path attribute rather than exposing their potentially sensitive IDs.
+func safeHTTPRoute(path string) string {
+	switch path {
+	case "/v1/conversations", "/v1/auth/status", "/v1/auth/login", "/v1/auth",
+		"/v1/codex/settings", "/v1/threads", "/v1/auth/tokens",
+		"/v1/auth/device-login", "/v1/auth/account", "/v1/auth/credentials":
+		return path
+	}
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	switch {
+	case len(parts) == 3 && parts[0] == "v1" && parts[1] == "conversations":
+		return "/v1/conversations/:id"
+	case len(parts) == 4 && parts[0] == "v1" && parts[1] == "conversations" && parts[3] == "messages":
+		return "/v1/conversations/:id/messages"
+	case len(parts) == 4 && parts[0] == "v1" && parts[1] == "conversations" && parts[3] == "approvals":
+		return "/v1/conversations/:id/approvals"
+	case len(parts) == 4 && parts[0] == "v1" && parts[1] == "threads" && parts[3] == "resume":
+		return "/v1/threads/:id/resume"
+	case len(parts) == 4 && parts[0] == "v1" && parts[1] == "threads" && parts[3] == "turns":
+		return "/v1/threads/:id/turns"
+	case len(parts) == 3 && parts[0] == "v1" && parts[1] == "approvals":
+		return "/v1/approvals/:id"
+	case len(parts) == 4 && parts[0] == "v1" && parts[1] == "approvals":
+		return "/v1/approvals/:runID/:requestID"
+	case len(parts) == 4 && parts[0] == "v1" && parts[1] == "auth" && parts[2] == "device-login":
+		return "/v1/auth/device-login/:loginID"
+	case len(parts) == 4 && parts[0] == "v1" && parts[1] == "runs" && parts[3] == "events":
+		return "/v1/runs/:runID/events"
+	case len(parts) == 4 && parts[0] == "internal" && parts[1] == "runs" && parts[3] == "events":
+		return "/internal/runs/:runID/events"
+	case len(parts) == 4 && parts[0] == "internal" && parts[1] == "sessions" && parts[3] == "heartbeat":
+		return "/internal/sessions/:conversationID/heartbeat"
+	case len(parts) == 3 && parts[0] == "internal" && parts[1] == "auth" && parts[2] == "refresh":
+		return "/internal/auth/refresh"
+	default:
+		return ""
+	}
+}
+
+func safeErrorSummary(kind string) string {
+	switch kind {
+	case "deadline_exceeded":
+		return "operation timed out"
+	case "canceled":
+		return "operation canceled"
+	case "network_timeout":
+		return "network timeout"
+	case "connection_refused":
+		return "connection refused"
+	case "dns_resolution":
+		return "DNS lookup failed"
+	case "not_found":
+		return "resource not found"
+	case "unauthorized":
+		return "authentication failed"
+	case "forbidden":
+		return "permission denied"
+	case "invalid_json":
+		return "invalid JSON"
+	case "internal_error":
+		return "internal operation failed"
+	}
+	if strings.HasPrefix(kind, "jsonrpc_") {
+		return "JSON-RPC error " + strings.TrimPrefix(kind, "jsonrpc_")
+	}
+	if strings.HasPrefix(kind, "http_") {
+		return "HTTP error " + strings.TrimPrefix(kind, "http_")
+	}
+	return "operation failed"
 }
