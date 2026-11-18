@@ -15,7 +15,7 @@ type fakeSettingsSession struct {
 func (f *fakeSettingsSession) ReadSettings(context.Context) (CodexSettings, error) {
 	return CodexSettings{
 		ApprovalPolicy: "never",
-		SandboxMode: "workspace-write",
+		SandboxMode:    "workspace-write",
 	}, nil
 }
 
