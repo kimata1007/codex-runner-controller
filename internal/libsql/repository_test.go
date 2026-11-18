@@ -85,7 +85,7 @@ func newRepositoryTestServer(t *testing.T) (*httptest.Server, *[]string, *[][]Va
 			t.Errorf("decode pipeline request: %v", err)
 			return
 		}
-		if len(body.Requests) != 1 || body.Requests[0].Stmt == nil {
+		if len(body.Requests) != 2 || body.Requests[0].Stmt == nil || body.Requests[1].Type != "close" {
 			t.Errorf("unexpected pipeline request: %+v", body.Requests)
 			return
 		}
@@ -112,9 +112,7 @@ func newRepositoryTestServer(t *testing.T) (*httptest.Server, *[]string, *[][]Va
 			t.Errorf("marshal execute response: %v", err)
 			return
 		}
-		_ = json.NewEncoder(writer).Encode(pipelineResponse{
-			Results: []streamResult{{Type: "ok", Response: response}},
-		})
+		_ = json.NewEncoder(writer).Encode(pipelineResponseWithClosedStream(streamResult{Type: "ok", Response: response}))
 	}))
 	return server, &queries, &args
 }
@@ -135,11 +133,11 @@ func TestRepositoryLatestThreadID(t *testing.T) {
 			t.Errorf("decode request: %v", err)
 			return
 		}
-		if len(body.Requests) != 1 || body.Requests[0].Stmt == nil || !strings.Contains(body.Requests[0].Stmt.SQL, "ORDER BY created_at DESC") {
+		if len(body.Requests) != 2 || body.Requests[0].Stmt == nil || body.Requests[1].Type != "close" || !strings.Contains(body.Requests[0].Stmt.SQL, "ORDER BY created_at DESC") {
 			t.Errorf("unexpected query: %+v", body.Requests)
 		}
 		response := json.RawMessage(`{"type":"execute","result":{"cols":[{"name":"thread_id"}],"rows":[[{"type":"text","value":"thread-1"}]],"affected_row_count":0}}`)
-		_ = json.NewEncoder(writer).Encode(pipelineResponse{Results: []streamResult{{Type: "ok", Response: response}}})
+		_ = json.NewEncoder(writer).Encode(pipelineResponseWithClosedStream(streamResult{Type: "ok", Response: response}))
 	}))
 	defer server.Close()
 
@@ -160,12 +158,16 @@ func TestRepositoryListsPendingApprovalsForConversation(t *testing.T) {
 			t.Errorf("decode request: %v", err)
 			return
 		}
+		if len(body.Requests) != 2 || body.Requests[1].Type != "close" {
+			t.Errorf("stream was not closed: %+v", body.Requests)
+			return
+		}
 		query := body.Requests[0].Stmt
 		if !strings.Contains(query.SQL, "a.status = 'pending'") || !strings.Contains(query.SQL, "c.user_id = ?") {
 			t.Errorf("query does not filter pending approvals by owner: %s", query.SQL)
 		}
 		response := json.RawMessage(`{"type":"execute","result":{"cols":[{"name":"run_id"},{"name":"request_id"},{"name":"action_type"},{"name":"summary"}],"rows":[[{"type":"text","value":"run-1"},{"type":"text","value":"17"},{"type":"text","value":"item/commandExecution/requestApproval"},{"type":"text","value":"{\"command\":\"go test ./...\"}"}]],"affected_row_count":0}}`)
-		_ = json.NewEncoder(writer).Encode(pipelineResponse{Results: []streamResult{{Type: "ok", Response: response}}})
+		_ = json.NewEncoder(writer).Encode(pipelineResponseWithClosedStream(streamResult{Type: "ok", Response: response}))
 	}))
 	defer server.Close()
 

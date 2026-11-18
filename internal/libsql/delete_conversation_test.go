@@ -43,19 +43,23 @@ func TestDeleteConversationUsesOneAtomicBatch(t *testing.T) {
 			t.Errorf("decode: %v", err)
 			return
 		}
+		if len(req.Requests) != 2 || req.Requests[1].Type != "close" {
+			t.Errorf("stream was not closed: %+v", req.Requests)
+			return
+		}
 		if count == 1 {
-			if len(req.Requests) != 1 || req.Requests[0].Stmt == nil || !strings.Contains(req.Requests[0].Stmt.SQL, "user_id = ?") {
+			if req.Requests[0].Stmt == nil || !strings.Contains(req.Requests[0].Stmt.SQL, "user_id = ?") {
 				t.Errorf("missing ownership check: %+v", req.Requests)
 			}
 			result := json.RawMessage(`{"type":"execute","result":{"cols":[],"rows":[[{"type":"text","value":"conversation-1"}]],"affected_row_count":0}}`)
-			_ = json.NewEncoder(w).Encode(pipelineResponse{Results: []streamResult{{Type: "ok", Response: result}}})
+			_ = json.NewEncoder(w).Encode(pipelineResponseWithClosedStream(streamResult{Type: "ok", Response: result}))
 			return
 		}
 		if count != 2 {
 			t.Errorf("expected one atomic batch, got request %d", count)
 			return
 		}
-		if len(req.Requests) != 1 || req.Requests[0].Type != "batch" || req.Requests[0].Batch == nil {
+		if req.Requests[0].Type != "batch" || req.Requests[0].Batch == nil {
 			t.Errorf("missing batch request: %+v", req.Requests)
 			return
 		}
@@ -89,7 +93,8 @@ func TestDeleteConversationUsesOneAtomicBatch(t *testing.T) {
 		if steps[8].Condition == nil || steps[8].Condition.Type != "and" || len(steps[8].Condition.Conds) != 2 {
 			t.Error("ROLLBACK not gated on failed commit")
 		}
-		_ = json.NewEncoder(w).Encode(batchSuccessResponse(len(steps), -1))
+		response := batchSuccessResponse(len(steps), -1)
+		_ = json.NewEncoder(w).Encode(pipelineResponseWithClosedStream(response.Results...))
 	}))
 	defer server.Close()
 	repo := NewRepository(NewClient(server.URL, "").WithHTTPClient(server.Client()), "user-1")
@@ -110,13 +115,18 @@ func TestDeleteConversationStatementFailureReturnsErrorAndRollback(t *testing.T)
 			t.Error(err)
 			return
 		}
+		if len(req.Requests) != 2 || req.Requests[1].Type != "close" {
+			t.Errorf("stream was not closed: %+v", req.Requests)
+			return
+		}
 		if calls == 1 {
 			data := json.RawMessage(`{"type":"execute","result":{"cols":[],"rows":[[{"type":"text","value":"conversation-1"}]],"affected_row_count":0}}`)
-			_ = json.NewEncoder(w).Encode(pipelineResponse{Results: []streamResult{{Type: "ok", Response: data}}})
+			_ = json.NewEncoder(w).Encode(pipelineResponseWithClosedStream(streamResult{Type: "ok", Response: data}))
 			return
 		}
 		steps := req.Requests[0].Batch.Steps
-		_ = json.NewEncoder(w).Encode(batchSuccessResponse(len(steps), 4))
+		response := batchSuccessResponse(len(steps), 4)
+		_ = json.NewEncoder(w).Encode(pipelineResponseWithClosedStream(response.Results...))
 	}))
 	defer server.Close()
 	repo := NewRepository(NewClient(server.URL, "").WithHTTPClient(server.Client()), "user-1")
@@ -137,7 +147,7 @@ func TestDeleteConversationUnknownOwnerDoesNotRunBatch(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++
 		result := json.RawMessage(`{"type":"execute","result":{"cols":[],"rows":[],"affected_row_count":0}}`)
-		_ = json.NewEncoder(w).Encode(pipelineResponse{Results: []streamResult{{Type: "ok", Response: result}}})
+		_ = json.NewEncoder(w).Encode(pipelineResponseWithClosedStream(streamResult{Type: "ok", Response: result}))
 	}))
 	defer server.Close()
 	repo := NewRepository(NewClient(server.URL, "").WithHTTPClient(server.Client()), "another-user")
@@ -166,7 +176,7 @@ func TestExecTransactionRejectsUnconfirmedRollback(t *testing.T) {
 		batch.Result.StepResults[count-1] = json.RawMessage(`null`)
 		encoded, _ := json.Marshal(batch)
 		reply.Results[0].Response = encoded
-		_ = json.NewEncoder(w).Encode(reply)
+		_ = json.NewEncoder(w).Encode(pipelineResponseWithClosedStream(reply.Results...))
 	}))
 	defer server.Close()
 	client := NewClient(server.URL, "").WithHTTPClient(server.Client())
@@ -178,7 +188,7 @@ func TestExecTransactionRejectsUnconfirmedRollback(t *testing.T) {
 
 func TestExecTransactionRejectsMalformedResponse(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewEncoder(w).Encode(pipelineResponse{Results: []streamResult{{Type: "ok", Response: json.RawMessage(`{"type":"batch","result":{"step_results":[],"step_errors":[]}}`)}}})
+		_ = json.NewEncoder(w).Encode(pipelineResponseWithClosedStream(streamResult{Type: "ok", Response: json.RawMessage(`{"type":"batch","result":{"step_results":[],"step_errors":[]}}`)}))
 	}))
 	defer server.Close()
 	client := NewClient(server.URL, "").WithHTTPClient(server.Client())
