@@ -83,11 +83,11 @@ func TestDeleteConversationUsesOneAtomicBatch(t *testing.T) {
 			if len(step.Stmt.Args) != 3 || step.Stmt.Args[2].Value != "user-1" {
 				t.Errorf("incorrect ownership args: %+v", step.Stmt.Args)
 			}
-			if step.Condition == nil || step.Condition.Type != "ok" || step.Condition.Step != i {
+			if step.Condition == nil || step.Condition.Type != "ok" || step.Condition.Step == nil || *step.Condition.Step != i {
 				t.Errorf("step %d not conditioned on previous success", i+1)
 			}
 		}
-		if steps[7].Condition == nil || steps[7].Condition.Type != "ok" || steps[7].Condition.Step != 6 {
+		if steps[7].Condition == nil || steps[7].Condition.Type != "ok" || steps[7].Condition.Step == nil || *steps[7].Condition.Step != 6 {
 			t.Error("COMMIT not gated on last DELETE")
 		}
 		if steps[8].Condition == nil || steps[8].Condition.Type != "and" || len(steps[8].Condition.Conds) != 2 {
@@ -183,6 +183,27 @@ func TestExecTransactionRejectsUnconfirmedRollback(t *testing.T) {
 	err := client.ExecTransaction(context.Background(), []TxStatement{{SQL: "SELECT 1"}})
 	if err == nil || !strings.Contains(err.Error(), "rollback not confirmed") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestExecTransactionSerializesZeroStep(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request pipelineRequest
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Error(err)
+			return
+		}
+		steps := request.Requests[0].Batch.Steps
+		if steps[1].Condition == nil || steps[1].Condition.Step == nil || *steps[1].Condition.Step != 0 {
+			t.Errorf("zero-valued step was omitted: %+v", steps[1].Condition)
+		}
+		reply := batchSuccessResponse(len(steps), -1)
+		_ = json.NewEncoder(w).Encode(pipelineResponseWithClosedStream(reply.Results...))
+	}))
+	defer server.Close()
+	client := NewClient(server.URL, "").WithHTTPClient(server.Client())
+	if err := client.ExecTransaction(context.Background(), []TxStatement{{SQL: "SELECT 1"}}); err != nil {
+		t.Fatal(err)
 	}
 }
 
