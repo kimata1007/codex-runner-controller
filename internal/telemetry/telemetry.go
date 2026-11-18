@@ -87,10 +87,14 @@ func HTTPHandler(next http.Handler) http.Handler {
 			code = http.StatusOK
 		}
 		span.SetAttributes(attribute.Int("http.response.status_code", code))
-		if code >= 500 {
-			span.SetStatus(codes.Error, "server error")
+		if code >= 400 {
 			span.SetAttributes(attribute.String("error.type", "http_"+strconv.Itoa(code)))
 			span.AddEvent("http.server.error", trace.WithAttributes(attribute.Int("http.response.status_code", code)))
+			// HTTP server-side 4xx responses reflect client errors. Only
+			// server-side 5xx responses mark the span itself as failed.
+			if code >= 500 {
+				span.SetStatus(codes.Error, "server error")
+			}
 		}
 	})
 }
@@ -124,8 +128,8 @@ func (t roundTripper) RoundTrip(r *http.Request) (*http.Response, error) {
 		return nil, err
 	}
 	span.SetAttributes(attribute.Int("http.response.status_code", response.StatusCode))
-	if response.StatusCode >= 500 {
-		span.SetStatus(codes.Error, "upstream server error")
+	if response.StatusCode >= 400 {
+		span.SetStatus(codes.Error, "upstream request failed")
 		span.SetAttributes(attribute.String("error.type", "http_"+strconv.Itoa(response.StatusCode)))
 		span.AddEvent("http.client.error", trace.WithAttributes(attribute.Int("http.response.status_code", response.StatusCode)))
 	}
