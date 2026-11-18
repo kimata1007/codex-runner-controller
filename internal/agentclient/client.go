@@ -8,10 +8,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"syscall"
-	"time"
 	"net/url"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/kimata1007/codex-runner-controller/internal/agent"
 	"github.com/kimata1007/codex-runner-controller/internal/telemetry"
