@@ -818,6 +818,37 @@ function displaySettings(result) {
   addSettingsRow(basics, 'Sandbox', settings.sandboxMode);
   elements.settingsValues.append(basics);
 
+  const installedHeading = document.createElement('h3');
+  installedHeading.textContent = '接続済みアプリとツール';
+  elements.settingsValues.append(installedHeading);
+  if (settings.appsError) {
+    const error = document.createElement('p');
+    error.textContent = settings.appsError;
+    elements.settingsValues.append(error);
+  } else if (!settings.installedApps?.length) {
+    const empty = document.createElement('p');
+    empty.textContent = 'このCodex App Serverには利用可能なアプリがありません。';
+    elements.settingsValues.append(empty);
+  }
+  for (const app of settings.installedApps || []) {
+    const section = document.createElement('section');
+    section.className = 'settings-app';
+    const title = document.createElement('h4');
+    title.textContent = app.name || app.id;
+    section.append(title);
+    const details = document.createElement('dl');
+    details.className = 'settings-list';
+    addSettingsRow(details, 'アプリの状態', app.enabled ? '有効' : '無効');
+    addSettingsRow(details, '実行可能', app.callable ? 'はい' : 'いいえ');
+    for (const tool of app.tools || []) {
+      const mode = tool.readOnly ? '読み取り' : '書き込み可能なツール';
+      const enabled = tool.enabled ? '有効' : '無効';
+      addSettingsRow(details, tool.name, [mode, enabled, tool.disabledReason || ''].filter(Boolean).join(' · '));
+    }
+    section.append(details);
+    elements.settingsValues.append(section);
+  }
+
   const heading = document.createElement('h3');
   heading.textContent = 'アプリの設定';
   elements.settingsValues.append(heading);
