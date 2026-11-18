@@ -282,9 +282,6 @@ func (c *Client) pipeline(ctx context.Context, requests []streamRequest) (pipeli
 }
 
 func (c *Client) doPipeline(ctx context.Context, requests []streamRequest) (pipelineResponse, error) {
-	// Open a fresh stream for each pipeline and close it in that same request.
-	// No baton is retained between database operations, so an idle stream cannot
-	// expire between requests and leave the client holding a stale baton.
 	payload, err := json.Marshal(pipelineRequest{Baton: nil, Requests: requests})
 	if err != nil {
 		return pipelineResponse{}, fmt.Errorf("libsql: encode pipeline request: %w", err)
