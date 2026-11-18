@@ -73,7 +73,7 @@ func (s *Session) ReadSettings(ctx context.Context) (CodexSettings, error) {
 	// must not prevent the user from viewing the core Codex settings.
 	settings.InstalledApps, err = s.readInstalledApps(ctx)
 	if err != nil {
-		settings.AppsError = "アプリの利用状態を取得できませんでした"
+		settings.AppsError = "アプリ一覧またはツール詳細を取得できませんでした"
 	}
 	return settings, nil
 }
@@ -182,8 +182,8 @@ func (s *Session) readInstalledApps(ctx context.Context) ([]CodexInstalledApp, e
 	if err := s.client.Call(ctx, "app/read", map[string]any{
 		"appIds": ids, "includeTools": true,
 	}, &details); err != nil {
-		// App state is still useful when tool metadata is unavailable.
-		return apps, nil
+		// Preserve app state, but report that tool details are incomplete.
+		return apps, err
 	}
 	byID := make(map[string]int, len(apps))
 	for i := range apps {
