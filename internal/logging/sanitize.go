@@ -59,3 +59,24 @@ var (
 	openAITokenPattern = regexp.MustCompile(`\bsk-[A-Za-z0-9_-]{12,}\b`)
 	jwtPattern = regexp.MustCompile(`\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b`)
 )
+
+// SanitizeHTTPPath retains resource identifiers for correlating requests.
+// It does not return queries, fragments, or credentials, and masks path
+// segments which look like opaque authentication tokens.
+func SanitizeHTTPPath(path string) string {
+	if len(path) == 0 || len(path) > 1024 || !strings.HasPrefix(path, "/") {
+		return ""
+	}
+	segments := strings.Split(path, "/")
+	for i, segment := range segments {
+		if segment == "" {
+			continue
+		}
+		if len(segment) > 160 || strings.ContainsAny(segment, " \r\n\t?#@") ||
+			githubTokenPattern.MatchString(segment) || openAITokenPattern.MatchString(segment) ||
+			jwtPattern.MatchString(segment) {
+			segments[i] = "[REDACTED]"
+		}
+	}
+	return strings.Join(segments, "/")
+}
