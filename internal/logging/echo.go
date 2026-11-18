@@ -35,7 +35,7 @@ func EchoRequestLogger(logger *slog.Logger) echo.MiddlewareFunc {
 			if route := c.Path(); route != "" {
 				span := trace.SpanFromContext(c.Request().Context())
 				span.SetName(values.Method + " " + route)
-				span.SetAttributes(attribute.String("http.route", route))
+				span.SetAttributes(attribute.String("http.route", route), attribute.String("url.path", SanitizeHTTPPath(c.Request().URL.Path)))
 			}
 			spanCtx := trace.SpanContextFromContext(c.Request().Context())
 			if spanCtx.IsValid() {
