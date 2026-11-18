@@ -59,6 +59,7 @@ func NewHTTPHandlerWithAuthBroker(session SessionAPI, tracker *RunTracker, appro
 	e.POST("/v1/threads/:id/turns", server.startTurn)
 	e.POST("/v1/approvals/:id", server.approval)
 	e.POST("/v1/auth/tokens", server.setAuthTokens)
+	e.GET("/v1/codex/settings", server.codexSettings)
 	if authBroker {
 		e.POST("/v1/auth/device-login", server.startDeviceLogin)
 		e.GET("/v1/auth/device-login/:loginID", server.deviceLoginStatus)
@@ -67,6 +68,21 @@ func NewHTTPHandlerWithAuthBroker(session SessionAPI, tracker *RunTracker, appro
 		e.DELETE("/v1/auth/account", server.logoutAccount)
 	}
 	return e
+}
+
+// codexSettings returns only allowlisted, non-secret settings from the live child.
+func (s *HTTPServer) codexSettings(c echo.Context) error {
+	reader, ok := s.session.(interface {
+		ReadSettings(context.Context) (CodexSettings, error)
+	})
+	if !ok {
+		return writeError(c, http.StatusServiceUnavailable, "Codex settings are unavailable")
+	}
+	settings, err := reader.ReadSettings(c.Request().Context())
+	if err != nil {
+		return writeAgentOperationalError(c, http.StatusBadGateway, "could not read Codex settings", "app_server.config_read", err)
+	}
+	return writeJSON(c, http.StatusOK, settings)
 }
 
 type threadRequest struct {

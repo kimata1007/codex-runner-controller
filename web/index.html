@@ -52,6 +52,7 @@
             <span id="codex-account-label">ChatGPT 未接続</span>
             <button id="connect-chatgpt" class="account-action" type="button">ChatGPTに接続</button>
             <a id="manage-usage" href="https://chatgpt.com/settings/usage" target="_blank" rel="noopener noreferrer" hidden>利用状況を管理</a>
+            <button id="show-codex-settings" class="settings-action" type="button" hidden>設定を確認</button>
           </div>
           <div id="selected-repository" class="repository-chip" hidden>
             <svg aria-hidden="true" viewBox="0 0 20 20"><path d="M3 5.5h5l1.6 1.8H17v8.2H3z"/><path d="M3 5.5V4h5l1.6 1.5"/></svg>
@@ -119,6 +120,24 @@
         </div>
         <p id="auth-waiting" class="auth-waiting" role="status" aria-live="polite">サインインを確認しています…</p>
         <div class="dialog-actions"><button id="cancel-auth" class="button-secondary" type="button">キャンセル</button></div>
+      </section>
+    </dialog>
+
+    <dialog id="codex-settings-dialog" class="repository-dialog codex-settings-dialog" aria-labelledby="codex-settings-title">
+      <section class="codex-settings-content">
+        <div class="dialog-heading">
+          <div>
+            <p class="dialog-eyebrow">Codex App Server</p>
+            <h2 id="codex-settings-title">Codexの設定</h2>
+          </div>
+          <button id="close-codex-settings" class="icon-button dialog-close" type="button" aria-label="閉じる">
+            <svg aria-hidden="true" viewBox="0 0 20 20"><path d="m6 6 8 8M14 6l-8 8"/></svg>
+          </button>
+        </div>
+        <p id="codex-settings-scope" class="settings-scope"></p>
+        <p id="codex-settings-message" class="settings-message" role="status" aria-live="polite">設定を取得しています…</p>
+        <div id="codex-settings-values" class="settings-values"></div>
+        <p class="settings-note">認証情報は表示されません。設定されていない項目はCodexの既定値が使用される場合があります。</p>
       </section>
     </dialog>
 

@@ -379,3 +379,30 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .topbar-delete { min-height: 40px; padding: 0 12px; flex: 0 0 auto; border: 1px solid var(--danger); border-radius: 8px; background: transparent; color: var(--danger); font-size: 13px; cursor: pointer; }
 .topbar-delete:hover { background: #fff0ef; }
 .history-options:focus-visible, .history-delete-action:focus-visible, .topbar-delete:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+
+/* Read-only Codex settings, next to the existing ChatGPT account status. */
+.account-indicator { flex-wrap: wrap; }
+.settings-action { min-height: 36px; padding: 0 10px; border: 1px solid var(--line); border-radius: 7px; background: transparent; color: #475641; font-size: 13px; cursor: pointer; }
+.settings-action:hover { background: #ecefe9; }
+.settings-action:disabled { opacity: .6; cursor: wait; }
+.settings-action[hidden] { display: none; }
+.codex-settings-dialog { width: min(560px, calc(100vw - 24px)); max-height: min(80dvh, 750px); overflow-y: auto; }
+.codex-settings-content { padding: 22px 24px; }
+.settings-scope { margin: 12px 0 4px; color: var(--muted); font-size: 13px; }
+.settings-message { margin: 14px 0; color: var(--muted); }
+.settings-message[data-kind="error"], .settings-warning { color: var(--danger); }
+.settings-warning { font-size: 13px; }
+.settings-values { display: grid; gap: 14px; }
+.settings-values h3 { margin: 8px 0 0; font-size: 15px; }
+.settings-list { display: grid; gap: 0; margin: 0; }
+.settings-row { display: grid; grid-template-columns: minmax(118px, 42%) 1fr; padding: 9px 0; border-bottom: 1px solid var(--line); gap: 8px; overflow-wrap: anywhere; font-size: 13px; }
+.settings-row dt { color: var(--muted); }
+.settings-row dd { margin: 0; }
+.settings-app { padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; }
+.settings-app h4 { margin: 0 0 5px; font-size: 14px; }
+.settings-note { color: var(--muted); font-size: 12px; line-height: 1.6; }
+@media (max-width: 760px) {
+  .settings-action { min-height: 44px; font-size: 12px; }
+  .codex-settings-content { padding: 18px 16px; }
+}
