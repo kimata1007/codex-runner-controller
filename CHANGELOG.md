@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.0.12](https://github.com/kimata1007/codex-runner-controller/compare/v0.0.11...v0.0.12) - 2026-11-18
+
+- fix: archive conversations and preserve history by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/117
+- feat: HTTPトレースに安全なルート名とエラー情報を追加 by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/116
+
 ## [v0.0.11](https://github.com/kimata1007/codex-runner-controller/compare/v0.0.10...v0.0.11) - 2026-11-18
 
 - feat: PWAからCodex App Serverの設定とアプリツール状態を確認 by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/114
