@@ -71,11 +71,11 @@ func TestRepositoryFromEnvironmentMigratesLibSQL(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 			t.Errorf("decode request: %v", err)
 		}
-		if len(request.Requests) != 1 || request.Requests[0].Type != "sequence" || request.Requests[0].SQL == "" {
+		if len(request.Requests) != 2 || request.Requests[0].Type != "sequence" || request.Requests[0].SQL == "" || request.Requests[1].Type != "close" {
 			t.Errorf("unexpected schema request: %+v", request.Requests)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"results":[{"type":"ok","response":{"type":"sequence"}}]}`))
+		_, _ = w.Write([]byte(`{"results":[{"type":"ok","response":{"type":"sequence"}},{"type":"ok"}]}`))
 	}))
 	defer server.Close()
 

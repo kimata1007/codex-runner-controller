@@ -48,7 +48,7 @@ func main() {
 		case "turn/start":
 			var params struct {
 				ThreadID string `json:"threadId"`
-				Input []struct {
+				Input    []struct {
 					Type string `json:"type"`
 					Text string `json:"text"`
 				} `json:"input"`

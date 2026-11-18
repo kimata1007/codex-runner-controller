@@ -53,6 +53,7 @@ func TestRetriesRefusedAgentConnectionsPreservingBodyAndToken(t *testing.T) {
 }
 
 type transportError struct{ count int }
+
 func (t *transportError) RoundTrip(*http.Request) (*http.Response, error) {
 	t.count++
 	return nil, errors.New("connection reset after request")
