@@ -217,4 +217,3 @@ func safeHTTPRoute(path string) string {
 		return ""
 	}
 }
-
