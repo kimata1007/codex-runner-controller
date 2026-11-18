@@ -18,6 +18,7 @@ import (
 	"github.com/kimata1007/codex-runner-controller/internal/logging"
 	"github.com/kimata1007/codex-runner-controller/internal/runs"
 	"github.com/kimata1007/codex-runner-controller/internal/session"
+	"github.com/kimata1007/codex-runner-controller/internal/telemetry"
 	"github.com/labstack/echo/v4"
 )
 
@@ -645,6 +646,7 @@ func writeOperationalError(c echo.Context, status int, message, operation string
 }
 
 func writeOperationalErrorWithAttributes(c echo.Context, status int, message, operation string, cause error, attributes ...any) error {
+	telemetry.RecordError(c.Request().Context(), cause)
 	attributes = append(attributes,
 		"operation", operation,
 		"http.response.status_code", status,

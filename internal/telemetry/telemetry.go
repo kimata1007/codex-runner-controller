@@ -1,6 +1,6 @@
 // Package telemetry adds opt-in, privacy-conscious OpenTelemetry tracing.
-// Only span names, bounded status codes, and safe operation names are emitted;
-// request/response bodies and authentication headers are never captured.
+// Spans include operation names and redacted error descriptions, never raw
+// request/response bodies, authentication headers, or prompts.
 package telemetry
 
 import (
@@ -9,7 +9,10 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 	"time"
+
+	"github.com/kimata1007/codex-runner-controller/internal/logging"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -48,15 +51,21 @@ func Start(ctx context.Context, service string) (func(context.Context) error, er
 
 func Tracer() trace.Tracer { return otel.Tracer(instrumentation) }
 
-// RecordError marks the current span as failed, without attaching arbitrary
-// error messages that could include user prompts, tokens or API payloads.
+// RecordError records the actual error after stripping common credentials and
+// structured input fields. Callers must not pass request/response bodies.
 func RecordError(ctx context.Context, err error) {
 	if err == nil {
 		return
 	}
 	span := trace.SpanFromContext(ctx)
-	span.SetStatus(codes.Error, "operation failed")
-	span.SetAttributes(attribute.String("error.type", "operation_failed"))
+	message := logging.SanitizeErrorMessage(err.Error())
+	span.SetStatus(codes.Error, message)
+	kind := logging.ErrorType(err)
+	span.SetAttributes(attribute.String("error.type", kind))
+	span.AddEvent("exception", trace.WithAttributes(
+		attribute.String("exception.message", message),
+		attribute.String("exception.type", kind),
+	))
 }
 
 // HTTPHandler instruments inbound HTTP traffic. Health checks are not traced.
@@ -96,8 +105,14 @@ func HTTPTransport(base http.RoundTripper) http.RoundTripper {
 type roundTripper struct{ base http.RoundTripper }
 
 func (t roundTripper) RoundTrip(r *http.Request) (*http.Response, error) {
-	ctx, span := Tracer().Start(r.Context(), "http.client", trace.WithSpanKind(trace.SpanKindClient),
-		trace.WithAttributes(attribute.String("http.request.method", r.Method)))
+	attrs := []attribute.KeyValue{attribute.String("http.request.method", r.Method)}
+	name := "http.client"
+	if route := safeHTTPRoute(r.URL.Path); route != "" {
+		attrs = append(attrs, attribute.String("http.route", route), attribute.String("url.path", logging.SanitizeHTTPPath(r.URL.Path)))
+		name = r.Method + " " + route
+	}
+	ctx, span := Tracer().Start(r.Context(), name, trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(attrs...))
 	defer span.End()
 	out := r.Clone(ctx)
 	otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(out.Header))
@@ -107,8 +122,8 @@ func (t roundTripper) RoundTrip(r *http.Request) (*http.Response, error) {
 		return nil, err
 	}
 	span.SetAttributes(attribute.Int("http.response.status_code", response.StatusCode))
-	if response.StatusCode >= 500 {
-		span.SetStatus(codes.Error, "upstream server error")
+	if response.StatusCode >= 400 {
+		span.SetStatus(codes.Error, "upstream request failed")
 	}
 	return response, nil
 }
@@ -149,5 +164,56 @@ func Shutdown(ctx context.Context, shutdown func(context.Context) error) {
 	defer cancel()
 	if err := shutdown(flushCtx); err != nil && !errors.Is(err, context.Canceled) {
 		slog.Warn("OpenTelemetry trace shutdown failed")
+	}
+}
+
+// SetHTTPRoute attaches the matched framework route, not the raw URL.
+// This prevents conversation identifiers and query parameters from leaking.
+func SetHTTPRoute(ctx context.Context, method, route string) {
+	if !strings.HasPrefix(route, "/") || len(route) > 160 {
+		return
+	}
+	span := trace.SpanFromContext(ctx)
+	span.SetName(method + " " + route)
+	span.SetAttributes(attribute.String("http.route", route))
+}
+
+// safeHTTPRoute is an allowlist of known outbound endpoints. Unknown routes
+// receive no path attribute rather than exposing their potentially sensitive IDs.
+func safeHTTPRoute(path string) string {
+	switch path {
+	case "/v1/conversations", "/v1/auth/status", "/v1/auth/login", "/v1/auth",
+		"/v1/codex/settings", "/v1/threads", "/v1/auth/tokens",
+		"/v1/auth/device-login", "/v1/auth/account", "/v1/auth/credentials":
+		return path
+	}
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	switch {
+	case len(parts) == 3 && parts[0] == "v1" && parts[1] == "conversations":
+		return "/v1/conversations/:id"
+	case len(parts) == 4 && parts[0] == "v1" && parts[1] == "conversations" && parts[3] == "messages":
+		return "/v1/conversations/:id/messages"
+	case len(parts) == 4 && parts[0] == "v1" && parts[1] == "conversations" && parts[3] == "approvals":
+		return "/v1/conversations/:id/approvals"
+	case len(parts) == 4 && parts[0] == "v1" && parts[1] == "threads" && parts[3] == "resume":
+		return "/v1/threads/:id/resume"
+	case len(parts) == 4 && parts[0] == "v1" && parts[1] == "threads" && parts[3] == "turns":
+		return "/v1/threads/:id/turns"
+	case len(parts) == 3 && parts[0] == "v1" && parts[1] == "approvals":
+		return "/v1/approvals/:id"
+	case len(parts) == 4 && parts[0] == "v1" && parts[1] == "approvals":
+		return "/v1/approvals/:runID/:requestID"
+	case len(parts) == 4 && parts[0] == "v1" && parts[1] == "auth" && parts[2] == "device-login":
+		return "/v1/auth/device-login/:loginID"
+	case len(parts) == 4 && parts[0] == "v1" && parts[1] == "runs" && parts[3] == "events":
+		return "/v1/runs/:runID/events"
+	case len(parts) == 4 && parts[0] == "internal" && parts[1] == "runs" && parts[3] == "events":
+		return "/internal/runs/:runID/events"
+	case len(parts) == 4 && parts[0] == "internal" && parts[1] == "sessions" && parts[3] == "heartbeat":
+		return "/internal/sessions/:conversationID/heartbeat"
+	case len(parts) == 3 && parts[0] == "internal" && parts[1] == "auth" && parts[2] == "refresh":
+		return "/internal/auth/refresh"
+	default:
+		return ""
 	}
 }

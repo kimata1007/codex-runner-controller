@@ -3,6 +3,9 @@ package logging
 import (
 	"log/slog"
 
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 )
@@ -28,8 +31,18 @@ func EchoRequestLogger(logger *slog.Logger) echo.MiddlewareFunc {
 				"http.response.status_code", values.Status,
 				"duration_ms", values.Latency.Milliseconds(),
 			}
+			// Echo's matched route is a template, not a raw URI containing IDs.
+			if route := c.Path(); route != "" {
+				span := trace.SpanFromContext(c.Request().Context())
+				span.SetName(values.Method + " " + route)
+				span.SetAttributes(attribute.String("http.route", route), attribute.String("url.path", SanitizeHTTPPath(c.Request().URL.Path)))
+			}
+			spanCtx := trace.SpanContextFromContext(c.Request().Context())
+			if spanCtx.IsValid() {
+				attributes = append(attributes, "trace_id", spanCtx.TraceID().String(), "span_id", spanCtx.SpanID().String())
+			}
 			if values.Error != nil {
-				attributes = append(attributes, "error", values.Error)
+				attributes = append(attributes, "error.type", ErrorType(values.Error))
 			}
 			logger.InfoContext(c.Request().Context(), "HTTP request completed", attributes...)
 			return nil
