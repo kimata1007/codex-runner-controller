@@ -135,6 +135,7 @@ func (r *Repository) CreateMessage(ctx context.Context, id string, input convers
 		CreatedAt:       now,
 	}
 	value.Messages = append(value.Messages, message)
+	value.Status = "active"
 	value.UpdatedAt = now
 	return message, true, nil
 }
@@ -203,15 +204,17 @@ func conversationTitle(content string) string {
 	return content
 }
 
-func (r *Repository) DeleteConversation(ctx context.Context, id string) error {
+func (r *Repository) ArchiveConversation(ctx context.Context, id string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if _, ok := r.conversations[id]; !ok {
+	value, ok := r.conversations[id]
+	if !ok {
 		return fmt.Errorf("%w: %s", conversation.ErrNotFound, id)
 	}
-	delete(r.conversations, id)
+	value.Status = "archived"
+	value.UpdatedAt = time.Now().UTC()
 	return nil
 }
