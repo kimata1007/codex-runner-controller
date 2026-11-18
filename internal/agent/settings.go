@@ -22,11 +22,11 @@ type CodexSettings struct {
 // CodexInstalledApp reports effective access and display-only tool summaries.
 // This is independent of the user's app configuration overrides.
 type CodexInstalledApp struct {
-	ID       string          `json:"id"`
-	Name     string          `json:"name,omitempty"`
-	Enabled  bool            `json:"enabled"`
-	Callable bool            `json:"callable"`
-	Tools    []CodexAppTool  `json:"tools,omitempty"`
+	ID       string         `json:"id"`
+	Name     string         `json:"name,omitempty"`
+	Enabled  bool           `json:"enabled"`
+	Callable bool           `json:"callable"`
+	Tools    []CodexAppTool `json:"tools,omitempty"`
 }
 
 type CodexAppTool struct {
@@ -170,7 +170,7 @@ func (s *Session) readInstalledApps(ctx context.Context) ([]CodexInstalledApp, e
 	}
 	var details struct {
 		Apps []struct {
-			ID string `json:"id"`
+			ID            string `json:"id"`
 			ToolSummaries []struct {
 				Name           string  `json:"name"`
 				IsEnabled      bool    `json:"isEnabled"`
