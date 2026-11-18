@@ -111,7 +111,7 @@ func projectCodexSettings(config json.RawMessage) (CodexSettings, error) {
 		policy := CodexAppPolicy{
 			Enabled: item.Enabled, DefaultToolsEnabled: item.DefaultToolsEnabled,
 			DefaultToolsApprovalMode: item.DefaultToolsApprovalMode,
-			DestructiveEnabled: item.DestructiveEnabled, OpenWorldEnabled: item.OpenWorldEnabled,
+			DestructiveEnabled:       item.DestructiveEnabled, OpenWorldEnabled: item.OpenWorldEnabled,
 		}
 		for toolName, toolRaw := range item.Tools {
 			if strings.TrimSpace(toolName) == "" || len(toolName) > 128 {
