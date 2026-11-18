@@ -14,7 +14,7 @@ Runner API、Runner Agentなどの受信HTTPトレースには、Echoが解決�
 
 ## エラー
 
-- HTTP 5xx: `http.response.status_code`、`error.type=http_500`などと`http.server.error`/`http.client.error`イベント
+- HTTP 4xx/5xx: `http.response.status_code`、`error.type=http_403`や`http_500`などと`http.server.error`/`http.client.error`イベント。サーバー側の4xxはSpanをエラー扱いにせず、クライアント側の4xxはエラー扱いにします
 - 処理中のエラー: `error.type`の安全な分類と、定型文の`error.summary`を含む`error`イベント
 - JSON-RPC: 元の`codex.jsonrpc.<method>`Span名は維持し、エラー時はJSON-RPCエラーコードなどを記録
 
