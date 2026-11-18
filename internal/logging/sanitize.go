@@ -12,6 +12,8 @@ import (
 func SanitizeErrorMessage(message string) string {
 	const maxLength = 1024
 	message = strings.TrimSpace(message)
+	// Mask credentials with a scheme before processing key-value fields.
+	message = authSchemePattern.ReplaceAllString(message, "${1}[REDACTED]")
 	if message == "" {
 		return "operation failed"
 	}
@@ -53,7 +55,7 @@ var (
 		regexp.MustCompile(`(?i)("(?:prompt|input|text|content|messages|authorization|access_token|refresh_token|token|api_key|secret)"\s*:\s*)("(?:\\.|[^"\\])*"|\[[^]]*\]|\{[^}]*\}|[^,}]+)`),
 	}
 	urlQueryPattern    = regexp.MustCompile(`(https?://[^\s?]+)\?[^\s"'<>]+`)
-	secretValuePattern = regexp.MustCompile(`(?i)(\b(?:api[_-]?key|token|password|passwd|secret|access[_-]?token|refresh[_-]?token|client[_-]?secret|authorization|auth[_-]?token)\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\s,}]+)`)
+	secretValuePattern = regexp.MustCompile(`(?i)(\b(?:api[_-]?key|token|password|passwd|secret|(?:secret[_-])?access[_-]?token|refresh[_-]?token|client[_-]?secret|authorization|auth[_-]?token)\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\s,}]+)`)
 	authSchemePattern  = regexp.MustCompile(`(?i)(\b(?:Bearer|Basic)\s+)[A-Za-z0-9._~+/-]+=*`)
 	githubTokenPattern = regexp.MustCompile(`\b(?:ghp_|gho_|ghu_|ghs_|ghr_|github_pat_)[A-Za-z0-9_]+\b`)
 	openAITokenPattern = regexp.MustCompile(`\bsk-[A-Za-z0-9_-]{12,}\b`)
