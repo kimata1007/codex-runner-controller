@@ -1,30 +1,30 @@
-# Codex Runnerのトレース表示項目
+# Codex RunnerのHTTPトレース
 
-Runner API、Runner Agentなどの受信HTTPトレースには、Echoが解決した`http.route`を付け、Span名を`POST /v1/conversations/:id/messages`のようなメソッドとルートテンプレートにします。
+Runner API、Runner AgentなどのHTTPトレースでは、受信側はEchoのルートテンプレート（例：`POST /v1/conversations/:id/messages`）をSpan名と`http.route`に出します。また、識別子を追跡できるよう**実際のIDを含むパス**を`url.path`に記録します。送信側も既知の内部APIに限り同じ情報を記録します。
 
-サービス間の送信HTTPトレースでは、既知の経路だけを`http.route`に出します。例：
-
-- `POST /v1/threads/:id/turns` — Agentへのターン開始依頼
-- `POST /v1/threads/:id/resume` — Agentへのスレッド再開依頼
-- `POST /internal/runs/:runID/events` — AgentからRunner APIへのイベント転送
-- `POST /internal/sessions/:conversationID/heartbeat` — セッションハートビート
+- `POST /v1/threads/:id/turns` — ターン開始
+- `POST /v1/threads/:id/resume` — スレッド再開
+- `POST /internal/runs/:runID/events` — イベント転送
+- `POST /internal/sessions/:conversationID/heartbeat` — ハートビート
 - `GET /v1/codex/settings` — 設定確認
 
-見慣れない外部URLや動的URLをそのまま保存しないため、未登録のパスにはルート属性を付けません。生URL、クエリパラメータ、HTTPヘッダー、リクエスト/レスポンス本文、JSON-RPCパラメータはトレースに入れません。
+`url.path`はクエリ文字列・フラグメントを含みません。パス中のGitHub/OpenAIトークンやJWTに一致する要素は伏せます。未知の送信先は、生のパスを記録しません。IDそのものは記録されるため、トレース閲覧権限と保存期間には注意してください。
 
 ## エラー
 
-- HTTP 4xx/5xx: `http.response.status_code`、`error.type=http_403`や`http_500`などと`http.server.error`/`http.client.error`イベント。サーバー側の4xxはSpanをエラー扱いにせず、クライアント側の4xxはエラー扱いにします
-- 処理中のエラー: `error.type`の安全な分類と、定型文の`error.summary`を含む`error`イベント
-- JSON-RPC: 元の`codex.jsonrpc.<method>`Span名は維持し、エラー時はJSON-RPCエラーコードなどを記録
+**HTTPステータスと元のエラーメッセージは別の情報**として扱います。
 
-エラーメッセージそのものを記録しないのは意図的です。メッセージにはトークン、プロンプト、ファイル内容、URLなどが含まれ得ます。代わりに、エラーコード・安全な分類・定型説明を使用します。
+- `http.response.status_code`: ステータス（例：502）
+- `exception.message`: エラー発生箇所が保持している**実際のエラー文面をサニタイズ**したもの（例：`start thread: jsonrpc -32601: method not handled`）
+- `exception.type` / `error.type`: タイムアウト、認証失敗、JSON-RPCコードなどの分類
+- `trace_id`と`span_id`: HTTPアクセスログとトレースの突き合わせ
 
-HTTPアクセスログは従来どおりルートテンプレートを記録し、有効なSpanがあれば`trace_id`と`span_id`も記録します。これらからTempoのトレースとPodログを突き合わせられます。
+ステータス値だけを重複させるためのイベントは作りません。エラーを処理したRunner API/AgentのSpanで、実際の原因メッセージを記録します。HTTPの受信/送信トレースにはメソッド、ルート、ID、ステータスが出ますが、HTTPレスポンス本文は**自動取得・記録しません**。
 
-## 対象外と注意
+## 機密情報の扱い
 
-- CodexのstdioのJSON-RPC本文のロギングは追加しません
-- Tempoに送信済みの過去のSpanには新しい属性は付きません
-- Kubernetes PodのstderrログとTempoへのイベント出力は別経路です。stderrの生ログをトレースにコピーしません
-- 外部APIの未知のパスは機密情報流出防止のため表示しません
+エラーメッセージにはトークンなどが混ざる可能性があるため、一般的な認証ヘッダー、Bearer/Basic値、GitHub/OpenAIトークン、JWT、URLのクエリ、`prompt`/`input`/`content`等の構造化されたフィールドを置換してから送ります。長さは1024文字までに制限します。ユーザープロンプトやHTTP/JSON-RPCのリクエスト・レスポンス本文を意図的に送信することはありません。
+
+**制限**: 自由形式のエラーメッセージに含まれる秘密情報を、正規表現ですべて確実に見つけることはできません。フィルタはベストエフォートです。トレースにアクセスできる人・保存期間を制限し、将来的には認証やモデル入力を扱うコードが安全な型付きエラーを返す設計を推奨します。
+
+Codex App ServerのstderrログをTempoへそのまま流すことはありません。
