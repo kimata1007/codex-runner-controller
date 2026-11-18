@@ -253,6 +253,11 @@ type Process struct {
 func StartProcess(ctx context.Context, command string, args []string, handler NotificationHandler) (*Process, error) {
 	cmd := exec.CommandContext(ctx, command, args...)
 	cmd.Env = appServerEnvironment(os.Environ())
+	// Codex stdout is reserved for JSON-RPC. Its diagnostic stderr may
+	// contain sensitive text, so forwarding to Kubernetes logs is opt-in.
+	if os.Getenv("CODEX_APP_SERVER_STDERR_TO_POD_LOG") == "true" {
+		cmd.Stderr = os.Stderr
+	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, fmt.Errorf("app-server stdout: %w", err)
