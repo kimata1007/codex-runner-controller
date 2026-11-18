@@ -8,29 +8,29 @@ import (
 func TestSanitizeErrorMessagePreservesUsefulInformation(t *testing.T) {
 	tests := []struct {
 		name string
-		raw string
+		raw  string
 		want string
 		hide []string
 	}{
 		{
 			name: "JSON-RPC failure",
-			raw: "start thread: jsonrpc -32601: method not handled",
+			raw:  "start thread: jsonrpc -32601: method not handled",
 			want: "method not handled",
 		},
 		{
 			name: "GitHub authorization",
-			raw: "GitHub API returned 403: Resource not accessible by integration",
+			raw:  "GitHub API returned 403: Resource not accessible by integration",
 			want: "Resource not accessible by integration",
 		},
 		{
 			name: "auth, token, URL query and prompt",
-			raw: "push failed: Authorization: Bearer abcdefghij012345; token=secret-token; prompt=\"the user's private question\"; url=https://example.test/action?access_token=abc123&prompt=secret",
+			raw:  "push failed: Authorization: Bearer abcdefghij012345; token=secret-token; prompt=\"the user's private question\"; url=https://example.test/action?access_token=abc123&prompt=secret",
 			want: "push failed",
 			hide: []string{"abcdefghij012345", "secret-token", "private question", "abc123", "access_token=abc123", "prompt=secret"},
 		},
 		{
 			name: "JSON content",
-			raw: `RPC: {"content":"private prompt", "message":"permission denied", "access_token":"abc123"}`,
+			raw:  `RPC: {"content":"private prompt", "message":"permission denied", "access_token":"abc123"}`,
 			want: "permission denied",
 			hide: []string{"private prompt", "abc123"},
 		},
