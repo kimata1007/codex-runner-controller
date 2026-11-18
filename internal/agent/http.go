@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/kimata1007/codex-runner-controller/internal/logging"
+	"github.com/kimata1007/codex-runner-controller/internal/telemetry"
 	"github.com/labstack/echo/v4"
 )
 
@@ -279,6 +280,7 @@ func writeJSON(c echo.Context, status int, value any) error {
 }
 
 func writeAgentOperationalError(c echo.Context, status int, message, operation string, cause error) error {
+	telemetry.RecordError(c.Request().Context(), cause)
 	slog.ErrorContext(c.Request().Context(), message,
 		"operation", operation,
 		"http.response.status_code", status,
