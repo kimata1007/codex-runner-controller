@@ -1,5 +1,12 @@
 # Changelog
 
+## [v0.0.10](https://github.com/kimata1007/codex-runner-controller/compare/v0.0.9...v0.0.10) - 2026-11-18
+
+- feat: delete conversations from history with menu and long-press by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/102
+- Open and close a fresh libSQL stream per request by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/111
+- fix: pass Go CI after stream lifecycle change by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/113
+- feat: Codex App Serverのstderrを安全にオプトイン転送 by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/112
+
 ## [v0.0.9](https://github.com/kimata1007/codex-runner-controller/compare/v0.0.8...v0.0.9) - 2026-11-17
 
 - Retry expired libSQL streams by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/108
