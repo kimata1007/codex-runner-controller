@@ -15,7 +15,7 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) { return f(request) }
 
-func TestClientExecUsesBatonAndAuthorization(t *testing.T) {
+func TestClientExecOpensAndClosesFreshStream(t *testing.T) {
 	var requests int
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		requests++
@@ -26,12 +26,17 @@ func TestClientExecUsesBatonAndAuthorization(t *testing.T) {
 		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
 			t.Fatalf("decode request: %v", err)
 		}
-		if requests == 2 && body.Baton == nil {
-			t.Fatal("second request did not send baton")
+		if body.Baton != nil {
+			t.Fatalf("request %d sent a baton for a previous stream", requests)
+		}
+		if len(body.Requests) != 2 || body.Requests[1].Type != "close" {
+			t.Fatalf("request %d did not close its stream: %+v", requests, body.Requests)
 		}
 		_ = json.NewEncoder(writer).Encode(pipelineResponse{
-			Baton:   func() *string { value := "baton-1"; return &value }(),
-			Results: []streamResult{{Type: "ok", Response: json.RawMessage(`{"type":"execute","result":{"cols":[],"rows":[],"affected_row_count":1}}`)}},
+			Results: []streamResult{
+				{Type: "ok", Response: json.RawMessage(`{"type":"execute","result":{"cols":[],"rows":[],"affected_row_count":1}}`)},
+				{Type: "ok", Response: json.RawMessage(`{"type":"close"}`)},
+			},
 		})
 	}))
 	defer server.Close()
@@ -45,7 +50,7 @@ func TestClientExecUsesBatonAndAuthorization(t *testing.T) {
 	}
 }
 
-func TestClientClearsBatonAfterHTTPError(t *testing.T) {
+func TestClientDoesNotReuseStreamAfterHTTPError(t *testing.T) {
 	var requests int
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		requests++
@@ -53,27 +58,28 @@ func TestClientClearsBatonAfterHTTPError(t *testing.T) {
 		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
 			t.Fatalf("decode request: %v", err)
 		}
+		if body.Baton != nil {
+			t.Fatalf("request %d sent a baton for a previous stream", requests)
+		}
+		if len(body.Requests) != 2 || body.Requests[1].Type != "close" {
+			t.Fatalf("request %d did not close its stream: %+v", requests, body.Requests)
+		}
 		switch requests {
 		case 1:
-			if body.Baton != nil {
-				t.Fatal("first request sent a baton")
-			}
 			_ = json.NewEncoder(writer).Encode(pipelineResponse{
-				Baton:   func() *string { value := "expired-baton"; return &value }(),
-				Results: []streamResult{{Type: "ok", Response: json.RawMessage(`{"type":"execute","result":{"cols":[],"rows":[],"affected_row_count":0}}`)}},
+				Results: []streamResult{
+					{Type: "ok", Response: json.RawMessage(`{"type":"execute","result":{"cols":[],"rows":[],"affected_row_count":0}}`)},
+					{Type: "ok", Response: json.RawMessage(`{"type":"close"}`)},
+				},
 			})
 		case 2:
-			if body.Baton == nil || *body.Baton != "expired-baton" {
-				t.Fatal("second request did not send the current baton")
-			}
 			http.Error(writer, "stream not found", http.StatusNotFound)
 		case 3:
-			if body.Baton != nil {
-				t.Fatal("third request reused the invalid baton")
-			}
 			_ = json.NewEncoder(writer).Encode(pipelineResponse{
-				Baton:   func() *string { value := "new-baton"; return &value }(),
-				Results: []streamResult{{Type: "ok", Response: json.RawMessage(`{"type":"execute","result":{"cols":[],"rows":[],"affected_row_count":0}}`)}},
+				Results: []streamResult{
+					{Type: "ok", Response: json.RawMessage(`{"type":"execute","result":{"cols":[],"rows":[],"affected_row_count":0}}`)},
+					{Type: "ok", Response: json.RawMessage(`{"type":"close"}`)},
+				},
 			})
 		default:
 			t.Fatalf("unexpected request %d", requests)
@@ -93,7 +99,7 @@ func TestClientClearsBatonAfterHTTPError(t *testing.T) {
 	}
 }
 
-func TestClientClearsBatonAfterTransportError(t *testing.T) {
+func TestClientDoesNotReuseStreamAfterTransportError(t *testing.T) {
 	var requests int
 	client := NewClient("http://libsql", "").WithHTTPClient(&http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
 		requests++
@@ -104,19 +110,28 @@ func TestClientClearsBatonAfterTransportError(t *testing.T) {
 		switch requests {
 		case 1:
 			if body.Baton != nil {
-				t.Fatal("first request sent a baton")
+				t.Fatalf("request %d sent a baton for a previous stream", requests)
 			}
-			return pipelineHTTPResponse(`{"baton":"baton-1","results":[{"type":"ok","response":{"type":"execute","result":{"cols":[],"rows":[],"affected_row_count":0}}}]}`), nil
+			if len(body.Requests) != 2 || body.Requests[1].Type != "close" {
+				t.Fatalf("request %d did not close its stream: %+v", requests, body.Requests)
+			}
+			return pipelineHTTPResponse(`{"baton":null,"results":[{"type":"ok","response":{"type":"execute","result":{"cols":[],"rows":[],"affected_row_count":0}}},{"type":"ok","response":{"type":"close"}}]}`), nil
 		case 2:
-			if body.Baton == nil || *body.Baton != "baton-1" {
-				t.Fatal("second request did not send the current baton")
+			if body.Baton != nil {
+				t.Fatalf("request %d sent a baton for a previous stream", requests)
+			}
+			if len(body.Requests) != 2 || body.Requests[1].Type != "close" {
+				t.Fatalf("request %d did not close its stream: %+v", requests, body.Requests)
 			}
 			return nil, errors.New("connection reset")
 		case 3:
 			if body.Baton != nil {
-				t.Fatal("third request reused a baton after a transport error")
+				t.Fatalf("request %d sent a baton for a previous stream", requests)
 			}
-			return pipelineHTTPResponse(`{"baton":"baton-2","results":[{"type":"ok","response":{"type":"execute","result":{"cols":[],"rows":[],"affected_row_count":0}}}]}`), nil
+			if len(body.Requests) != 2 || body.Requests[1].Type != "close" {
+				t.Fatalf("request %d did not close its stream: %+v", requests, body.Requests)
+			}
+			return pipelineHTTPResponse(`{"baton":null,"results":[{"type":"ok","response":{"type":"execute","result":{"cols":[],"rows":[],"affected_row_count":0}}},{"type":"ok","response":{"type":"close"}}]}`), nil
 		default:
 			t.Fatalf("unexpected request %d", requests)
 			return nil, nil
@@ -135,6 +150,11 @@ func TestClientClearsBatonAfterTransportError(t *testing.T) {
 
 func pipelineHTTPResponse(body string) *http.Response {
 	return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body))}
+}
+
+func pipelineResponseWithClosedStream(results ...streamResult) pipelineResponse {
+	results = append(results, streamResult{Type: "ok", Response: json.RawMessage(`{"type":"close"}`)})
+	return pipelineResponse{Results: results}
 }
 
 func TestValueMarshalsEmptyTextValue(t *testing.T) {

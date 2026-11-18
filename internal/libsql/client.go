@@ -17,8 +17,7 @@ type Client struct {
 	pipelineURL string
 	token       string
 
-	mu    sync.Mutex
-	baton *string
+	mu sync.Mutex
 }
 
 type Value struct {
@@ -259,26 +258,34 @@ func (c *Client) ApplySchema(ctx context.Context, schema string) error {
 }
 
 func (c *Client) pipeline(ctx context.Context, requests []streamRequest) (pipelineResponse, error) {
-	for attempt := 0; attempt < 2; attempt++ {
-		response, err := c.doPipeline(ctx, requests)
-		if err != nil {
-			return pipelineResponse{}, err
-		}
-		if !hasExpiredStreamError(response) {
-			return response, nil
-		}
+	streamRequests := make([]streamRequest, 0, len(requests)+1)
+	streamRequests = append(streamRequests, requests...)
+	streamRequests = append(streamRequests, streamRequest{Type: "close"})
 
-		// Hrana reports an expired stream as a result error in an otherwise
-		// successful HTTP response. Discard its baton and retry this pipeline
-		// once on a new stream.
-		c.baton = nil
+	response, err := c.doPipeline(ctx, streamRequests)
+	if err != nil {
+		return pipelineResponse{}, err
+	}
+	if len(response.Results) != len(streamRequests) {
+		return pipelineResponse{}, fmt.Errorf("libsql: expected %d pipeline results, got %d", len(streamRequests), len(response.Results))
+	}
+	closeResult := response.Results[len(response.Results)-1]
+	if closeResult.Type != "ok" {
+		if closeResult.Error != nil {
+			return pipelineResponse{}, fmt.Errorf("libsql: close stream: %s", closeResult.Error.Message)
+		}
+		return pipelineResponse{}, fmt.Errorf("libsql: close stream failed")
 	}
 
-	return pipelineResponse{}, fmt.Errorf("libsql: stream handle expired after retry")
+	response.Results = response.Results[:len(response.Results)-1]
+	return response, nil
 }
 
 func (c *Client) doPipeline(ctx context.Context, requests []streamRequest) (pipelineResponse, error) {
-	payload, err := json.Marshal(pipelineRequest{Baton: c.baton, Requests: requests})
+	// Open a fresh stream for each pipeline and close it in that same request.
+	// No baton is retained between database operations, so an idle stream cannot
+	// expire between requests and leave the client holding a stale baton.
+	payload, err := json.Marshal(pipelineRequest{Baton: nil, Requests: requests})
 	if err != nil {
 		return pipelineResponse{}, fmt.Errorf("libsql: encode pipeline request: %w", err)
 	}
@@ -292,42 +299,21 @@ func (c *Client) doPipeline(ctx context.Context, requests []streamRequest) (pipe
 	}
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		c.baton = nil
 		return pipelineResponse{}, fmt.Errorf("libsql: pipeline request: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		// A non-2xx response for a request carrying a baton invalidates the
-		// stream. The next request must open a new stream with a null baton.
-		c.baton = nil
 		return pipelineResponse{}, fmt.Errorf("libsql: pipeline returned HTTP %s", resp.Status)
 	}
 	var response pipelineResponse
 	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-		c.baton = nil
 		return pipelineResponse{}, fmt.Errorf("libsql: decode pipeline response: %w", err)
 	}
-	c.baton = response.Baton
 	if response.BaseURL != "" {
 		c.pipelineURL = strings.TrimRight(response.BaseURL, "/") + "/v3/pipeline"
 	}
 	return response, nil
 }
-
-func hasExpiredStreamError(response pipelineResponse) bool {
-	for _, result := range response.Results {
-		if result.Type != "error" || result.Error == nil {
-			continue
-		}
-		message := strings.ToLower(result.Error.Message)
-		if strings.Contains(message, "stream handle") &&
-			(strings.Contains(message, "expired") || strings.Contains(message, "not found")) {
-			return true
-		}
-	}
-	return false
-}
-
 func Text(value string) Value {
 	return Value{Type: "text", Value: value}
 }
