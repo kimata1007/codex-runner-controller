@@ -8,6 +8,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"os"
 	"time"
@@ -88,6 +89,8 @@ func HTTPHandler(next http.Handler) http.Handler {
 		span.SetAttributes(attribute.Int("http.response.status_code", code))
 		if code >= 500 {
 			span.SetStatus(codes.Error, "server error")
+			span.SetAttributes(attribute.String("error.type", "http_"+strconv.Itoa(code)))
+			span.AddEvent("http.server.error", trace.WithAttributes(attribute.Int("http.response.status_code", code)))
 		}
 	})
 }
@@ -123,6 +126,8 @@ func (t roundTripper) RoundTrip(r *http.Request) (*http.Response, error) {
 	span.SetAttributes(attribute.Int("http.response.status_code", response.StatusCode))
 	if response.StatusCode >= 500 {
 		span.SetStatus(codes.Error, "upstream server error")
+		span.SetAttributes(attribute.String("error.type", "http_"+strconv.Itoa(response.StatusCode)))
+		span.AddEvent("http.client.error", trace.WithAttributes(attribute.Int("http.response.status_code", response.StatusCode)))
 	}
 	return response, nil
 }
