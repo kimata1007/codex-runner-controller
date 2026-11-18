@@ -57,6 +57,19 @@ func main() {
 		os.Exit(1)
 	}
 	dependencies := runnerapi.HandlerDependencies{Repository: repository, Dispatcher: dispatcher, Activator: activator, AuthBroker: authBroker}
+	// The permanent authentication broker provides settings even without a
+	// selected conversation. A selected conversation reads its own Agent.
+	brokerURL := strings.TrimSpace(os.Getenv("RUNNER_AUTH_BROKER_URL"))
+	if brokerURL == "" {
+		brokerURL = "http://runner-auth-broker." + namespaceFromEnvironment() + ".svc.cluster.local:8081"
+	}
+	var resolver agentclient.EndpointResolver = kubernetes.SessionEndpointResolver{Namespace: namespaceFromEnvironment()}
+	if agentURL := strings.TrimSpace(os.Getenv("RUNNER_AGENT_URL")); agentURL != "" {
+		resolver = agentclient.StaticEndpointResolver{URL: agentURL}
+	}
+	dependencies.SettingsReader = agentclient.CodexSettingsClient{
+		Resolver: resolver, BrokerURL: brokerURL, Token: os.Getenv("RUNNER_AGENT_TOKEN"),
+	}
 	if eventStore, ok := repository.(runnerapi.RunEventStore); ok {
 		dependencies.EventStore = eventStore
 		dependencies.EventHub = events.NewBroker()
