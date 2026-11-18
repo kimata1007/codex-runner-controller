@@ -391,6 +391,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .codex-settings-content { padding: 22px 24px; }
 .settings-scope { margin: 12px 0 4px; color: var(--muted); font-size: 13px; }
 .settings-message { margin: 14px 0; color: var(--muted); }
+.settings-message[data-kind="error"], .settings-warning { color: var(--danger); }
+.settings-warning { font-size: 13px; }
 .settings-values { display: grid; gap: 14px; }
 .settings-values h3 { margin: 8px 0 0; font-size: 15px; }
 .settings-list { display: grid; gap: 0; margin: 0; }
