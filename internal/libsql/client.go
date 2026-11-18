@@ -80,7 +80,7 @@ type batchStep struct {
 
 type batchCondition struct {
 	Type  string           `json:"type"`
-	Step  int              `json:"step,omitempty"`
+	Step  *int             `json:"step,omitempty"`
 	Cond  *batchCondition  `json:"cond,omitempty"`
 	Conds []batchCondition `json:"conds,omitempty"`
 }
@@ -192,19 +192,19 @@ func (c *Client) ExecTransaction(ctx context.Context, statements []TxStatement) 
 	steps = append(steps, batchStep{Stmt: statement{SQL: "BEGIN IMMEDIATE"}})
 	for i, item := range statements {
 		steps = append(steps, batchStep{
-			Condition: &batchCondition{Type: "ok", Step: i},
+			Condition: &batchCondition{Type: "ok", Step: stepIndex(i)},
 			Stmt:      statement{SQL: item.SQL, Args: item.Args},
 		})
 	}
 	commit := len(steps)
 	steps = append(steps, batchStep{
-		Condition: &batchCondition{Type: "ok", Step: commit - 1},
+		Condition: &batchCondition{Type: "ok", Step: stepIndex(commit - 1)},
 		Stmt:      statement{SQL: "COMMIT"},
 	})
 	steps = append(steps, batchStep{
 		Condition: &batchCondition{Type: "and", Conds: []batchCondition{
-			{Type: "ok", Step: 0},
-			{Type: "not", Cond: &batchCondition{Type: "ok", Step: commit}},
+			{Type: "ok", Step: stepIndex(0)},
+			{Type: "not", Cond: &batchCondition{Type: "ok", Step: stepIndex(commit)}},
 		}},
 		Stmt: statement{SQL: "ROLLBACK"},
 	})
@@ -239,6 +239,10 @@ func (c *Client) ExecTransaction(ctx context.Context, statements []TxStatement) 
 		return fmt.Errorf("libsql: transaction did not commit")
 	}
 	return nil
+}
+
+func stepIndex(index int) *int {
+	return &index
 }
 
 func (c *Client) ApplySchema(ctx context.Context, schema string) error {

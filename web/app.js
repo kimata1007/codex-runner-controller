@@ -272,7 +272,7 @@ async function loadConversationList() {
 function selectConversationForDeletion(id, title) {
   state.deleteTarget = {id, title};
   elements.deleteSelected.hidden = false;
-  elements.deleteSelected.setAttribute('aria-label', `「${title}」を削除`);
+  elements.deleteSelected.setAttribute('aria-label', `「${title}」をアーカイブ`);
 }
 
 function clearDeleteSelection() {
@@ -280,21 +280,21 @@ function clearDeleteSelection() {
   elements.deleteSelected.hidden = true;
 }
 
-async function deleteConversation(id, title) {
+async function archiveConversation(id, title) {
   if (state.deleting || state.sending) {
-    setStatus('応答中はチャットを削除できません', 'error');
+    setStatus('応答中はチャットをアーカイブできません', 'error');
     return;
   }
-  if (!window.confirm(`「${title}」を完全に削除しますか？\nメッセージ履歴とセッションの作業データも削除され、元に戻せません。`)) return;
+  if (!window.confirm(`「${title}」をアーカイブしますか？\n会話履歴は残ります。セッションのKubernetesリソースを削除しますが、ストレージ設定によって作業データが残る場合があります。`)) return;
   state.deleting = true;
   try {
     await request(`/v1/conversations/${encodeURIComponent(id)}`, {method: 'DELETE'});
     clearDeleteSelection();
     if (state.conversationID === id) startNewConversation();
     await loadConversationList();
-    setStatus('チャットを削除しました');
+    setStatus('チャットをアーカイブしました');
   } catch (error) {
-    setStatus(`削除できませんでした: ${error.message}`, 'error');
+    setStatus(`アーカイブできませんでした: ${error.message}`, 'error');
   } finally {
     state.deleting = false;
   }
@@ -378,11 +378,11 @@ function renderHistory(conversations) {
       remove.type = 'button';
       remove.setAttribute('role', 'menuitem');
       remove.className = 'history-delete-action';
-      remove.textContent = 'チャットを削除';
+      remove.textContent = 'チャットをアーカイブ';
       remove.addEventListener('click', () => {
         menu.hidden = true;
         options.setAttribute('aria-expanded', 'false');
-        deleteConversation(conversation.id, title);
+        archiveConversation(conversation.id, title);
       });
       menu.append(remove);
       options.addEventListener('click', () => {
@@ -940,7 +940,7 @@ elements.contextToggle.addEventListener('click', () => {
 elements.removeRepository.addEventListener('click', () => setRepository(null));
 elements.composer.addEventListener('submit', sendMessage);
 elements.deleteSelected.addEventListener('click', () => {
-  if (state.deleteTarget) deleteConversation(state.deleteTarget.id, state.deleteTarget.title);
+  if (state.deleteTarget) archiveConversation(state.deleteTarget.id, state.deleteTarget.title);
 });
 elements.message.addEventListener('input', resizeComposer);
 elements.message.addEventListener('keydown', (event) => {

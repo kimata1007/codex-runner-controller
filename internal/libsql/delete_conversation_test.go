@@ -34,115 +34,40 @@ func batchSuccessResponse(size int, failAt int) pipelineResponse {
 	return pipelineResponse{Results: []streamResult{{Type: "ok", Response: inner}}}
 }
 
-func TestDeleteConversationUsesOneAtomicBatch(t *testing.T) {
-	count := 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		count++
-		var req pipelineRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			t.Errorf("decode: %v", err)
-			return
-		}
-		if len(req.Requests) != 2 || req.Requests[1].Type != "close" {
-			t.Errorf("stream was not closed: %+v", req.Requests)
-			return
-		}
-		if count == 1 {
-			if req.Requests[0].Stmt == nil || !strings.Contains(req.Requests[0].Stmt.SQL, "user_id = ?") {
-				t.Errorf("missing ownership check: %+v", req.Requests)
-			}
-			result := json.RawMessage(`{"type":"execute","result":{"cols":[],"rows":[[{"type":"text","value":"conversation-1"}]],"affected_row_count":0}}`)
-			_ = json.NewEncoder(w).Encode(pipelineResponseWithClosedStream(streamResult{Type: "ok", Response: result}))
-			return
-		}
-		if count != 2 {
-			t.Errorf("expected one atomic batch, got request %d", count)
-			return
-		}
-		if req.Requests[0].Type != "batch" || req.Requests[0].Batch == nil {
-			t.Errorf("missing batch request: %+v", req.Requests)
-			return
-		}
-		steps := req.Requests[0].Batch.Steps
-		if len(steps) != 9 {
-			t.Errorf("step count = %d want 9", len(steps))
-			return
-		}
-		if steps[0].Stmt.SQL != "BEGIN IMMEDIATE" || steps[7].Stmt.SQL != "COMMIT" || steps[8].Stmt.SQL != "ROLLBACK" {
-			t.Errorf("transaction boundaries not found")
-		}
-		expected := []string{"approvals", "events", "runs", "messages", "conversation_repositories", "conversations"}
-		for i, table := range expected {
-			step := steps[i+1]
-			if !strings.HasPrefix(step.Stmt.SQL, "DELETE FROM "+table) {
-				t.Errorf("step %d = %q", i, step.Stmt.SQL)
-			}
-			if !strings.Contains(step.Stmt.SQL, "user_id = ?") {
-				t.Errorf("unscoped delete: %s", step.Stmt.SQL)
-			}
-			if len(step.Stmt.Args) != 3 || step.Stmt.Args[2].Value != "user-1" {
-				t.Errorf("incorrect ownership args: %+v", step.Stmt.Args)
-			}
-			if step.Condition == nil || step.Condition.Type != "ok" || step.Condition.Step != i {
-				t.Errorf("step %d not conditioned on previous success", i+1)
-			}
-		}
-		if steps[7].Condition == nil || steps[7].Condition.Type != "ok" || steps[7].Condition.Step != 6 {
-			t.Error("COMMIT not gated on last DELETE")
-		}
-		if steps[8].Condition == nil || steps[8].Condition.Type != "and" || len(steps[8].Condition.Conds) != 2 {
-			t.Error("ROLLBACK not gated on failed commit")
-		}
-		response := batchSuccessResponse(len(steps), -1)
-		_ = json.NewEncoder(w).Encode(pipelineResponseWithClosedStream(response.Results...))
-	}))
-	defer server.Close()
-	repo := NewRepository(NewClient(server.URL, "").WithHTTPClient(server.Client()), "user-1")
-	if err := repo.DeleteConversation(context.Background(), "conversation-1"); err != nil {
-		t.Fatal(err)
-	}
-	if count != 2 {
-		t.Fatalf("request count=%d want 2", count)
-	}
-}
-
-func TestDeleteConversationStatementFailureReturnsErrorAndRollback(t *testing.T) {
+func TestArchiveConversationPreservesHistoryAndScopesUser(t *testing.T) {
 	calls := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++
 		var req pipelineRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			t.Error(err)
+			t.Errorf("decode: %v", err)
 			return
 		}
-		if len(req.Requests) != 2 || req.Requests[1].Type != "close" {
-			t.Errorf("stream was not closed: %+v", req.Requests)
+		if len(req.Requests) != 2 || req.Requests[0].Stmt == nil || req.Requests[1].Type != "close" {
+			t.Errorf("unexpected archive request: %+v", req.Requests)
 			return
 		}
-		if calls == 1 {
-			data := json.RawMessage(`{"type":"execute","result":{"cols":[],"rows":[[{"type":"text","value":"conversation-1"}]],"affected_row_count":0}}`)
-			_ = json.NewEncoder(w).Encode(pipelineResponseWithClosedStream(streamResult{Type: "ok", Response: data}))
-			return
+		stmt := req.Requests[0].Stmt
+		if !strings.Contains(stmt.SQL, "UPDATE conversations SET status = 'archived'") || !strings.Contains(stmt.SQL, "user_id = ?") {
+			t.Errorf("archive is not an owner-scoped status update: %s", stmt.SQL)
 		}
-		steps := req.Requests[0].Batch.Steps
-		response := batchSuccessResponse(len(steps), 4)
-		_ = json.NewEncoder(w).Encode(pipelineResponseWithClosedStream(response.Results...))
+		if len(stmt.Args) != 3 || stmt.Args[1].Value != "conversation-1" || stmt.Args[2].Value != "user-1" {
+			t.Errorf("incorrect archive args: %+v", stmt.Args)
+		}
+		result := json.RawMessage(`{"type":"execute","result":{"cols":[],"rows":[],"affected_row_count":1}}`)
+		_ = json.NewEncoder(w).Encode(pipelineResponseWithClosedStream(streamResult{Type: "ok", Response: result}))
 	}))
 	defer server.Close()
 	repo := NewRepository(NewClient(server.URL, "").WithHTTPClient(server.Client()), "user-1")
-	err := repo.DeleteConversation(context.Background(), "conversation-1")
-	if err == nil {
-		t.Fatal("delete unexpectedly succeeded")
+	if err := repo.ArchiveConversation(context.Background(), "conversation-1"); err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(err.Error(), "transaction step 4 failed") {
-		t.Fatalf("failure not surfaced: %v", err)
-	}
-	if calls != 2 {
-		t.Fatalf("request count=%d want 2", calls)
+	if calls != 1 {
+		t.Fatalf("request count=%d want 1", calls)
 	}
 }
 
-func TestDeleteConversationUnknownOwnerDoesNotRunBatch(t *testing.T) {
+func TestArchiveConversationUnknownOwnerReturnsNotFound(t *testing.T) {
 	calls := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++
@@ -151,11 +76,11 @@ func TestDeleteConversationUnknownOwnerDoesNotRunBatch(t *testing.T) {
 	}))
 	defer server.Close()
 	repo := NewRepository(NewClient(server.URL, "").WithHTTPClient(server.Client()), "another-user")
-	if err := repo.DeleteConversation(context.Background(), "conversation-1"); err == nil {
-		t.Fatal("missing conversation unexpectedly deleted")
+	if err := repo.ArchiveConversation(context.Background(), "conversation-1"); err == nil {
+		t.Fatal("missing conversation unexpectedly archived")
 	}
 	if calls != 1 {
-		t.Fatalf("unexpected delete batch: %d calls", calls)
+		t.Fatalf("request count=%d want 1", calls)
 	}
 }
 
@@ -183,6 +108,27 @@ func TestExecTransactionRejectsUnconfirmedRollback(t *testing.T) {
 	err := client.ExecTransaction(context.Background(), []TxStatement{{SQL: "SELECT 1"}})
 	if err == nil || !strings.Contains(err.Error(), "rollback not confirmed") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestExecTransactionSerializesZeroStep(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request pipelineRequest
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Error(err)
+			return
+		}
+		steps := request.Requests[0].Batch.Steps
+		if steps[1].Condition == nil || steps[1].Condition.Step == nil || *steps[1].Condition.Step != 0 {
+			t.Errorf("zero-valued step was omitted: %+v", steps[1].Condition)
+		}
+		reply := batchSuccessResponse(len(steps), -1)
+		_ = json.NewEncoder(w).Encode(pipelineResponseWithClosedStream(reply.Results...))
+	}))
+	defer server.Close()
+	client := NewClient(server.URL, "").WithHTTPClient(server.Client())
+	if err := client.ExecTransaction(context.Background(), []TxStatement{{SQL: "SELECT 1"}}); err != nil {
+		t.Fatal(err)
 	}
 }
 

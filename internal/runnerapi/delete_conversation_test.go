@@ -12,7 +12,7 @@ import (
 	"github.com/kimata1007/codex-runner-controller/internal/session"
 )
 
-func TestDeleteConversationRemovesHistory(t *testing.T) {
+func TestArchiveConversationPreservesHistory(t *testing.T) {
 	repo := memory.NewRepository()
 	value, err := repo.CreateConversation(context.Background())
 	if err != nil {
@@ -26,15 +26,27 @@ func TestDeleteConversationRemovesHistory(t *testing.T) {
 	if response.Code != http.StatusNoContent {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
-	if response := serveJSON(t, router, http.MethodGet, "/v1/conversations/"+value.ID, ""); response.Code != http.StatusNotFound {
-		t.Fatalf("deleted conversation still exists: %d", response.Code)
+	archived, err := repo.GetConversation(context.Background(), value.ID)
+	if err != nil || archived.Status != "archived" {
+		t.Fatalf("conversation status=%q err=%v", archived.Status, err)
 	}
-	if response := serveJSON(t, router, http.MethodDelete, "/v1/conversations/"+value.ID, ""); response.Code != http.StatusNotFound {
-		t.Fatalf("second delete returned %d", response.Code)
+	messages, err := repo.ListMessages(context.Background(), value.ID)
+	if err != nil || len(messages) != 1 || messages[0].Content != "hello" {
+		t.Fatalf("conversation history was not preserved: messages=%+v err=%v", messages, err)
+	}
+	if _, _, err := repo.CreateMessage(context.Background(), value.ID, conversation.NewMessage{Content: "continue"}); err != nil {
+		t.Fatalf("could not resume archived conversation: %v", err)
+	}
+	resumed, err := repo.GetConversation(context.Background(), value.ID)
+	if err != nil || resumed.Status != "active" {
+		t.Fatalf("resumed conversation status=%q err=%v", resumed.Status, err)
+	}
+	if response := serveJSON(t, router, http.MethodDelete, "/v1/conversations/"+value.ID, ""); response.Code != http.StatusNoContent {
+		t.Fatalf("repeated archive returned %d", response.Code)
 	}
 }
 
-func TestDeleteConversationMissingReturnsNotFound(t *testing.T) {
+func TestArchiveConversationMissingReturnsNotFound(t *testing.T) {
 	response := serveJSON(t, newTestRouter(), http.MethodDelete, "/v1/conversations/unknown", "")
 	if response.Code != http.StatusNotFound {
 		t.Fatalf("status=%d", response.Code)
@@ -52,18 +64,18 @@ func (s *failingSessionCleaner) DeleteSession(context.Context, string) error {
 	return s.err
 }
 
-type failedDeleteRepository struct {
+type failedArchiveRepository struct {
 	*memory.Repository
 	err   error
 	calls int
 }
 
-func (r *failedDeleteRepository) DeleteConversation(_ context.Context, _ string) error {
+func (r *failedArchiveRepository) ArchiveConversation(_ context.Context, _ string) error {
 	r.calls++
 	return r.err
 }
 
-func TestDeleteConversationSessionFailurePreservesHistory(t *testing.T) {
+func TestArchiveConversationSessionFailurePreservesHistory(t *testing.T) {
 	repo := memory.NewRepository()
 	conversationValue, err := repo.CreateConversation(context.Background())
 	if err != nil {
@@ -83,27 +95,27 @@ func TestDeleteConversationSessionFailurePreservesHistory(t *testing.T) {
 	}
 }
 
-func TestDeleteConversationDBFailureReturnsErrorAndKeepsHistory(t *testing.T) {
+func TestArchiveConversationDBFailureReturnsErrorAndKeepsHistory(t *testing.T) {
 	base := memory.NewRepository()
 	value, err := base.CreateConversation(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	repo := &failedDeleteRepository{Repository: base, err: fmt.Errorf("injected transaction failure")}
+	repo := &failedArchiveRepository{Repository: base, err: fmt.Errorf("injected archive failure")}
 	router := NewRouter(NewHandler(HandlerDependencies{Repository: repo}))
 	response := serveJSON(t, router, http.MethodDelete, "/v1/conversations/"+value.ID, "")
 	if response.Code != http.StatusInternalServerError {
 		t.Fatalf("status=%d", response.Code)
 	}
 	if repo.calls != 1 {
-		t.Fatalf("delete calls=%d", repo.calls)
+		t.Fatalf("archive calls=%d", repo.calls)
 	}
 	if _, err := base.GetConversation(context.Background(), value.ID); err != nil {
 		t.Fatalf("history was lost: %v", err)
 	}
 }
 
-func TestDeleteConversationDoesNotDeleteUnknownSession(t *testing.T) {
+func TestArchiveConversationDoesNotDeleteUnknownSession(t *testing.T) {
 	repo := memory.NewRepository()
 	cleaner := &failingSessionCleaner{}
 	router := NewRouter(NewHandler(HandlerDependencies{Repository: repo, Activator: cleaner}))

@@ -187,7 +187,7 @@ func (r *Repository) CreateMessage(ctx context.Context, id string, input convers
 		return conversation.Message{}, false, err
 	}
 	if result.AffectedRowCount > 0 {
-		if _, err := r.client.Exec(ctx, `UPDATE conversations SET updated_at = ? WHERE id = ? AND user_id = ?`, []Value{
+		if _, err := r.client.Exec(ctx, `UPDATE conversations SET status = 'active', updated_at = ? WHERE id = ? AND user_id = ?`, []Value{
 			Text(now.Format(time.RFC3339Nano)), Text(id), Text(r.userID),
 		}, false); err != nil {
 			return conversation.Message{}, false, err
@@ -307,30 +307,19 @@ func conversationTitle(content string) string {
 	return content
 }
 
-// DeleteConversation atomically removes a user's conversation and its dependents.
-// Every DELETE is scoped to the owning user and bound to a single Hrana batch.
-func (r *Repository) DeleteConversation(ctx context.Context, id string) error {
-	exists, err := r.conversationExists(ctx, id)
+// ArchiveConversation preserves a user's history while releasing its session resources.
+func (r *Repository) ArchiveConversation(ctx context.Context, id string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	result, err := r.client.Exec(ctx, `UPDATE conversations SET status = 'archived', updated_at = ? WHERE id = ? AND user_id = ?`, []Value{
+		Text(time.Now().UTC().Format(time.RFC3339Nano)), Text(id), Text(r.userID),
+	}, false)
 	if err != nil {
 		return err
 	}
-	if !exists {
+	if result.AffectedRowCount == 0 {
 		return fmt.Errorf("%w: %s", conversation.ErrNotFound, id)
-	}
-	queries := []string{
-		`DELETE FROM approvals WHERE run_id IN (SELECT id FROM runs WHERE conversation_id = ? AND EXISTS (SELECT 1 FROM conversations WHERE id = ? AND user_id = ?))`,
-		`DELETE FROM events WHERE run_id IN (SELECT id FROM runs WHERE conversation_id = ? AND EXISTS (SELECT 1 FROM conversations WHERE id = ? AND user_id = ?))`,
-		`DELETE FROM runs WHERE conversation_id = ? AND EXISTS (SELECT 1 FROM conversations WHERE id = ? AND user_id = ?)`,
-		`DELETE FROM messages WHERE conversation_id = ? AND EXISTS (SELECT 1 FROM conversations WHERE id = ? AND user_id = ?)`,
-		`DELETE FROM conversation_repositories WHERE conversation_id = ? AND EXISTS (SELECT 1 FROM conversations WHERE id = ? AND user_id = ?)`,
-		`DELETE FROM conversations WHERE id = ? AND id = ? AND user_id = ?`,
-	}
-	statements := make([]TxStatement, 0, len(queries))
-	for _, query := range queries {
-		statements = append(statements, TxStatement{SQL: query, Args: []Value{Text(id), Text(id), Text(r.userID)}})
-	}
-	if err := r.client.ExecTransaction(ctx, statements); err != nil {
-		return fmt.Errorf("delete conversation records: %w", err)
 	}
 	return nil
 }
