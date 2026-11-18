@@ -68,8 +68,8 @@ func TestHTTPServerSpanUsesMatchedRouteNotUserID(t *testing.T) {
 		if attr.Key == attribute.Key("http.route") && attr.Value.AsString() != "/v1/threads/:id/turns" {
 			t.Fatalf("route = %s", attr.Value.AsString())
 		}
-		if strings.Contains(attr.Value.Emit(), "private-thread") {
-			t.Fatalf("span leaked URL id: %v", attr)
+		if attr.Key == attribute.Key("url.path") && attr.Value.AsString() != "/v1/threads/private-thread/turns" {
+			t.Fatalf("full path (with ID) missing: %v", attr)
 		}
 	}
 }
@@ -94,6 +94,9 @@ func TestRecordErrorCreatesSafeErrorEvent(t *testing.T) {
 		for _, attr := range event.Attributes {
 			if strings.Contains(attr.Value.Emit(), "private-value") {
 				t.Fatalf("secret leaked in event: %+v", attr)
+			}
+			if attr.Key == "exception.message" && !strings.Contains(attr.Value.AsString(), "forbidden") {
+				t.Fatalf("useful error message was lost: %q", attr.Value.AsString())
 			}
 		}
 	}
