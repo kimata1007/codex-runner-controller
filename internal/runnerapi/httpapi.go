@@ -16,9 +16,9 @@ import (
 	"github.com/kimata1007/codex-runner-controller/internal/conversation"
 	"github.com/kimata1007/codex-runner-controller/internal/events"
 	"github.com/kimata1007/codex-runner-controller/internal/logging"
-	"github.com/kimata1007/codex-runner-controller/internal/telemetry"
 	"github.com/kimata1007/codex-runner-controller/internal/runs"
 	"github.com/kimata1007/codex-runner-controller/internal/session"
+	"github.com/kimata1007/codex-runner-controller/internal/telemetry"
 	"github.com/labstack/echo/v4"
 )
 
