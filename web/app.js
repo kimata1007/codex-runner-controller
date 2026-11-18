@@ -809,7 +809,8 @@ function displaySettings(result) {
   const settings = result.settings || {};
   const source = result.source === 'conversation' ? '選択中の会話のCodex App Server' : '認証用Codex App Server';
   elements.settingsScope.textContent = `表示対象：${source}`;
-  elements.settingsMessage.textContent = '';
+  elements.settingsMessage.textContent = '設定を読み込みました。';
+  delete elements.settingsMessage.dataset.kind;
   elements.settingsValues.replaceChildren();
   const basics = document.createElement('dl');
   basics.className = 'settings-list';
@@ -823,6 +824,7 @@ function displaySettings(result) {
   elements.settingsValues.append(installedHeading);
   if (settings.appsError) {
     const error = document.createElement('p');
+    error.className = 'settings-warning';
     error.textContent = settings.appsError;
     elements.settingsValues.append(error);
   } else if (!settings.installedApps?.length) {
@@ -893,6 +895,7 @@ async function showCodexSettings() {
   elements.settingsValues.replaceChildren();
   elements.settingsScope.textContent = '';
   elements.settingsMessage.textContent = '設定を取得しています…';
+  delete elements.settingsMessage.dataset.kind;
   elements.showSettings.disabled = true;
   const conversationID = state.conversationID;
   const params = conversationID ? `?conversationId=${encodeURIComponent(conversationID)}` : '';
@@ -900,7 +903,10 @@ async function showCodexSettings() {
     const result = await request(`/v1/codex/settings${params}`);
     if (elements.settingsDialog.open) displaySettings(result);
   } catch (error) {
-    if (elements.settingsDialog.open) elements.settingsMessage.textContent = `設定を取得できませんでした：${error.message}`;
+    if (elements.settingsDialog.open) {
+      elements.settingsMessage.textContent = `設定を取得できませんでした：${error.message}`;
+      elements.settingsMessage.dataset.kind = 'error';
+    }
   } finally {
     elements.showSettings.disabled = false;
   }
