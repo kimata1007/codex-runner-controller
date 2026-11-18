@@ -1,6 +1,6 @@
 // Package telemetry adds opt-in, privacy-conscious OpenTelemetry tracing.
-// Only span names, bounded status codes, and safe operation names are emitted;
-// request/response bodies and authentication headers are never captured.
+// Spans include operation names and redacted error descriptions, never raw
+// request/response bodies, authentication headers, or prompts.
 package telemetry
 
 import (
@@ -9,7 +9,6 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
@@ -52,19 +51,20 @@ func Start(ctx context.Context, service string) (func(context.Context) error, er
 
 func Tracer() trace.Tracer { return otel.Tracer(instrumentation) }
 
-// RecordError marks the current span as failed, without attaching arbitrary
-// error messages that could include user prompts, tokens or API payloads.
+// RecordError records the actual error after stripping common credentials and
+// structured input fields. Callers must not pass request/response bodies.
 func RecordError(ctx context.Context, err error) {
 	if err == nil {
 		return
 	}
 	span := trace.SpanFromContext(ctx)
-	span.SetStatus(codes.Error, "operation failed")
+	message := logging.SanitizeErrorMessage(err.Error())
+	span.SetStatus(codes.Error, message)
 	kind := logging.ErrorType(err)
 	span.SetAttributes(attribute.String("error.type", kind))
-	span.AddEvent("error", trace.WithAttributes(
-		attribute.String("error.type", kind),
-		attribute.String("error.summary", safeErrorSummary(kind)),
+	span.AddEvent("exception", trace.WithAttributes(
+		attribute.String("exception.message", message),
+		attribute.String("exception.type", kind),
 	))
 }
 
@@ -87,14 +87,8 @@ func HTTPHandler(next http.Handler) http.Handler {
 			code = http.StatusOK
 		}
 		span.SetAttributes(attribute.Int("http.response.status_code", code))
-		if code >= 400 {
-			span.SetAttributes(attribute.String("error.type", "http_"+strconv.Itoa(code)))
-			span.AddEvent("http.server.error", trace.WithAttributes(attribute.Int("http.response.status_code", code)))
-			// HTTP server-side 4xx responses reflect client errors. Only
-			// server-side 5xx responses mark the span itself as failed.
-			if code >= 500 {
-				span.SetStatus(codes.Error, "server error")
-			}
+		if code >= 500 {
+			span.SetStatus(codes.Error, "server error")
 		}
 	})
 }
@@ -114,7 +108,7 @@ func (t roundTripper) RoundTrip(r *http.Request) (*http.Response, error) {
 	attrs := []attribute.KeyValue{attribute.String("http.request.method", r.Method)}
 	name := "http.client"
 	if route := safeHTTPRoute(r.URL.Path); route != "" {
-		attrs = append(attrs, attribute.String("http.route", route))
+		attrs = append(attrs, attribute.String("http.route", route), attribute.String("url.path", logging.SanitizeHTTPPath(r.URL.Path)))
 		name = r.Method + " " + route
 	}
 	ctx, span := Tracer().Start(r.Context(), name, trace.WithSpanKind(trace.SpanKindClient),
@@ -130,8 +124,6 @@ func (t roundTripper) RoundTrip(r *http.Request) (*http.Response, error) {
 	span.SetAttributes(attribute.Int("http.response.status_code", response.StatusCode))
 	if response.StatusCode >= 400 {
 		span.SetStatus(codes.Error, "upstream request failed")
-		span.SetAttributes(attribute.String("error.type", "http_"+strconv.Itoa(response.StatusCode)))
-		span.AddEvent("http.client.error", trace.WithAttributes(attribute.Int("http.response.status_code", response.StatusCode)))
 	}
 	return response, nil
 }
@@ -226,34 +218,3 @@ func safeHTTPRoute(path string) string {
 	}
 }
 
-func safeErrorSummary(kind string) string {
-	switch kind {
-	case "deadline_exceeded":
-		return "operation timed out"
-	case "canceled":
-		return "operation canceled"
-	case "network_timeout":
-		return "network timeout"
-	case "connection_refused":
-		return "connection refused"
-	case "dns_resolution":
-		return "DNS lookup failed"
-	case "not_found":
-		return "resource not found"
-	case "unauthorized":
-		return "authentication failed"
-	case "forbidden":
-		return "permission denied"
-	case "invalid_json":
-		return "invalid JSON"
-	case "internal_error":
-		return "internal operation failed"
-	}
-	if strings.HasPrefix(kind, "jsonrpc_") {
-		return "JSON-RPC error " + strings.TrimPrefix(kind, "jsonrpc_")
-	}
-	if strings.HasPrefix(kind, "http_") {
-		return "HTTP error " + strings.TrimPrefix(kind, "http_")
-	}
-	return "operation failed"
-}
