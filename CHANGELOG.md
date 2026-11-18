@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.0.11](https://github.com/kimata1007/codex-runner-controller/compare/v0.0.10...v0.0.11) - 2026-11-18
+
+- feat: PWAからCodex App Serverの設定とアプリツール状態を確認 by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/114
+
 ## [v0.0.10](https://github.com/kimata1007/codex-runner-controller/compare/v0.0.9...v0.0.10) - 2026-11-18
 
 - feat: delete conversations from history with menu and long-press by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/102
