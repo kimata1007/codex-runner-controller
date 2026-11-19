@@ -48,6 +48,33 @@ func TestRepositoryScopesConversationQueriesToUser(t *testing.T) {
 	}
 }
 
+func TestRepositoryListConversationsExcludesArchivedBeforeLimit(t *testing.T) {
+	server, queries, args := newRepositoryTestServer(t)
+	defer server.Close()
+
+	repository := NewRepository(NewClient(server.URL, "").WithHTTPClient(server.Client()), "user-1")
+	values, err := repository.ListConversations(context.Background())
+	if err != nil {
+		t.Fatalf("list conversations: %v", err)
+	}
+	if len(values) != 1 || values[0].ID != "conversation-1" {
+		t.Fatalf("unexpected conversations: %+v", values)
+	}
+	if len(*queries) != 1 {
+		t.Fatalf("list conversations issued %d queries, want 1", len(*queries))
+	}
+	query := (*queries)[0]
+	if !strings.Contains(query, "WHERE c.user_id = ? AND c.status != 'archived'") {
+		t.Errorf("list query must scope user and exclude archived: %s", query)
+	}
+	if !strings.Contains(query, "ORDER BY c.updated_at DESC\n\t\tLIMIT 100") {
+		t.Errorf("archived filter must run before ordering and limit: %s", query)
+	}
+	if len((*args)[0]) != 1 || !containsTextValue((*args)[0], "user-1") {
+		t.Errorf("unexpected owner filter arguments: %+v", (*args)[0])
+	}
+}
+
 func TestRepositoryCreateFirstMessage(t *testing.T) {
 	server, queries, args := newRepositoryTestServer(t)
 	defer server.Close()

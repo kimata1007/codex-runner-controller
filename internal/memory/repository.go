@@ -72,6 +72,9 @@ func (r *Repository) ListConversations(ctx context.Context) ([]conversation.Conv
 	r.mu.RLock()
 	values := make([]conversation.Conversation, 0, len(r.conversations))
 	for _, value := range r.conversations {
+		if value.Status == "archived" {
+			continue
+		}
 		clone := cloneConversation(value)
 		for _, message := range clone.Messages {
 			if message.Role == "user" {
