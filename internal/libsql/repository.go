@@ -100,7 +100,7 @@ func (r *Repository) ListConversations(ctx context.Context) ([]conversation.Conv
 	result, err := r.client.Exec(ctx, `SELECT c.id, c.status, c.created_at, c.updated_at,
 		COALESCE((SELECT m.content FROM messages m WHERE m.conversation_id = c.id AND m.role = 'user' ORDER BY m.sequence LIMIT 1), c.title, '')
 		FROM conversations c
-		WHERE c.user_id = ?
+		WHERE c.user_id = ? AND c.status != 'archived'
 		ORDER BY c.updated_at DESC
 		LIMIT 100`, []Value{Text(r.userID)}, true)
 	if err != nil {
