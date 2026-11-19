@@ -26,6 +26,10 @@ func TestArchiveConversationPreservesHistory(t *testing.T) {
 	if response.Code != http.StatusNoContent {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
+	listed, err := repo.ListConversations(context.Background())
+	if err != nil || len(listed) != 0 {
+		t.Fatalf("archived conversation remains in history list: %+v err=%v", listed, err)
+	}
 	archived, err := repo.GetConversation(context.Background(), value.ID)
 	if err != nil || archived.Status != "archived" {
 		t.Fatalf("conversation status=%q err=%v", archived.Status, err)
