@@ -18,7 +18,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: api
-          image: ghcr.io/kimata1007/codex-runner-api:v0.0.12
+          image: ghcr.io/kimata1007/codex-runner-api:v0.0.13
           imagePullPolicy: IfNotPresent
           command: ["/runner-api"]
           ports:

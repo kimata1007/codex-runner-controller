@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.0.13](https://github.com/kimata1007/codex-runner-controller/compare/v0.0.12...v0.0.13) - 2026-11-19
+
+- fix: hide archived conversations from history list by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/121
+
 ## [v0.0.12](https://github.com/kimata1007/codex-runner-controller/compare/v0.0.11...v0.0.12) - 2026-11-18
 
 - fix: archive conversations and preserve history by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/117
