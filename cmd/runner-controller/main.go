@@ -86,6 +86,7 @@ func main() {
 		RunnerAPITokenSecretName:   os.Getenv("RUNNER_API_TOKEN_SECRET_NAME"),
 		RunnerAPITokenSecretKey:    apiTokenSecretKey,
 		RunnerServiceAccountName:   serviceAccountName,
+		RunnerAgentSeccompProfile:  os.Getenv("RUNNER_AGENT_SECCOMP_PROFILE"),
 	}
 	if err := (&controller.CodexSessionController{Client: mgr.GetClient(), Builder: builder}).SetupWithManager(mgr); err != nil {
 		slog.Error("failed to set up controller", "operation", "controller.setup", "error.type", logging.ErrorType(err))

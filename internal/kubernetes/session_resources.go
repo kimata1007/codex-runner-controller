@@ -35,6 +35,7 @@ type ResourceBuilder struct {
 	CodexAccessTokenSecretName string
 	CodexAccessTokenSecretKey  string
 	RunnerServiceAccountName   string
+	RunnerAgentSeccompProfile  string
 }
 
 func (b ResourceBuilder) BuildPVC(namespace, name string, spec v1alpha1.CodexSessionSpec) (*corev1.PersistentVolumeClaim, error) {
@@ -132,13 +133,20 @@ func (b ResourceBuilder) BuildPod(namespace, name string, spec v1alpha1.CodexSes
 	if serviceAccountName == "" {
 		serviceAccountName = DefaultRunnerServiceAccount
 	}
+	seccompProfile := &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault}
+	if b.RunnerAgentSeccompProfile != "" {
+		seccompProfile = &corev1.SeccompProfile{
+			Type:             corev1.SeccompProfileTypeLocalhost,
+			LocalhostProfile: &b.RunnerAgentSeccompProfile,
+		}
+	}
 	return &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace, Labels: labels},
 		Spec: corev1.PodSpec{
 			RestartPolicy:                corev1.RestartPolicyAlways,
 			ServiceAccountName:           serviceAccountName,
 			AutomountServiceAccountToken: boolPtr(false),
-			SecurityContext:              &corev1.PodSecurityContext{RunAsNonRoot: boolPtr(true), SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault}},
+			SecurityContext:              &corev1.PodSecurityContext{RunAsNonRoot: boolPtr(true), SeccompProfile: seccompProfile},
 			Containers: []corev1.Container{{
 				Name:    "runner-agent",
 				Image:   runnerImage,
