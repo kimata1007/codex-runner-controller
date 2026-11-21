@@ -6,7 +6,7 @@ Controllerは`ResourceBuilder`で、セッションPodに次の設定を注入�
 - `RUNNER_HEARTBEAT_URL`: runner-agentがセッションheartbeatを送るRunner APIの内部URL。conversation IDはrunner-agentがパスへ追加する
 - `RUNNER_AGENT_TOKEN`: Secretの指定キーから取得するRunner API→agent認証トークン
 - `RUNNER_API_TOKEN`: Secretから取得するagent→Runner APIイベント送信用トークン
-- `CODEX_CONVERSATION_ID、`CODEX_MODE`、`CODEX_APPROVAL_POLICY`: `CodexSession.spec`からの実行設定
+- `CODEX_CONVERSATION_ID`、`CODEX_MODE`、`CODEX_APPROVAL_POLICY`: `CodexSession.spec`からの実行設定
 - 専用ServiceAccountとnon-root/seccomp設定
 - session PVCと`/tmp`用の一時`emptyDir`
 
