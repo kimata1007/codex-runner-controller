@@ -77,7 +77,7 @@ func main() {
 		OTLPEndpoint:               os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
 		ForwardAppServerStderr:     os.Getenv("CODEX_APP_SERVER_STDERR_TO_POD_LOG") == "true",
 		RunnerEventURL:             os.Getenv("RUNNER_EVENT_URL"),
-		RunnerHeartbeatURL:         os.Getenv("RUNNER_HEARTBEAT_URL"),
+		RunnerHeartbeatURL:          os.Getenv("RUNNER_HEARTBEAT_URL"),
 		RunnerAuthRefreshURL:       os.Getenv("RUNNER_AUTH_REFRESH_URL"),
 		RunnerAgentTokenSecretName: os.Getenv("RUNNER_AGENT_TOKEN_SECRET_NAME"),
 		RunnerAgentTokenSecretKey:  tokenSecretKey,
@@ -86,6 +86,7 @@ func main() {
 		RunnerAPITokenSecretName:   os.Getenv("RUNNER_API_TOKEN_SECRET_NAME"),
 		RunnerAPITokenSecretKey:    apiTokenSecretKey,
 		RunnerServiceAccountName:   serviceAccountName,
+		RunnerAgentSeccompProfile:  os.Getenv("RUNNER_AGENT_SECCOMP_PROFILE"),
 	}
 	if err := (&controller.CodexSessionController{Client: mgr.GetClient(), Builder: builder}).SetupWithManager(mgr); err != nil {
 		slog.Error("failed to set up controller", "operation", "controller.setup", "error.type", logging.ErrorType(err))
