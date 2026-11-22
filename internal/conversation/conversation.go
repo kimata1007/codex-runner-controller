@@ -56,10 +56,18 @@ type RepositoryConfigurer interface {
 	CreateConversationWithRepository(context.Context, *RepositoryConfig) (Conversation, error)
 }
 
-type ActivityRecorder interface {
-	TouchConversation(context.Context, string, time.Time) error
+// Archiver marks a conversation as archived while preserving its history.
+type Archiver interface {
+	ArchiveConversation(context.Context, string) error
 }
 
+// RetentionStore archives expired records and returns IDs for retryable
+// cleanup of their Kubernetes sessions.
 type RetentionStore interface {
-	ArchiveInactiveConversations(context.Context, time.Time) error
+	ArchiveInactiveConversations(context.Context, time.Time) ([]string, error)
+}
+
+// ActivityRecorder keeps the retention clock current during long-running turns.
+type ActivityRecorder interface {
+	TouchConversation(context.Context, string, time.Time) error
 }

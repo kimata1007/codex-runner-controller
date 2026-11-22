@@ -49,6 +49,33 @@ func TestRepositoryScopesConversationQueriesToUser(t *testing.T) {
 	}
 }
 
+func TestRepositoryListConversationsExcludesArchivedBeforeLimit(t *testing.T) {
+	server, queries, args := newRepositoryTestServer(t)
+	defer server.Close()
+
+	repository := NewRepository(NewClient(server.URL, "").WithHTTPClient(server.Client()), "user-1")
+	values, err := repository.ListConversations(context.Background())
+	if err != nil {
+		t.Fatalf("list conversations: %v", err)
+	}
+	if len(values) != 1 || values[0].ID != "conversation-1" {
+		t.Fatalf("unexpected conversations: %+v", values)
+	}
+	if len(*queries) != 1 {
+		t.Fatalf("list conversations issued %d queries, want 1", len(*queries))
+	}
+	query := (*queries)[0]
+	if !strings.Contains(query, "WHERE c.user_id = ? AND c.status != 'archived'") {
+		t.Errorf("list query must scope user and exclude archived: %s", query)
+	}
+	if !strings.Contains(query, "ORDER BY c.updated_at DESC\n\t\tLIMIT 100") {
+		t.Errorf("archived filter must run before ordering and limit: %s", query)
+	}
+	if len((*args)[0]) != 2 || !containsTextValue((*args)[0], "user-1") {
+		t.Errorf("unexpected owner filter arguments: %+v", (*args)[0])
+	}
+}
+
 func TestRepositoryCreateFirstMessage(t *testing.T) {
 	server, queries, args := newRepositoryTestServer(t)
 	defer server.Close()
@@ -64,19 +91,15 @@ func TestRepositoryCreateFirstMessage(t *testing.T) {
 	if len(*queries) != 2 {
 		t.Fatalf("got %d queries, want insert and timestamp update", len(*queries))
 	}
-	updatedAt := (*queries)[0]
-	if !strings.HasPrefix(updatedAt, "UPDATE conversations SET updated_at") {
-		t.Errorf("first message activity was not recorded first: %s", updatedAt)
-	}
-	insert := (*queries)[1]
+	insert := (*queries)[0]
 	if !strings.Contains(insert, "COALESCE((SELECT MAX(sequence) FROM messages WHERE conversation_id = ?), 0) + 1") {
 		t.Errorf("first message sequence is not initialized to 1: %s", insert)
 	}
-	if !strings.Contains(insert, "WHERE EXISTS (SELECT 1 FROM conversations WHERE id = ? AND user_id = ? AND status != 'archived')") {
+	if !strings.Contains(insert, "WHERE EXISTS (SELECT 1 FROM conversations WHERE id = ? AND user_id = ? AND status != 'archived'") {
 		t.Errorf("insert is not scoped to the conversation owner: %s", insert)
 	}
-	if len((*args)[1]) != 8 || !containsTextValue((*args)[1], "user-1") {
-		t.Errorf("unexpected insert arguments: %+v", (*args)[1])
+	if len((*args)[0]) != 9 || !containsTextValue((*args)[0], "user-1") {
+		t.Errorf("unexpected insert arguments: %+v", (*args)[0])
 	}
 }
 
@@ -84,14 +107,13 @@ func newRepositoryTestServer(t *testing.T) (*httptest.Server, *[]string, *[][]Va
 	t.Helper()
 	queries := make([]string, 0, 8)
 	args := make([][]Value, 0, 8)
-	now := time.Now().UTC().Format(time.RFC3339Nano)
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		var body pipelineRequest
 		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
 			t.Errorf("decode pipeline request: %v", err)
 			return
 		}
-		if len(body.Requests) != 1 || body.Requests[0].Stmt == nil {
+		if len(body.Requests) != 2 || body.Requests[0].Stmt == nil || body.Requests[1].Type != "close" {
 			t.Errorf("unexpected pipeline request: %+v", body.Requests)
 			return
 		}
@@ -103,11 +125,9 @@ func newRepositoryTestServer(t *testing.T) (*httptest.Server, *[]string, *[][]Va
 		result := statementResult{}
 		switch {
 		case strings.HasPrefix(statement.SQL, "SELECT c.id, c.status"):
-			result.Rows = [][]Value{{Text("conversation-1"), Text("active"), Text(now), Text(now), Null(), Null()}}
+			result.Rows = [][]Value{{Text("conversation-1"), Text("active"), Text(time.Now().UTC().Format(time.RFC3339Nano)), Text(time.Now().UTC().Format(time.RFC3339Nano)), Null(), Null()}}
 		case strings.HasPrefix(statement.SQL, "SELECT id FROM conversations"):
 			result.Rows = [][]Value{{Text("conversation-1")}}
-		case strings.HasPrefix(statement.SQL, "UPDATE conversations SET updated_at"):
-			result.AffectedRowCount = 1
 		case strings.HasPrefix(statement.SQL, "INSERT INTO messages"):
 			result.AffectedRowCount = 1
 		}
@@ -120,9 +140,7 @@ func newRepositoryTestServer(t *testing.T) (*httptest.Server, *[]string, *[][]Va
 			t.Errorf("marshal execute response: %v", err)
 			return
 		}
-		_ = json.NewEncoder(writer).Encode(pipelineResponse{
-			Results: []streamResult{{Type: "ok", Response: response}},
-		})
+		_ = json.NewEncoder(writer).Encode(pipelineResponseWithClosedStream(streamResult{Type: "ok", Response: response}))
 	}))
 	return server, &queries, &args
 }
@@ -143,11 +161,11 @@ func TestRepositoryLatestThreadID(t *testing.T) {
 			t.Errorf("decode request: %v", err)
 			return
 		}
-		if len(body.Requests) != 1 || body.Requests[0].Stmt == nil || !strings.Contains(body.Requests[0].Stmt.SQL, "ORDER BY created_at DESC") {
+		if len(body.Requests) != 2 || body.Requests[0].Stmt == nil || body.Requests[1].Type != "close" || !strings.Contains(body.Requests[0].Stmt.SQL, "ORDER BY created_at DESC") {
 			t.Errorf("unexpected query: %+v", body.Requests)
 		}
 		response := json.RawMessage(`{"type":"execute","result":{"cols":[{"name":"thread_id"}],"rows":[[{"type":"text","value":"thread-1"}]],"affected_row_count":0}}`)
-		_ = json.NewEncoder(writer).Encode(pipelineResponse{Results: []streamResult{{Type: "ok", Response: response}}})
+		_ = json.NewEncoder(writer).Encode(pipelineResponseWithClosedStream(streamResult{Type: "ok", Response: response}))
 	}))
 	defer server.Close()
 
@@ -158,5 +176,35 @@ func TestRepositoryLatestThreadID(t *testing.T) {
 	}
 	if !found || threadID != "thread-1" {
 		t.Fatalf("thread = %q, found=%v", threadID, found)
+	}
+}
+
+func TestRepositoryListsPendingApprovalsForConversation(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		var body pipelineRequest
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			t.Errorf("decode request: %v", err)
+			return
+		}
+		if len(body.Requests) != 2 || body.Requests[1].Type != "close" {
+			t.Errorf("stream was not closed: %+v", body.Requests)
+			return
+		}
+		query := body.Requests[0].Stmt
+		if !strings.Contains(query.SQL, "a.status = 'pending'") || !strings.Contains(query.SQL, "c.user_id = ?") {
+			t.Errorf("query does not filter pending approvals by owner: %s", query.SQL)
+		}
+		response := json.RawMessage(`{"type":"execute","result":{"cols":[{"name":"run_id"},{"name":"request_id"},{"name":"action_type"},{"name":"summary"}],"rows":[[{"type":"text","value":"run-1"},{"type":"text","value":"17"},{"type":"text","value":"item/commandExecution/requestApproval"},{"type":"text","value":"{\"command\":\"go test ./...\"}"}]],"affected_row_count":0}}`)
+		_ = json.NewEncoder(writer).Encode(pipelineResponseWithClosedStream(streamResult{Type: "ok", Response: response}))
+	}))
+	defer server.Close()
+
+	repository := NewRepository(NewClient(server.URL, "").WithHTTPClient(server.Client()), "user-1")
+	approvals, err := repository.ListPendingApprovals(context.Background(), "conversation-1")
+	if err != nil {
+		t.Fatalf("list pending approvals: %v", err)
+	}
+	if len(approvals) != 1 || approvals[0].RunID != "run-1" || approvals[0].RequestID != "17" || string(approvals[0].Params) != `{"command":"go test ./..."}` {
+		t.Fatalf("approvals = %+v", approvals)
 	}
 }

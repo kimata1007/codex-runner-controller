@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+
+	"github.com/kimata1007/codex-runner-controller/internal/telemetry"
 	"strings"
 	"sync"
 )
@@ -15,8 +17,7 @@ type Client struct {
 	pipelineURL string
 	token       string
 
-	mu    sync.Mutex
-	baton *string
+	mu sync.Mutex
 }
 
 type Value struct {
@@ -56,9 +57,40 @@ type pipelineRequest struct {
 }
 
 type streamRequest struct {
-	Type string     `json:"type"`
-	Stmt *statement `json:"stmt,omitempty"`
-	SQL  string     `json:"sql,omitempty"`
+	Type  string        `json:"type"`
+	Stmt  *statement    `json:"stmt,omitempty"`
+	SQL   string        `json:"sql,omitempty"`
+	Batch *batchRequest `json:"batch,omitempty"`
+}
+
+// TxStatement is one parameterized statement in an atomic Hrana batch.
+type TxStatement struct {
+	SQL  string
+	Args []Value
+}
+
+type batchRequest struct {
+	Steps []batchStep `json:"steps"`
+}
+
+type batchStep struct {
+	Condition *batchCondition `json:"condition,omitempty"`
+	Stmt      statement       `json:"stmt"`
+}
+
+type batchCondition struct {
+	Type  string           `json:"type"`
+	Step  *int             `json:"step,omitempty"`
+	Cond  *batchCondition  `json:"cond,omitempty"`
+	Conds []batchCondition `json:"conds,omitempty"`
+}
+
+type batchResponse struct {
+	Type   string `json:"type"`
+	Result struct {
+		StepResults []json.RawMessage `json:"step_results"`
+		StepErrors  []json.RawMessage `json:"step_errors"`
+	} `json:"result"`
 }
 
 type statement struct {
@@ -102,7 +134,7 @@ type column struct {
 func NewClient(baseURL, token string) *Client {
 	baseURL = strings.TrimRight(baseURL, "/")
 	return &Client{
-		httpClient:  http.DefaultClient,
+		httpClient:  &http.Client{Transport: telemetry.HTTPTransport(nil)},
 		pipelineURL: baseURL + "/v3/pipeline",
 		token:       token,
 	}
@@ -147,6 +179,72 @@ func (c *Client) Exec(ctx context.Context, sql string, args []Value, wantRows bo
 	return ExecResult{Columns: columns, Rows: execute.Result.Rows, AffectedRowCount: execute.Result.AffectedRowCount}, nil
 }
 
+// ExecTransaction executes parameterized statements on a single Hrana stream
+// with BEGIN IMMEDIATE, COMMIT on success, and ROLLBACK on any step failure.
+// The commit and rollback are conditional steps in the same HTTP request.
+func (c *Client) ExecTransaction(ctx context.Context, statements []TxStatement) error {
+	if len(statements) == 0 {
+		return fmt.Errorf("libsql: empty transaction")
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	steps := make([]batchStep, 0, len(statements)+3)
+	steps = append(steps, batchStep{Stmt: statement{SQL: "BEGIN IMMEDIATE"}})
+	for i, item := range statements {
+		steps = append(steps, batchStep{
+			Condition: &batchCondition{Type: "ok", Step: stepIndex(i)},
+			Stmt:      statement{SQL: item.SQL, Args: item.Args},
+		})
+	}
+	commit := len(steps)
+	steps = append(steps, batchStep{
+		Condition: &batchCondition{Type: "ok", Step: stepIndex(commit - 1)},
+		Stmt:      statement{SQL: "COMMIT"},
+	})
+	steps = append(steps, batchStep{
+		Condition: &batchCondition{Type: "and", Conds: []batchCondition{
+			{Type: "ok", Step: stepIndex(0)},
+			{Type: "not", Cond: &batchCondition{Type: "ok", Step: stepIndex(commit)}},
+		}},
+		Stmt: statement{SQL: "ROLLBACK"},
+	})
+	response, err := c.pipeline(ctx, []streamRequest{{Type: "batch", Batch: &batchRequest{Steps: steps}}})
+	if err != nil {
+		return fmt.Errorf("libsql: transaction outcome unknown: %w", err)
+	}
+	if len(response.Results) != 1 {
+		return fmt.Errorf("libsql: invalid transaction response")
+	}
+	if response.Results[0].Type == "error" {
+		return fmt.Errorf("libsql: transaction request rejected")
+	}
+	var data batchResponse
+	if err := json.Unmarshal(response.Results[0].Response, &data); err != nil {
+		return fmt.Errorf("libsql: decode transaction response: %w", err)
+	}
+	if data.Type != "batch" || len(data.Result.StepResults) != len(steps) || len(data.Result.StepErrors) != len(steps) {
+		return fmt.Errorf("libsql: invalid transaction batch results")
+	}
+	for i := range data.Result.StepErrors {
+		if len(data.Result.StepErrors[i]) > 0 && string(data.Result.StepErrors[i]) != "null" {
+			// When BEGIN succeeded, rollback must be confirmed for a failed step.
+			// Avoid reporting the upstream SQL error text (it can contain sensitive data).
+			if i > 0 && i <= commit && (len(data.Result.StepResults[commit+1]) == 0 || string(data.Result.StepResults[commit+1]) == "null") {
+				return fmt.Errorf("libsql: transaction step %d failed; rollback not confirmed", i)
+			}
+			return fmt.Errorf("libsql: transaction step %d failed", i)
+		}
+	}
+	if len(data.Result.StepResults[commit]) == 0 || string(data.Result.StepResults[commit]) == "null" {
+		return fmt.Errorf("libsql: transaction did not commit")
+	}
+	return nil
+}
+
+func stepIndex(index int) *int {
+	return &index
+}
+
 func (c *Client) ApplySchema(ctx context.Context, schema string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -164,7 +262,31 @@ func (c *Client) ApplySchema(ctx context.Context, schema string) error {
 }
 
 func (c *Client) pipeline(ctx context.Context, requests []streamRequest) (pipelineResponse, error) {
-	payload, err := json.Marshal(pipelineRequest{Baton: c.baton, Requests: requests})
+	streamRequests := make([]streamRequest, 0, len(requests)+1)
+	streamRequests = append(streamRequests, requests...)
+	streamRequests = append(streamRequests, streamRequest{Type: "close"})
+
+	response, err := c.doPipeline(ctx, streamRequests)
+	if err != nil {
+		return pipelineResponse{}, err
+	}
+	if len(response.Results) != len(streamRequests) {
+		return pipelineResponse{}, fmt.Errorf("libsql: expected %d pipeline results, got %d", len(streamRequests), len(response.Results))
+	}
+	closeResult := response.Results[len(response.Results)-1]
+	if closeResult.Type != "ok" {
+		if closeResult.Error != nil {
+			return pipelineResponse{}, fmt.Errorf("libsql: close stream: %s", closeResult.Error.Message)
+		}
+		return pipelineResponse{}, fmt.Errorf("libsql: close stream failed")
+	}
+
+	response.Results = response.Results[:len(response.Results)-1]
+	return response, nil
+}
+
+func (c *Client) doPipeline(ctx context.Context, requests []streamRequest) (pipelineResponse, error) {
+	payload, err := json.Marshal(pipelineRequest{Baton: nil, Requests: requests})
 	if err != nil {
 		return pipelineResponse{}, fmt.Errorf("libsql: encode pipeline request: %w", err)
 	}
@@ -182,22 +304,17 @@ func (c *Client) pipeline(ctx context.Context, requests []streamRequest) (pipeli
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		// A non-2xx response for a request carrying a baton invalidates the
-		// stream. The next request must open a new stream with a null baton.
-		c.baton = nil
 		return pipelineResponse{}, fmt.Errorf("libsql: pipeline returned HTTP %s", resp.Status)
 	}
 	var response pipelineResponse
 	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
 		return pipelineResponse{}, fmt.Errorf("libsql: decode pipeline response: %w", err)
 	}
-	c.baton = response.Baton
 	if response.BaseURL != "" {
 		c.pipelineURL = strings.TrimRight(response.BaseURL, "/") + "/v3/pipeline"
 	}
 	return response, nil
 }
-
 func Text(value string) Value {
 	return Value{Type: "text", Value: value}
 }

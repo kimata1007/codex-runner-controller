@@ -1,5 +1,72 @@
 # Changelog
 
+## [v0.0.16](https://github.com/kimata1007/codex-runner-controller/compare/v0.0.15...v0.0.16) - 2026-11-22
+
+- fix: prevent stale PWA assets and refresh ChatGPT auth status by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/128
+
+## [v0.0.15](https://github.com/kimata1007/codex-runner-controller/compare/v0.0.14...v0.0.15) - 2026-11-22
+
+- refactor: remove unused Codex settings UI and API by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/126
+
+## [v0.0.14](https://github.com/kimata1007/codex-runner-controller/compare/v0.0.13...v0.0.14) - 2026-11-22
+
+- fix: run Codex with Kubernetes Pod isolation instead of bwrap by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/124
+
+## [v0.0.13](https://github.com/kimata1007/codex-runner-controller/compare/v0.0.12...v0.0.13) - 2026-11-19
+
+- fix: hide archived conversations from history list by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/121
+
+## [v0.0.12](https://github.com/kimata1007/codex-runner-controller/compare/v0.0.11...v0.0.12) - 2026-11-18
+
+- fix: archive conversations and preserve history by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/117
+- feat: HTTPトレースに安全なルート名とエラー情報を追加 by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/116
+
+## [v0.0.11](https://github.com/kimata1007/codex-runner-controller/compare/v0.0.10...v0.0.11) - 2026-11-18
+
+- feat: PWAからCodex App Serverの設定とアプリツール状態を確認 by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/114
+
+## [v0.0.10](https://github.com/kimata1007/codex-runner-controller/compare/v0.0.9...v0.0.10) - 2026-11-18
+
+- feat: delete conversations from history with menu and long-press by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/102
+- Open and close a fresh libSQL stream per request by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/111
+- fix: pass Go CI after stream lifecycle change by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/113
+- feat: Codex App Serverのstderrを安全にオプトイン転送 by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/112
+
+## [v0.0.9](https://github.com/kimata1007/codex-runner-controller/compare/v0.0.8...v0.0.9) - 2026-11-17
+
+- Retry expired libSQL streams by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/108
+- fix: reset libsql baton on transport errors by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/91
+
+## [v0.0.8](https://github.com/kimata1007/codex-runner-controller/compare/v0.0.7...v0.0.8) - 2026-11-17
+
+- feat: standardize structured console logs by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/104
+- test: KindでKubernetes E2EとSecret欠落検出を追加 by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/107
+- feat: Runner API・Controller・Agent・CodexのOpenTelemetryトレース by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/106
+
+## [v0.0.7](https://github.com/kimata1007/codex-runner-controller/compare/v0.0.6...v0.0.7) - 2026-11-16
+
+- fix: set Codex approval policy to never by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/99
+- feat: add correlated error diagnostics without logging secrets by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/100
+
+## [v0.0.6](https://github.com/kimata1007/codex-runner-controller/compare/v0.0.5...v0.0.6) - 2026-11-15
+
+- fix: use numeric runner-agent UID by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/97
+
+## [v0.0.5](https://github.com/kimata1007/codex-runner-controller/compare/v0.0.4...v0.0.5) - 2026-11-15
+
+- fix: use current runner agent for auth broker by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/81
+- docs: explain required ChatGPT auth secret by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/82
+- fix: keep control tokens out of app server by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/83
+- fix: honor session PVC retention policy by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/84
+- fix: report failed and interrupted turns by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/85
+- feat: restore pending approval cards by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/86
+- fix: serialize runner event forwarding by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/87
+- fix: project explicit turn terminal events by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/88
+- fix: recreate terminal session pods by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/90
+- docs: align guides with current API contract by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/92
+- fix: reject overlapping runner turns by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/93
+- fix: keep SSE streams open for long runs by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/94
+
 ## [v0.0.4](https://github.com/kimata1007/codex-runner-controller/compare/v0.0.3...v0.0.4) - 2026-11-15
 
 - feat: share ChatGPT authentication across conversations by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/79

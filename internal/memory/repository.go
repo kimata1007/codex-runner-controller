@@ -56,18 +56,15 @@ func (r *Repository) GetConversation(ctx context.Context, id string) (conversati
 
 	r.mu.RLock()
 	value, ok := r.conversations[id]
-	if ok && (value.Status == "archived" || !value.UpdatedAt.Add(session.DefaultRetentionPeriod).After(time.Now().UTC())) {
-		r.mu.RUnlock()
-		return conversation.Conversation{}, fmt.Errorf("%w: %s", conversation.ErrArchived, id)
-	}
 	if ok {
 		value = cloneConversation(value)
-	} else {
-		ok = false
 	}
 	r.mu.RUnlock()
 	if !ok {
 		return conversation.Conversation{}, fmt.Errorf("%w: %s", conversation.ErrNotFound, id)
+	}
+	if value.Status == "archived" || !value.UpdatedAt.Add(session.DefaultRetentionPeriod).After(time.Now().UTC()) {
+		return conversation.Conversation{}, fmt.Errorf("%w: %s", conversation.ErrArchived, id)
 	}
 	return *value, nil
 }
@@ -106,11 +103,11 @@ func (r *Repository) ListMessages(ctx context.Context, id string) ([]conversatio
 
 	r.mu.RLock()
 	value, ok := r.conversations[id]
-	if ok && (value.Status == "archived" || !value.UpdatedAt.Add(session.DefaultRetentionPeriod).After(time.Now().UTC())) {
-		r.mu.RUnlock()
-		return nil, fmt.Errorf("%w: %s", conversation.ErrArchived, id)
-	}
 	if ok {
+		if value.Status == "archived" || !value.UpdatedAt.Add(session.DefaultRetentionPeriod).After(time.Now().UTC()) {
+			r.mu.RUnlock()
+			return nil, fmt.Errorf("%w: %s", conversation.ErrArchived, id)
+		}
 		messages := append([]conversation.Message(nil), value.Messages...)
 		r.mu.RUnlock()
 		return messages, nil
@@ -130,11 +127,7 @@ func (r *Repository) CreateMessage(ctx context.Context, id string, input convers
 	if !ok {
 		return conversation.Message{}, false, fmt.Errorf("%w: %s", conversation.ErrNotFound, id)
 	}
-	if value.Status == "archived" {
-		return conversation.Message{}, false, fmt.Errorf("%w: %s", conversation.ErrArchived, id)
-	}
-	if !value.UpdatedAt.Add(session.DefaultRetentionPeriod).After(time.Now().UTC()) {
-		value.Status = "archived"
+	if value.Status == "archived" || !value.UpdatedAt.Add(session.DefaultRetentionPeriod).After(time.Now().UTC()) {
 		return conversation.Message{}, false, fmt.Errorf("%w: %s", conversation.ErrArchived, id)
 	}
 	if input.ClientMessageID != "" {
@@ -156,6 +149,7 @@ func (r *Repository) CreateMessage(ctx context.Context, id string, input convers
 		CreatedAt:       now,
 	}
 	value.Messages = append(value.Messages, message)
+	value.Status = "active"
 	value.UpdatedAt = now
 	return message, true, nil
 }
@@ -200,46 +194,6 @@ func (r *Repository) SetMessageStatus(ctx context.Context, id, status string) er
 	return fmt.Errorf("message %q not found", id)
 }
 
-func (r *Repository) TouchConversation(ctx context.Context, id string, at time.Time) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	value, ok := r.conversations[id]
-	if !ok {
-		return fmt.Errorf("%w: %s", conversation.ErrNotFound, id)
-	}
-	if value.Status == "archived" {
-		return fmt.Errorf("%w: %s", conversation.ErrArchived, id)
-	}
-	if !value.UpdatedAt.Add(session.DefaultRetentionPeriod).After(time.Now().UTC()) {
-		value.Status = "archived"
-		return fmt.Errorf("%w: %s", conversation.ErrArchived, id)
-	}
-	if at.IsZero() {
-		at = time.Now().UTC()
-	}
-	if at.After(value.UpdatedAt) {
-		value.UpdatedAt = at.UTC()
-	}
-	return nil
-}
-
-func (r *Repository) ArchiveInactiveConversations(ctx context.Context, cutoff time.Time) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	for _, value := range r.conversations {
-		if value.Status != "archived" && value.UpdatedAt.Before(cutoff) {
-			value.Status = "archived"
-		}
-	}
-	return nil
-}
-
 func (r *Repository) newID(prefix string) string {
 	sequence := atomic.AddUint64(&r.sequence, 1)
 	return fmt.Sprintf("%s-%d", prefix, sequence)
@@ -262,4 +216,55 @@ func conversationTitle(content string) string {
 		return string(runes[:48]) + "…"
 	}
 	return content
+}
+
+func (r *Repository) ArchiveConversation(ctx context.Context, id string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	value, ok := r.conversations[id]
+	if !ok {
+		return fmt.Errorf("%w: %s", conversation.ErrNotFound, id)
+	}
+	value.Status = "archived"
+	value.UpdatedAt = time.Now().UTC()
+	return nil
+}
+
+func (r *Repository) TouchConversation(ctx context.Context, id string, at time.Time) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	value, ok := r.conversations[id]
+	if !ok {
+		return fmt.Errorf("%w: %s", conversation.ErrNotFound, id)
+	}
+	if value.Status == "archived" {
+		return fmt.Errorf("%w: %s", conversation.ErrArchived, id)
+	}
+	if at.After(value.UpdatedAt) {
+		value.UpdatedAt = at.UTC()
+	}
+	return nil
+}
+
+func (r *Repository) ArchiveInactiveConversations(ctx context.Context, cutoff time.Time) ([]string, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var cleanup []string
+	for id, value := range r.conversations {
+		if value.UpdatedAt.After(cutoff) {
+			continue
+		}
+		value.Status = "archived"
+		cleanup = append(cleanup, id)
+	}
+	return cleanup, nil
 }

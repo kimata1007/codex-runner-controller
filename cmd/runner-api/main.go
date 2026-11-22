@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -20,16 +20,25 @@ import (
 	"github.com/kimata1007/codex-runner-controller/internal/events"
 	"github.com/kimata1007/codex-runner-controller/internal/kubernetes"
 	"github.com/kimata1007/codex-runner-controller/internal/libsql"
+	"github.com/kimata1007/codex-runner-controller/internal/logging"
 	"github.com/kimata1007/codex-runner-controller/internal/memory"
 	"github.com/kimata1007/codex-runner-controller/internal/runnerapi"
 	"github.com/kimata1007/codex-runner-controller/internal/runs"
 	"github.com/kimata1007/codex-runner-controller/internal/session"
+	"github.com/kimata1007/codex-runner-controller/internal/telemetry"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 )
 
 func main() {
+	slog.SetDefault(logging.New("runner-api"))
+	shutdown, err := telemetry.Start(context.Background(), "runner-api")
+	if err != nil {
+		slog.Error("failed to initialize tracing", "operation", "startup.tracing", "error.type", logging.ErrorType(err))
+		os.Exit(1)
+	}
+	defer telemetry.Shutdown(context.Background(), shutdown)
 	addr := os.Getenv("RUNNER_API_ADDR")
 	if addr == "" {
 		addr = ":8080"
@@ -39,11 +48,13 @@ func main() {
 	repository, err := repositoryFromEnvironment(migrationContext)
 	cancel()
 	if err != nil {
-		log.Fatal(err)
+		slog.Error("failed to initialize repository", "operation", "startup.repository", "error.type", logging.ErrorType(err))
+		os.Exit(1)
 	}
 	dispatcher, activator, authBroker, err := runtimeFromEnvironment(repository)
 	if err != nil {
-		log.Fatal(err)
+		slog.Error("failed to initialize runtime", "operation", "startup.runtime", "error.type", logging.ErrorType(err))
+		os.Exit(1)
 	}
 	dependencies := runnerapi.HandlerDependencies{Repository: repository, Dispatcher: dispatcher, Activator: activator, AuthBroker: authBroker}
 	if eventStore, ok := repository.(runnerapi.RunEventStore); ok {
@@ -55,19 +66,25 @@ func main() {
 	httpHandler = auth.BearerTokenForPathPrefix(httpHandler, os.Getenv("RUNNER_API_TOKEN"), "/internal/runs/")
 	httpHandler = auth.BearerTokenForPathPrefix(httpHandler, os.Getenv("RUNNER_AGENT_TOKEN"), "/internal/sessions/")
 	httpHandler = auth.BearerTokenForPathPrefix(httpHandler, os.Getenv("RUNNER_AGENT_TOKEN"), "/internal/auth/")
+	httpHandler = telemetry.HTTPHandler(httpHandler)
 	server := &http.Server{
 		Addr:              addr,
 		Handler:           httpHandler,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
-		WriteTimeout:      5 * time.Minute,
-		IdleTimeout:       60 * time.Second,
+		// The run-event endpoint uses long-lived SSE responses. A fixed
+		// WriteTimeout would close valid streams while a turn is still running.
+		IdleTimeout: 60 * time.Second,
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	if retentionStore, ok := repository.(conversation.RetentionStore); ok {
-		go runnerapi.RunConversationArchiver(ctx, retentionStore)
+	if store, ok := repository.(conversation.RetentionStore); ok {
+		var cleaner runnerapi.ConversationSessionCleaner
+		if value, ok := activator.(runnerapi.ConversationSessionCleaner); ok {
+			cleaner = value
+		}
+		go runnerapi.RunConversationArchiver(ctx, store, cleaner)
 	}
 
 	go func() {
@@ -75,13 +92,14 @@ func main() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if err := server.Shutdown(shutdownCtx); err != nil {
-			log.Printf("server shutdown: %v", err)
+			slog.Error("HTTP server shutdown failed", "operation", "http.server_shutdown", "error.type", logging.ErrorType(err))
 		}
 	}()
 
-	log.Printf("runner-api listening on %s", addr)
+	slog.Info("HTTP server listening", "address", addr)
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		log.Fatal(err)
+		slog.Error("HTTP server failed", "operation", "http.server_start", "error.type", logging.ErrorType(err))
+		os.Exit(1)
 	}
 }
 

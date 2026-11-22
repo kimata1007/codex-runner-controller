@@ -5,6 +5,7 @@ import (
 	"time"
 )
 
+// DefaultRetentionPeriod is distinct from the short Pod idle timeout.
 const DefaultRetentionPeriod = 7 * 24 * time.Hour
 
 // Activation identifies the conversation whose runner-agent must be reachable.

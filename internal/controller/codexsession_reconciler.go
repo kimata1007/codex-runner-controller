@@ -101,6 +101,12 @@ func (r CodexSessionReconciler) ReconcileStatus(ctx context.Context, namespace, 
 	if err != nil {
 		return Result{}, fmt.Errorf("get pod: %w", err)
 	}
+	if pod.Status.Phase == corev1.PodFailed || pod.Status.Phase == corev1.PodSucceeded {
+		if err := r.Client.DeletePod(ctx, namespace, name); err != nil && !errors.Is(err, ErrNotFound) {
+			return Result{}, fmt.Errorf("delete terminal pod: %w", err)
+		}
+		return Result{Phase: v1alpha1.PhaseStarting, WorkspaceClaim: name, RequeueAfter: time.Second}, nil
+	}
 	phase := v1alpha1.PhaseStarting
 	if podReady(pod) {
 		phase = readyPhase(status.Phase)

@@ -16,10 +16,10 @@ RUN test -n "$CODEX_CLI_VERSION" \
   && npm cache clean --force
 COPY --from=build /out/runner-agent /runner-agent
 COPY scripts/runner-agent-entrypoint.sh /runner-agent-entrypoint
-RUN useradd --create-home --uid 10001 codex \
+RUN useradd --create-home --uid 10001 --user-group codex \
   && mkdir -p /var/lib/codex \
   && chmod 0755 /runner-agent-entrypoint \
   && chown -R codex:codex /var/lib/codex /app
-USER codex
+USER 10001:10001
 ENV CODEX_HOME=/var/lib/codex
 ENTRYPOINT ["/runner-agent-entrypoint"]

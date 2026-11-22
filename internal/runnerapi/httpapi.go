@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -14,26 +15,27 @@ import (
 	"github.com/kimata1007/codex-runner-controller/internal/authbroker"
 	"github.com/kimata1007/codex-runner-controller/internal/conversation"
 	"github.com/kimata1007/codex-runner-controller/internal/events"
+	"github.com/kimata1007/codex-runner-controller/internal/logging"
 	"github.com/kimata1007/codex-runner-controller/internal/runs"
 	"github.com/kimata1007/codex-runner-controller/internal/session"
+	"github.com/kimata1007/codex-runner-controller/internal/telemetry"
 	"github.com/labstack/echo/v4"
 )
 
 const maxRequestBodyBytes = 1 << 20
 
 type Handler struct {
-	repository           conversation.Repository
-	statusStore          MessageStatusStore
-	dispatcher           MessageDispatcher
-	approvalResponder    ApprovalResponder
-	activator            session.Activator
-	activity             session.ActivityRecorder
-	conversationActivity conversation.ActivityRecorder
-	phase                SessionPhaseRecorder
-	eventStore           RunEventStore
-	eventProjector       RunEventProjector
-	eventHub             RunEventHub
-	authBroker           ChatGPTAuthBroker
+	repository        conversation.Repository
+	statusStore       MessageStatusStore
+	dispatcher        MessageDispatcher
+	approvalResponder ApprovalResponder
+	activator         session.Activator
+	activity          session.ActivityRecorder
+	phase             SessionPhaseRecorder
+	eventStore        RunEventStore
+	eventProjector    RunEventProjector
+	eventHub          RunEventHub
+	authBroker        ChatGPTAuthBroker
 }
 
 // HandlerDependencies groups the optional collaborators used by the HTTP API.
@@ -62,20 +64,18 @@ func NewHandler(dependencies HandlerDependencies) *Handler {
 	approvalResponder, _ := dependencies.Dispatcher.(ApprovalResponder)
 	activity, _ := dependencies.Activator.(session.ActivityRecorder)
 	phase, _ := dependencies.Activator.(SessionPhaseRecorder)
-	conversationActivity, _ := dependencies.Repository.(conversation.ActivityRecorder)
 	return &Handler{
-		repository:           dependencies.Repository,
-		statusStore:          statusStore,
-		dispatcher:           dependencies.Dispatcher,
-		approvalResponder:    approvalResponder,
-		activator:            dependencies.Activator,
-		activity:             activity,
-		conversationActivity: conversationActivity,
-		phase:                phase,
-		eventStore:           dependencies.EventStore,
-		eventProjector:       eventProjector,
-		eventHub:             dependencies.EventHub,
-		authBroker:           dependencies.AuthBroker,
+		repository:        dependencies.Repository,
+		statusStore:       statusStore,
+		dispatcher:        dependencies.Dispatcher,
+		approvalResponder: approvalResponder,
+		activator:         dependencies.Activator,
+		activity:          activity,
+		phase:             phase,
+		eventStore:        dependencies.EventStore,
+		eventProjector:    eventProjector,
+		eventHub:          dependencies.EventHub,
+		authBroker:        dependencies.AuthBroker,
 	}
 }
 
@@ -101,9 +101,14 @@ type RunEventProjector interface {
 	ApplyAppServerEvent(context.Context, string, string, string) error
 }
 
+type ApprovalLister interface {
+	ListPendingApprovals(context.Context, string) ([]runs.Approval, error)
+}
+
 func NewRouter(handler *Handler) *echo.Echo {
 	e := echo.New()
 	e.HideBanner = true
+	e.Use(logging.EchoRequestLogger(slog.Default()))
 	e.GET("/healthz", handler.checkHealth)
 	e.GET("/readyz", handler.checkHealth)
 	e.GET("/v1/conversations", handler.listConversations)
@@ -116,10 +121,14 @@ func NewRouter(handler *Handler) *echo.Echo {
 	}
 	e.POST("/v1/conversations", handler.createConversation)
 	e.GET("/v1/conversations/:id", handler.getConversation)
+	e.DELETE("/v1/conversations/:id", handler.archiveConversation)
 	e.GET("/v1/conversations/:id/messages", handler.getMessages)
 	e.POST("/v1/conversations/:id/messages", handler.createMessage)
 	if handler.approvalResponder != nil {
 		e.POST("/v1/approvals/:runID/:requestID", handler.respondApproval)
+	}
+	if _, ok := handler.repository.(ApprovalLister); ok {
+		e.GET("/v1/conversations/:id/approvals", handler.listPendingApprovals)
 	}
 	if handler.eventStore != nil && handler.eventHub != nil {
 		e.POST("/internal/runs/:runID/events", handler.receiveAppServerRunEvent)
@@ -134,7 +143,7 @@ func NewRouter(handler *Handler) *echo.Echo {
 func (h *Handler) getGlobalAuthStatus(c echo.Context) error {
 	status, err := h.authBroker.Status(c.Request().Context())
 	if err != nil {
-		return writeError(c, http.StatusServiceUnavailable, "ChatGPT authentication status is unavailable")
+		return writeOperationalError(c, http.StatusServiceUnavailable, "ChatGPT authentication status is unavailable", "auth_status", err)
 	}
 	return writeJSON(c, http.StatusOK, status)
 }
@@ -142,7 +151,7 @@ func (h *Handler) getGlobalAuthStatus(c echo.Context) error {
 func (h *Handler) beginGlobalAuth(c echo.Context) error {
 	login, err := h.authBroker.BeginLogin(c.Request().Context())
 	if err != nil {
-		return writeError(c, http.StatusServiceUnavailable, "could not begin ChatGPT sign-in")
+		return writeOperationalError(c, http.StatusServiceUnavailable, "could not begin ChatGPT sign-in", "auth_login", err)
 	}
 	return writeJSON(c, http.StatusCreated, login)
 }
@@ -154,7 +163,7 @@ func (h *Handler) cancelGlobalAuth(c echo.Context) error {
 
 func (h *Handler) logoutGlobalAuth(c echo.Context) error {
 	if err := h.authBroker.Logout(c.Request().Context()); err != nil {
-		return writeError(c, http.StatusServiceUnavailable, "could not disconnect ChatGPT")
+		return writeOperationalError(c, http.StatusServiceUnavailable, "could not disconnect ChatGPT", "auth_logout", err)
 	}
 	return writeJSON(c, http.StatusOK, map[string]string{"status": "disconnected"})
 }
@@ -168,7 +177,7 @@ func (h *Handler) refreshGlobalAuth(c echo.Context) error {
 	}
 	tokens, err := h.authBroker.RefreshChatGPTAuthTokens(c.Request().Context(), request.PreviousAccountID)
 	if err != nil {
-		return writeError(c, http.StatusUnauthorized, "ChatGPT credentials need to be reconnected")
+		return writeOperationalError(c, http.StatusUnauthorized, "ChatGPT credentials need to be reconnected", "auth_refresh", err)
 	}
 	return writeJSON(c, http.StatusOK, tokens)
 }
@@ -215,11 +224,11 @@ func (h *Handler) receiveAppServerRunEvent(c echo.Context) error {
 
 	event, err := h.eventStore.AppendEvent(c.Request().Context(), c.Param("runID"), request.EventType, string(request.Payload))
 	if err != nil {
-		return writeError(c, http.StatusBadGateway, "failed to persist event")
+		return writeOperationalError(c, http.StatusBadGateway, "failed to persist event", "event_persist", err)
 	}
 	if h.eventProjector != nil {
 		if err := h.eventProjector.ApplyAppServerEvent(c.Request().Context(), event.RunID, event.EventType, event.Payload); err != nil {
-			return writeError(c, http.StatusBadGateway, "failed to update run status")
+			return writeOperationalError(c, http.StatusBadGateway, "failed to update run status", "event_projection", err)
 		}
 	}
 	h.projectSessionPhase(c.Request().Context(), event.RunID, event.EventType, event.Payload)
@@ -263,15 +272,13 @@ func (h *Handler) checkHealth(c echo.Context) error {
 }
 
 func (h *Handler) receiveHeartbeat(c echo.Context) error {
-	ctx := c.Request().Context()
-	conversationID := c.Param("conversationID")
 	at := time.Now().UTC()
-	if err := h.activity.Touch(ctx, conversationID, at); err != nil {
-		return writeError(c, http.StatusBadGateway, "failed to record heartbeat")
+	if err := h.activity.Touch(c.Request().Context(), c.Param("conversationID"), at); err != nil {
+		return writeOperationalError(c, http.StatusBadGateway, "failed to record heartbeat", "session_heartbeat", err)
 	}
-	if h.conversationActivity != nil {
-		if err := h.conversationActivity.TouchConversation(ctx, conversationID, at); err != nil {
-			return writeError(c, http.StatusBadGateway, "failed to record conversation activity")
+	if recorder, ok := h.repository.(conversation.ActivityRecorder); ok {
+		if err := recorder.TouchConversation(c.Request().Context(), c.Param("conversationID"), at); err != nil {
+			return writeOperationalError(c, http.StatusBadGateway, "failed to record conversation activity", "conversation_heartbeat", err)
 		}
 	}
 	return writeJSON(c, http.StatusAccepted, map[string]string{"status": "accepted"})
@@ -292,9 +299,25 @@ func (h *Handler) respondApproval(c echo.Context) error {
 		return writeError(c, http.StatusBadRequest, "response must be valid JSON")
 	}
 	if err := h.approvalResponder.RespondApproval(c.Request().Context(), c.Param("runID"), c.Param("requestID"), response); err != nil {
-		return writeError(c, http.StatusBadGateway, "failed to respond to approval")
+		return writeOperationalError(c, http.StatusBadGateway, "failed to respond to approval", "approval_response", err)
 	}
 	return writeJSON(c, http.StatusAccepted, map[string]string{"status": "accepted"})
+}
+
+func (h *Handler) listPendingApprovals(c echo.Context) error {
+	lister, ok := h.repository.(ApprovalLister)
+	if !ok {
+		return writeError(c, http.StatusNotImplemented, "approval listing is not supported")
+	}
+	conversationID := c.Param("id")
+	if _, err := h.repository.GetConversation(c.Request().Context(), conversationID); err != nil {
+		return writeRepositoryError(c, err)
+	}
+	approvals, err := lister.ListPendingApprovals(c.Request().Context(), conversationID)
+	if err != nil {
+		return writeRepositoryError(c, err)
+	}
+	return writeJSON(c, http.StatusOK, map[string]any{"approvals": approvals})
 }
 
 func (h *Handler) createConversation(c echo.Context) error {
@@ -350,6 +373,33 @@ func (h *Handler) listConversations(c echo.Context) error {
 	return writeJSON(c, http.StatusOK, map[string]any{"conversations": response})
 }
 
+// archiveConversation removes the Kubernetes session and archives its history.
+func (h *Handler) archiveConversation(c echo.Context) error {
+	archiver, ok := h.repository.(conversation.Archiver)
+	if !ok {
+		return writeError(c, http.StatusNotImplemented, "conversation archiving is not supported")
+	}
+	id := c.Param("id")
+	if _, err := h.repository.GetConversation(c.Request().Context(), id); err != nil {
+		return writeRepositoryError(c, err)
+	}
+	if h.activator != nil {
+		cleaner, ok := h.activator.(interface {
+			DeleteSession(context.Context, string) error
+		})
+		if !ok {
+			return writeError(c, http.StatusServiceUnavailable, "session deletion is unavailable")
+		}
+		if err := cleaner.DeleteSession(c.Request().Context(), id); err != nil {
+			return writeError(c, http.StatusServiceUnavailable, "failed to delete session")
+		}
+	}
+	if err := archiver.ArchiveConversation(c.Request().Context(), id); err != nil {
+		return writeRepositoryError(c, err)
+	}
+	return c.NoContent(http.StatusNoContent)
+}
+
 func (h *Handler) getConversation(c echo.Context) error {
 	value, err := h.repository.GetConversation(c.Request().Context(), c.Param("id"))
 	if err != nil {
@@ -395,7 +445,7 @@ func (h *Handler) createMessage(c echo.Context) error {
 		}
 		claimed, err := h.statusStore.ClaimQueuedMessage(c.Request().Context(), message.ID)
 		if err != nil {
-			return writeError(c, http.StatusInternalServerError, "failed to claim message for dispatch")
+			return writeOperationalError(c, http.StatusInternalServerError, "failed to claim message for dispatch", "message_claim", err)
 		}
 		if !claimed {
 			dispatchable = false
@@ -425,7 +475,7 @@ func (h *Handler) createMessage(c echo.Context) error {
 		}
 		if err := h.activator.Activate(c.Request().Context(), session.Activation{ConversationID: conversationID, RequestedAt: time.Now().UTC(), Repository: repository}); err != nil {
 			h.resetQueuedMessage(c, message.ID)
-			return writeError(c, http.StatusServiceUnavailable, "failed to activate session")
+			return writeOperationalError(c, http.StatusServiceUnavailable, "failed to activate session", "session_activate", err)
 		}
 	}
 	if dispatchable && h.dispatcher != nil {
@@ -435,7 +485,10 @@ func (h *Handler) createMessage(c echo.Context) error {
 			if h.phase != nil {
 				_ = h.phase.SetPhase(c.Request().Context(), message.ConversationID, v1alpha1.PhaseFailed)
 			}
-			return writeError(c, http.StatusBadGateway, "failed to start run")
+			return writeOperationalErrorWithAttributes(c, http.StatusBadGateway, "failed to start run", "run_start", err,
+				"conversation_id", message.ConversationID,
+				"message_id", message.ID,
+			)
 		}
 		if h.phase != nil {
 			_ = h.phase.SetPhase(c.Request().Context(), message.ConversationID, v1alpha1.PhaseBusy)
@@ -563,12 +616,27 @@ func writeError(c echo.Context, status int, message string) error {
 	return writeJSON(c, status, map[string]string{"error": message})
 }
 
+func writeOperationalError(c echo.Context, status int, message, operation string, cause error) error {
+	return writeOperationalErrorWithAttributes(c, status, message, operation, cause)
+}
+
+func writeOperationalErrorWithAttributes(c echo.Context, status int, message, operation string, cause error, attributes ...any) error {
+	telemetry.RecordError(c.Request().Context(), cause)
+	attributes = append(attributes,
+		"operation", operation,
+		"http.response.status_code", status,
+		"error.type", logging.ErrorType(cause),
+	)
+	slog.ErrorContext(c.Request().Context(), message, attributes...)
+	return writeError(c, status, message)
+}
+
 func writeRepositoryError(c echo.Context, err error) error {
 	if errors.Is(err, conversation.ErrArchived) {
-		return writeError(c, http.StatusGone, "conversation has been archived after a week without activity")
+		return writeError(c, http.StatusGone, "conversation has been archived")
 	}
 	if errors.Is(err, conversation.ErrNotFound) {
 		return writeError(c, http.StatusNotFound, "conversation not found")
 	}
-	return writeError(c, http.StatusInternalServerError, "internal server error")
+	return writeOperationalError(c, http.StatusInternalServerError, "internal server error", "repository", err)
 }

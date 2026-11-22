@@ -17,6 +17,35 @@ import (
 	"github.com/kimata1007/codex-runner-controller/internal/session"
 )
 
+func TestArchivedConversationIsGoneFromUIAndCannotBeResurrected(t *testing.T) {
+	repository := memory.NewRepository()
+	value, err := repository.CreateConversation(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.ArchiveConversation(context.Background(), value.ID); err != nil {
+		t.Fatal(err)
+	}
+	router := NewRouter(NewHandler(HandlerDependencies{Repository: repository}))
+	for _, test := range []struct {
+		method string
+		path   string
+		body   string
+	}{
+		{http.MethodGet, "/v1/conversations/" + value.ID, ""},
+		{http.MethodPost, "/v1/conversations/" + value.ID + "/messages", `{"content":"revive"}`},
+	} {
+		response := serveJSON(t, router, test.method, test.path, test.body)
+		if response.Code != http.StatusGone {
+			t.Fatalf("%s %s: status = %d, body = %s", test.method, test.path, response.Code, response.Body.String())
+		}
+	}
+	response := serveJSON(t, router, http.MethodGet, "/v1/conversations", "")
+	if response.Code != http.StatusOK || strings.Contains(response.Body.String(), value.ID) {
+		t.Fatalf("archived conversation visible in UI list: %s", response.Body.String())
+	}
+}
+
 func TestHealth(t *testing.T) {
 	router := newTestRouter()
 	recorder := httptest.NewRecorder()
@@ -93,37 +122,6 @@ func TestCreateConversationAndMessage(t *testing.T) {
 	decodeResponse(t, messagesResponse, &payload)
 	if len(payload.Messages) != 1 {
 		t.Fatalf("message count = %d, want 1", len(payload.Messages))
-	}
-}
-
-func TestArchivedConversationIsHiddenAndCannotResume(t *testing.T) {
-	repository := memory.NewRepository()
-	value, err := repository.CreateConversation(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err := repository.CreateMessage(context.Background(), value.ID, conversation.NewMessage{Content: "saved history"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := repository.ArchiveInactiveConversations(context.Background(), time.Now().Add(time.Minute)); err != nil {
-		t.Fatal(err)
-	}
-	router := NewRouter(NewHandler(HandlerDependencies{Repository: repository}))
-	list := serveJSON(t, router, http.MethodGet, "/v1/conversations", "")
-	var listBody struct {
-		Conversations []conversationListResponse `json:"conversations"`
-	}
-	decodeResponse(t, list, &listBody)
-	if len(listBody.Conversations) != 0 {
-		t.Fatalf("visible archived conversations = %d", len(listBody.Conversations))
-	}
-	get := serveJSON(t, router, http.MethodGet, "/v1/conversations/"+value.ID, "")
-	if get.Code != http.StatusGone {
-		t.Fatalf("get status = %d, want 410", get.Code)
-	}
-	message := serveJSON(t, router, http.MethodPost, "/v1/conversations/"+value.ID+"/messages", `{"content":"resume"}`)
-	if message.Code != http.StatusGone {
-		t.Fatalf("message status = %d, want 410", message.Code)
 	}
 }
 
@@ -310,6 +308,40 @@ func TestReceiveAppServerRunEventRequiresEventType(t *testing.T) {
 	NewRouter(handler).ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusBadRequest)
+	}
+}
+
+type approvalListRepository struct {
+	conversation.Repository
+	approvals []runs.Approval
+}
+
+func (r approvalListRepository) ListPendingApprovals(context.Context, string) ([]runs.Approval, error) {
+	return r.approvals, nil
+}
+
+func TestListPendingApprovalsForConversation(t *testing.T) {
+	repository := approvalListRepository{
+		Repository: memory.NewRepository(),
+		approvals:  []runs.Approval{{RunID: "run-1", RequestID: "17", Method: "item/commandExecution/requestApproval", Params: json.RawMessage(`{"command":"go test ./..."}`)}},
+	}
+	conversationValue, err := repository.CreateConversation(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	router := NewRouter(NewHandler(HandlerDependencies{Repository: repository}))
+	response := serveJSON(t, router, http.MethodGet, "/v1/conversations/"+conversationValue.ID+"/approvals", "")
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	var body struct {
+		Approvals []runs.Approval `json:"approvals"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(body.Approvals) != 1 || body.Approvals[0].RunID != "run-1" || body.Approvals[0].RequestID != "17" {
+		t.Fatalf("approvals = %+v", body.Approvals)
 	}
 }
 

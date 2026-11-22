@@ -23,6 +23,8 @@ const (
 
 type ResourceBuilder struct {
 	RunnerImage                string
+	OTLPEndpoint               string
+	ForwardAppServerStderr     bool
 	RunnerEventURL             string
 	RunnerHeartbeatURL         string
 	RunnerAuthRefreshURL       string
@@ -71,6 +73,12 @@ func (b ResourceBuilder) BuildPod(namespace, name string, spec v1alpha1.CodexSes
 		{Name: "CODEX_CONVERSATION_ID", Value: spec.ConversationID},
 		{Name: "CODEX_APPROVAL_POLICY", Value: spec.Execution.ApprovalPolicy},
 		{Name: "CODEX_HOME", Value: DefaultMountPath},
+	}
+	if b.ForwardAppServerStderr {
+		env = append(env, corev1.EnvVar{Name: "CODEX_APP_SERVER_STDERR_TO_POD_LOG", Value: "true"})
+	}
+	if b.OTLPEndpoint != "" {
+		env = append(env, corev1.EnvVar{Name: "OTEL_EXPORTER_OTLP_ENDPOINT", Value: b.OTLPEndpoint})
 	}
 	if spec.Execution.Model != "" {
 		env = append(env, corev1.EnvVar{Name: "CODEX_MODEL", Value: spec.Execution.Model})

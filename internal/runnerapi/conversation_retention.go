@@ -2,31 +2,44 @@ package runnerapi
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"time"
 
 	"github.com/kimata1007/codex-runner-controller/internal/conversation"
 	"github.com/kimata1007/codex-runner-controller/internal/session"
 )
 
-const (
-	ConversationRetentionPeriod = session.DefaultRetentionPeriod
-	conversationArchiveInterval = time.Hour
-)
+const conversationArchiveInterval = time.Hour
 
-// RunConversationArchiver hides conversations that have been inactive for a
-// week while leaving their messages, runs, and events in the database.
-func RunConversationArchiver(ctx context.Context, store conversation.RetentionStore) {
+type ConversationSessionCleaner interface {
+	DeleteSession(context.Context, string) error
+}
+
+// RunConversationArchiver persists archive state, then removes the owned
+// Kubernetes session resources. Expired, archived IDs are returned on future
+// sweeps, so cleanup errors can be retried after a restart.
+func RunConversationArchiver(ctx context.Context, store conversation.RetentionStore, cleaner ConversationSessionCleaner) {
 	if store == nil {
 		return
 	}
-	archive := func() {
-		cutoff := time.Now().UTC().Add(-ConversationRetentionPeriod)
-		if err := store.ArchiveInactiveConversations(ctx, cutoff); err != nil && ctx.Err() == nil {
-			log.Printf("archive inactive conversations: %v", err)
+	sweep := func() {
+		ids, err := store.ArchiveInactiveConversations(ctx, time.Now().UTC().Add(-session.DefaultRetentionPeriod))
+		if err != nil {
+			if ctx.Err() == nil {
+				slog.Error("failed to archive expired conversations", "error", err)
+			}
+			return
+		}
+		if cleaner == nil {
+			return
+		}
+		for _, id := range ids {
+			if err := cleaner.DeleteSession(ctx, id); err != nil && ctx.Err() == nil {
+				slog.Error("failed to clean up archived conversation session", "error", err)
+			}
 		}
 	}
-	archive()
+	sweep()
 	ticker := time.NewTicker(conversationArchiveInterval)
 	defer ticker.Stop()
 	for {
@@ -34,7 +47,7 @@ func RunConversationArchiver(ctx context.Context, store conversation.RetentionSt
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			archive()
+			sweep()
 		}
 	}
 }

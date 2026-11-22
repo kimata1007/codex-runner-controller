@@ -3,6 +3,8 @@ const state = {
   repository: readStoredRepository(),
   repositories: readStoredRepositories(),
   sending: false,
+  deleting: false,
+  deleteTarget: null,
 };
 
 // Preserve repositories selected by earlier versions, before the recent list existed.
@@ -28,6 +30,7 @@ const elements = {
   composer: document.querySelector('#message-form'),
   message: document.querySelector('#message'),
   sendButton: document.querySelector('#send-message'),
+  deleteSelected: document.querySelector('#delete-selected-conversation'),
   contextToggle: document.querySelector('#context-toggle'),
   contextMenu: document.querySelector('#context-menu'),
   accountIndicator: document.querySelector('#codex-account'),
@@ -260,8 +263,40 @@ async function loadConversationList() {
   }
 }
 
+function selectConversationForDeletion(id, title) {
+  state.deleteTarget = {id, title};
+  elements.deleteSelected.hidden = false;
+  elements.deleteSelected.setAttribute('aria-label', `「${title}」をアーカイブ`);
+}
+
+function clearDeleteSelection() {
+  state.deleteTarget = null;
+  elements.deleteSelected.hidden = true;
+}
+
+async function archiveConversation(id, title) {
+  if (state.deleting || state.sending) {
+    setStatus('応答中はチャットをアーカイブできません', 'error');
+    return;
+  }
+  if (!window.confirm(`「${title}」をアーカイブしますか？\n会話履歴は残ります。セッションのKubernetesリソースを削除しますが、ストレージ設定によって作業データが残る場合があります。`)) return;
+  state.deleting = true;
+  try {
+    await request(`/v1/conversations/${encodeURIComponent(id)}`, {method: 'DELETE'});
+    clearDeleteSelection();
+    if (state.conversationID === id) startNewConversation();
+    await loadConversationList();
+    setStatus('チャットをアーカイブしました');
+  } catch (error) {
+    setStatus(`アーカイブできませんでした: ${error.message}`, 'error');
+  } finally {
+    state.deleting = false;
+  }
+}
+
 function renderHistory(conversations) {
   elements.historyList.replaceChildren();
+  if (state.deleteTarget && !conversations.some((item) => item.id === state.deleteTarget.id)) clearDeleteSelection();
   const groups = new Map();
   for (const conversation of conversations) {
     const groupName = formatConversationDate(conversation.updatedAt || conversation.createdAt);
@@ -279,14 +314,80 @@ function renderHistory(conversations) {
     const list = document.createElement('div');
     list.className = 'history-items';
     for (const conversation of items) {
+      const title = conversation.title || '新しいチャット';
+      const row = document.createElement('div');
+      row.className = 'history-row';
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'history-item';
-      button.textContent = conversation.title || '新しいチャット';
-      button.title = conversation.title || '新しいチャット';
+      button.textContent = title;
+      button.title = title;
       if (conversation.id === state.conversationID) button.setAttribute('aria-current', 'page');
-      button.addEventListener('click', () => openConversation(conversation.id));
-      list.append(button);
+      let suppressClick = false;
+      let pressTimer = null;
+      const cancelPress = () => {
+        if (pressTimer !== null) clearTimeout(pressTimer);
+        pressTimer = null;
+      };
+      button.addEventListener('pointerdown', (event) => {
+        if (event.pointerType === 'mouse' || event.button !== 0) return;
+        cancelPress();
+        pressTimer = setTimeout(() => {
+          pressTimer = null;
+          suppressClick = true;
+          selectConversationForDeletion(conversation.id, title);
+          menu.hidden = false;
+          options.setAttribute('aria-expanded', 'true');
+        }, 550);
+      });
+      button.addEventListener('pointerup', cancelPress);
+      button.addEventListener('pointercancel', cancelPress);
+      button.addEventListener('pointerleave', cancelPress);
+      button.addEventListener('contextmenu', (event) => {
+        event.preventDefault();
+        cancelPress();
+        suppressClick = true;
+        selectConversationForDeletion(conversation.id, title);
+        menu.hidden = false;
+        options.setAttribute('aria-expanded', 'true');
+      });
+      button.addEventListener('click', () => {
+        if (suppressClick) { suppressClick = false; return; }
+        clearDeleteSelection();
+        openConversation(conversation.id);
+      });
+
+      const options = document.createElement('button');
+      options.className = 'history-options';
+      options.type = 'button';
+      options.textContent = '⋯';
+      options.setAttribute('aria-label', `「${title}」の操作`);
+      options.setAttribute('aria-haspopup', 'menu');
+      options.setAttribute('aria-expanded', 'false');
+      const menu = document.createElement('div');
+      menu.className = 'history-options-menu';
+      menu.setAttribute('role', 'menu');
+      menu.hidden = true;
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.setAttribute('role', 'menuitem');
+      remove.className = 'history-delete-action';
+      remove.textContent = 'チャットをアーカイブ';
+      remove.addEventListener('click', () => {
+        menu.hidden = true;
+        options.setAttribute('aria-expanded', 'false');
+        archiveConversation(conversation.id, title);
+      });
+      menu.append(remove);
+      options.addEventListener('click', () => {
+        const opening = menu.hidden;
+        elements.historyList.querySelectorAll('.history-options-menu').forEach((item) => { item.hidden = true; });
+        elements.historyList.querySelectorAll('.history-options').forEach((item) => item.setAttribute('aria-expanded', 'false'));
+        menu.hidden = !opening;
+        options.setAttribute('aria-expanded', String(opening));
+      });
+      row.append(button, options, menu);
+      list.append(row);
     }
     group.append(heading, list);
     elements.historyList.append(group);
@@ -403,27 +504,29 @@ async function openConversation(id) {
     elements.messages.replaceChildren();
     for (const message of result.messages || []) addMessage(message.role, message.content);
     elements.emptyState.hidden = Boolean((result.messages || []).length);
+    try {
+      const pending = await request(`/v1/conversations/${encodeURIComponent(result.id)}/approvals`);
+      for (const approval of pending.approvals || []) {
+        addApproval(approval.runId, {
+          requestId: approval.requestId,
+          method: approval.method,
+          params: approval.params,
+        });
+      }
+    } catch (_) {
+      // Older or development repositories may not persist approval records.
+    }
     setStatus('');
     await loadConversationList();
   } catch (error) {
     if (error.status === 410) {
-      expireCurrentConversation();
-      return;
+      startNewConversation();
+      await loadConversationList();
+      setStatus('期限切れのチャットをアーカイブしました');
+    } else {
+      setStatus(`チャットを開けませんでした: ${error.message}`, 'error');
     }
-    setStatus(`チャットを開けませんでした: ${error.message}`, 'error');
   }
-}
-
-function expireCurrentConversation() {
-  state.conversationID = '';
-  localStorage.removeItem('codex.currentConversation');
-  setConversationURL('');
-  elements.messages.replaceChildren();
-  elements.conversationTitle.textContent = '新しいチャット';
-  elements.emptyState.hidden = false;
-  setRepository(null);
-  renderHistorySelection();
-  setStatus('1週間使われなかったため、このセッションは終了しました。会話記録は保持されています。新しいチャットを開始してください。', 'error');
 }
 
 function conversationTitle(conversation) {
@@ -435,6 +538,7 @@ function conversationTitle(conversation) {
 }
 
 function startNewConversation() {
+  clearDeleteSelection();
   state.conversationID = '';
   localStorage.removeItem('codex.currentConversation');
   setConversationURL('');
@@ -649,13 +753,6 @@ async function sendMessage(event) {
     else setStatus('応答が終了しました');
     await loadConversationList();
   } catch (error) {
-    if (error.status === 410) {
-      expireCurrentConversation();
-      elements.message.value = content;
-      resizeComposer();
-      elements.message.focus({preventScroll: true});
-      return;
-    }
     if (userMessage && !userMessage.item.isConnected) return;
     if (!userMessage) {
       elements.message.value = content;
@@ -719,6 +816,9 @@ elements.contextToggle.addEventListener('click', () => {
 });
 elements.removeRepository.addEventListener('click', () => setRepository(null));
 elements.composer.addEventListener('submit', sendMessage);
+elements.deleteSelected.addEventListener('click', () => {
+  if (state.deleteTarget) archiveConversation(state.deleteTarget.id, state.deleteTarget.title);
+});
 elements.message.addEventListener('input', resizeComposer);
 elements.message.addEventListener('keydown', (event) => {
   if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
@@ -734,6 +834,10 @@ elements.repositoryDialog.addEventListener('click', (event) => {
 });
 elements.repositoryDialog.addEventListener('close', () => elements.contextToggle.focus({preventScroll: true}));
 document.addEventListener('click', (event) => {
+  if (!event.target.closest('.history-row')) {
+    elements.historyList.querySelectorAll('.history-options-menu').forEach((item) => { item.hidden = true; });
+    elements.historyList.querySelectorAll('.history-options').forEach((item) => item.setAttribute('aria-expanded', 'false'));
+  }
   if (!elements.contextMenu.hidden && !elements.contextMenu.contains(event.target) && !elements.contextToggle.contains(event.target)) closeContextMenu();
 });
 document.addEventListener('keydown', (event) => {
@@ -741,11 +845,49 @@ document.addEventListener('keydown', (event) => {
 });
 
 renderRepository();
-request('/v1/auth/status').then((status) => {
-  if (status.authenticated) setCodexAccount(status.account);
-  else clearCodexAccount();
-}).catch(() => clearCodexAccount());
+async function refreshCodexAccount() {
+  try {
+    const status = await request('/v1/auth/status', {cache: 'no-store'});
+    if (status.authenticated) setCodexAccount(status.account);
+    else clearCodexAccount();
+  } catch (_) {
+    // A temporary API/network failure does not mean the OAuth session expired.
+    elements.accountLabel.textContent = 'ChatGPT 接続状態を確認できません';
+    elements.accountIndicator.hidden = false;
+  }
+}
+
+refreshCodexAccount();
+window.addEventListener('pageshow', refreshCodexAccount);
+
+// Keep the history list in sync when the server archives a conversation.
+async function refreshArchivedConversations() {
+  if (document.hidden) return;
+  try {
+    await loadConversationList();
+    if (!state.conversationID || state.sending) return;
+    await request(`/v1/conversations/${encodeURIComponent(state.conversationID)}`);
+  } catch (error) {
+    if (error.status === 410) {
+      startNewConversation();
+      setStatus('期限切れのチャットをアーカイブしました');
+    }
+  }
+}
+setInterval(refreshArchivedConversations, 60 * 1000);
+window.addEventListener('pageshow', refreshArchivedConversations);
+window.addEventListener('online', refreshCodexAccount);
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) {
+    refreshCodexAccount();
+    refreshArchivedConversations();
+  }
+});
 loadConversationList().then(async () => {
   if (state.conversationID) await openConversation(state.conversationID);
 });
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js', {updateViaCache: 'none'})
+    .then((registration) => registration.update())
+    .catch(() => { /* The web app remains usable without a service worker. */ });
+}

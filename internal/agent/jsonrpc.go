@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/kimata1007/codex-runner-controller/internal/telemetry"
 )
 
 type NotificationHandler func(AppServerNotification)
@@ -86,7 +88,12 @@ func NewJSONRPCClient(reader io.Reader, writer io.Writer, handler NotificationHa
 	}
 }
 
-func (c *JSONRPCClient) Call(ctx context.Context, method string, params any, result any) error {
+func (c *JSONRPCClient) Call(ctx context.Context, method string, params any, result any) (callErr error) {
+	ctx, span := telemetry.Tracer().Start(ctx, "codex.jsonrpc."+method)
+	defer func() {
+		telemetry.RecordError(ctx, callErr)
+		span.End()
+	}()
 	c.callMu.Lock()
 	defer c.callMu.Unlock()
 
@@ -246,6 +253,11 @@ type Process struct {
 func StartProcess(ctx context.Context, command string, args []string, handler NotificationHandler) (*Process, error) {
 	cmd := exec.CommandContext(ctx, command, args...)
 	cmd.Env = appServerEnvironment(os.Environ())
+	// Codex stdout is reserved for JSON-RPC. Its diagnostic stderr may
+	// contain sensitive text, so forwarding to Kubernetes logs is opt-in.
+	if os.Getenv("CODEX_APP_SERVER_STDERR_TO_POD_LOG") == "true" {
+		cmd.Stderr = os.Stderr
+	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, fmt.Errorf("app-server stdout: %w", err)

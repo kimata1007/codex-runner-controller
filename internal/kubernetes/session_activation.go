@@ -20,7 +20,7 @@ import (
 const (
 	DefaultSessionNamespace    = "codex-system"
 	DefaultSessionDataSize     = "10Gi"
-	DefaultApprovalPolicy      = "user"
+	DefaultApprovalPolicy      = "never"
 	DefaultSessionReadyTimeout = 60 * time.Second
 )
 
@@ -172,15 +172,6 @@ func (a *SessionActivator) recordActivity(ctx context.Context, key types.Namespa
 		if err := a.Client.Get(ctx, key, resource); err != nil {
 			return err
 		}
-		if resource.Status.LastActivityAt != "" {
-			previous, err := time.Parse(time.RFC3339Nano, resource.Status.LastActivityAt)
-			if err != nil {
-				return fmt.Errorf("parse lastActivityAt: %w", err)
-			}
-			if previous.After(at) {
-				at = previous
-			}
-		}
 		resource.Status.LastActivityAt = at.Format(time.RFC3339Nano)
 		return a.Client.Status().Update(ctx, resource)
 	})
@@ -294,3 +285,37 @@ func AddToScheme(scheme *runtime.Scheme) error {
 }
 
 var _ session.Activator = (*SessionActivator)(nil)
+
+// DeleteSession removes the session resource. Kubernetes owner references clean up
+// its Pod, Service and (unless retained) PVC asynchronously.
+func (a *SessionActivator) DeleteSession(ctx context.Context, conversationID string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if a == nil || a.Client == nil {
+		return fmt.Errorf("Kubernetes client is required to delete a session")
+	}
+	name, err := SessionName(conversationID)
+	if err != nil {
+		return err
+	}
+	namespace := a.Namespace
+	if namespace == "" {
+		namespace = DefaultSessionNamespace
+	}
+	value := &v1alpha1.CodexSession{}
+	key := types.NamespacedName{Namespace: namespace, Name: name}
+	if err := a.Client.Get(ctx, key, value); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		return fmt.Errorf("read CodexSession for deletion: %w", err)
+	}
+	if value.Spec.ConversationID != conversationID {
+		return fmt.Errorf("CodexSession conversation identity mismatch")
+	}
+	if err := a.Client.Delete(ctx, value); err != nil && !apierrors.IsNotFound(err) {
+		return fmt.Errorf("delete CodexSession: %w", err)
+	}
+	return nil
+}
