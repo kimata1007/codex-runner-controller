@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.0.16](https://github.com/kimata1007/codex-runner-controller/compare/v0.0.15...v0.0.16) - 2026-11-22
+
+- fix: prevent stale PWA assets and refresh ChatGPT auth status by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/128
+
 ## [v0.0.15](https://github.com/kimata1007/codex-runner-controller/compare/v0.0.14...v0.0.15) - 2026-11-22
 
 - refactor: remove unused Codex settings UI and API by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/126
