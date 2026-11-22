@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.0.14](https://github.com/kimata1007/codex-runner-controller/compare/v0.0.13...v0.0.14) - 2026-11-22
+
+- fix: run Codex with Kubernetes Pod isolation instead of bwrap by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/124
+
 ## [v0.0.13](https://github.com/kimata1007/codex-runner-controller/compare/v0.0.12...v0.0.13) - 2026-11-19
 
 - fix: hide archived conversations from history list by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/121
