@@ -26,7 +26,7 @@ func TestDefaultAppServerArgsUseChatGPTTokenProvider(t *testing.T) {
 func TestDefaultAppServerArgsStayMinimalWithoutToken(t *testing.T) {
 	t.Setenv("ACCESS_TOKEN", "")
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
-	if got := defaultAppServerArgs(); !reflect.DeepEqual(got, []string{"app-server", "--listen", "stdio://"}) {
+	if got := defaultAppServerArgs(); !reflect.DeepEqual(got, []string{"-c", `sandbox_mode="danger-full-access"`, "app-server", "--listen", "stdio://"}) {
 		t.Fatalf("args = %v", got)
 	}
 }
