@@ -866,12 +866,18 @@ async function refreshArchivedConversations() {
   try {
     await loadConversationList();
     if (!state.conversationID || state.sending) return;
-    await request(`/v1/conversations/${encodeURIComponent(state.conversationID)}`);
-  } catch (error) {
-    if (error.status === 410) {
-      startNewConversation();
-      setStatus('期限切れのチャットをアーカイブしました');
+    const conversationID = state.conversationID;
+    try {
+      await request(`/v1/conversations/${encodeURIComponent(conversationID)}`);
+    } catch (error) {
+      // Ignore delayed responses for a conversation the user has left.
+      if (error.status === 410 && state.conversationID === conversationID) {
+        startNewConversation();
+        setStatus('期限切れのチャットをアーカイブしました');
+      }
     }
+  } catch (_) {
+    // An intermittent list error should not discard the current conversation.
   }
 }
 setInterval(refreshArchivedConversations, 60 * 1000);
