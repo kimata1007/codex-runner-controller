@@ -1,0 +1,41 @@
+name: Helm Chart
+on:
+  pull_request:
+    paths:
+      - "charts/**"
+      - ".github/workflows/helm-chart.yaml"
+  push:
+    branches: [main]
+    paths:
+      - "charts/**"
+      - ".github/workflows/helm-chart.yaml"
+permissions:
+  contents: read
+jobs:
+  chart:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4.3.0
+        with:
+          version: v3.17.3
+      - name: Lint chart
+        run: helm lint charts/codex-runner --strict
+      - name: Render defaults
+        run: |
+          helm template codex-runner charts/codex-runner --namespace codex-system             --include-crds > /tmp/codex-runner-rendered.yaml
+          grep -q 'kind: CustomResourceDefinition' /tmp/codex-runner-rendered.yaml
+          grep -q 'name: runner-api' /tmp/codex-runner-rendered.yaml
+      - name: Render alternate namespace and external libSQL
+        run: |
+          helm template codex-runner charts/codex-runner --namespace staging             --set libsql.enabled=false             --set libsql.url=http://external-db:8080             --set images.tag=v0.0.7 > /tmp/codex-runner-external.yaml
+          if grep -q 'kind: StatefulSet' /tmp/codex-runner-external.yaml; then
+            echo "Unexpected libSQL StatefulSet with libsql.enabled=false" >&2
+            exit 1
+          fi
+      - name: Reject invalid configuration
+        run: |
+          if helm template codex-runner charts/codex-runner --set api.replicas=2 >/dev/null 2>&1; then
+            echo "Unsafe multi-replica API configuration was accepted" >&2
+            exit 1
+          fi

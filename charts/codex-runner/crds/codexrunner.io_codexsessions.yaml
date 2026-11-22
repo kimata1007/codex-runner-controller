@@ -1,0 +1,99 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: codexsessions.codexrunner.io
+spec:
+  group: codexrunner.io
+  scope: Namespaced
+  names:
+    plural: codexsessions
+    singular: codexsession
+    kind: CodexSession
+    shortNames:
+      - csession
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      schema:
+        openAPIV3Schema:
+          type: object
+          required:
+            - spec
+          properties:
+            spec:
+              type: object
+              required:
+                - conversationId
+                - desiredState
+                - sessionData
+                - execution
+              properties:
+                conversationId:
+                  type: string
+                  minLength: 1
+                desiredState:
+                  type: string
+                  enum: [Active, Suspended]
+                idleTimeoutSeconds:
+                  type: integer
+                  format: int32
+                  minimum: 0
+                  default: 1800
+                sessionData:
+                  type: object
+                  required: [size, retain]
+                  properties:
+                    storageClassName:
+                      type: string
+                    size:
+                      type: string
+                      minLength: 1
+                    retain:
+                      type: boolean
+                execution:
+                  type: object
+                  required: [approvalPolicy]
+                  properties:
+                    model:
+                      type: string
+                    approvalPolicy:
+                      type: string
+                      minLength: 1
+                repository:
+                  type: object
+                  required: [url, revision]
+                  properties:
+                    url:
+                      type: string
+                      minLength: 1
+                    revision:
+                      type: string
+                      minLength: 1
+                credentialsRef:
+                  type: object
+                  required: [name]
+                  properties:
+                    name:
+                      type: string
+                      minLength: 1
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                  enum: [Suspended, Starting, Ready, Busy, WaitingForApproval, Failed, Terminating]
+                threadId:
+                  type: string
+                podName:
+                  type: string
+                workspaceClaim:
+                  type: string
+                lastActivityAt:
+                  type: string
+                  format: date-time
+                observedGeneration:
+                  type: integer
+                  format: int64

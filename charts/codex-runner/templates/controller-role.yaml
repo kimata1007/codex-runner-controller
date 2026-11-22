@@ -1,0 +1,14 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: codex-runner-controller
+rules:
+  - apiGroups: ["codexrunner.io"]
+    resources: ["codexsessions"]
+    verbs: ["get", "list", "watch", "patch", "update"]
+  - apiGroups: ["codexrunner.io"]
+    resources: ["codexsessions/status"]
+    verbs: ["get", "patch", "update"]
+  - apiGroups: [""]
+    resources: ["pods", "services", "persistentvolumeclaims"]
+    verbs: ["get", "list", "watch", "create", "delete", "patch", "update"]

@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: runner-auth-broker
+spec:
+  replicas: {{ .Values.authBroker.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: codex-runner-auth-broker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: codex-runner-auth-broker
+    spec:
+      serviceAccountName: codex-runner-agent
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: auth-broker
+          image: {{ include "codex-runner.image" (dict "root" . "component" "agent") | quote }}
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8081
+          env:
+            - name: RUNNER_AGENT_ADDR
+              value: :8081
+            - name: RUNNER_AUTH_BROKER
+              value: "true"
+            - name: CODEX_HOME
+              value: /var/lib/codex
+            - name: RUNNER_AGENT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret | quote }}
+                  key: agent-token
+            - name: CODEX_CWD
+              value: /var/lib/codex/workspace
+          volumeMounts:
+            - name: codex-home
+              mountPath: /var/lib/codex
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          resources:
+{{ toYaml .Values.authBroker.resources | indent 12 }}
+      volumes:
+        - name: codex-home
+          emptyDir: {}

@@ -1,0 +1,51 @@
+# The chart targets one installation per namespace; stable Service names are required.
+images:
+  registry: ghcr.io/kimata1007
+  tag: v0.0.6
+  pullPolicy: IfNotPresent
+  libsql: ghcr.io/tursodatabase/libsql-server:v0.24.32
+
+existingSecret: codex-runner-tokens
+chatgptAuthSecret: codex-runner-chatgpt-auth
+# The ChatGPT auth secret stores ciphertext, not unencrypted credentials.
+createChatgptAuthSecret: true
+
+api:
+  replicas: 1
+  model: ""
+  approvalPolicy: never
+  cwd: /var/lib/codex/workspace
+  gitCredentialsSecretName: ""
+  resources:
+    requests: {cpu: 10m, memory: 64Mi}
+    limits: {cpu: 500m, memory: 512Mi}
+
+controller:
+  replicas: 1
+  resources:
+    requests: {cpu: 10m, memory: 64Mi}
+    limits: {cpu: 500m, memory: 256Mi}
+
+authBroker:
+  replicas: 1
+  resources:
+    requests: {cpu: 10m, memory: 64Mi}
+    limits: {cpu: 500m, memory: 512Mi}
+
+web:
+  replicas: 1
+  serviceType: ClusterIP
+  resources:
+    requests: {cpu: 10m, memory: 16Mi}
+    limits: {cpu: 100m, memory: 64Mi}
+
+libsql:
+  enabled: true
+  url: ""
+  replicas: 1
+  storage:
+    size: 10Gi
+    storageClassName: ""
+  resources:
+    requests: {cpu: 50m, memory: 256Mi}
+    limits: {cpu: "1", memory: 1Gi}
