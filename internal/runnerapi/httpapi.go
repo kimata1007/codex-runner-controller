@@ -36,24 +36,17 @@ type Handler struct {
 	eventProjector    RunEventProjector
 	eventHub          RunEventHub
 	authBroker        ChatGPTAuthBroker
-	settingsReader    CodexSettingsReader
 }
 
 // HandlerDependencies groups the optional collaborators used by the HTTP API.
 // Keeping the constructor stable avoids encoding every new dependency in its name.
 type HandlerDependencies struct {
-	Repository     conversation.Repository
-	Dispatcher     MessageDispatcher
-	Activator      session.Activator
-	EventStore     RunEventStore
-	EventHub       RunEventHub
-	AuthBroker     ChatGPTAuthBroker
-	SettingsReader CodexSettingsReader
-}
-
-// CodexSettingsReader accesses the allowlisted settings of a live App Server.
-type CodexSettingsReader interface {
-	ReadSettings(context.Context, string) (agent.CodexSettings, error)
+	Repository conversation.Repository
+	Dispatcher MessageDispatcher
+	Activator  session.Activator
+	EventStore RunEventStore
+	EventHub   RunEventHub
+	AuthBroker ChatGPTAuthBroker
 }
 
 type ChatGPTAuthBroker interface {
@@ -83,7 +76,6 @@ func NewHandler(dependencies HandlerDependencies) *Handler {
 		eventProjector:    eventProjector,
 		eventHub:          dependencies.EventHub,
 		authBroker:        dependencies.AuthBroker,
-		settingsReader:    dependencies.SettingsReader,
 	}
 }
 
@@ -120,9 +112,6 @@ func NewRouter(handler *Handler) *echo.Echo {
 	e.GET("/healthz", handler.checkHealth)
 	e.GET("/readyz", handler.checkHealth)
 	e.GET("/v1/conversations", handler.listConversations)
-	if handler.settingsReader != nil {
-		e.GET("/v1/codex/settings", handler.getCodexSettings)
-	}
 	if handler.authBroker != nil {
 		e.GET("/v1/auth/status", handler.getGlobalAuthStatus)
 		e.POST("/v1/auth/login", handler.beginGlobalAuth)
@@ -149,26 +138,6 @@ func NewRouter(handler *Handler) *echo.Echo {
 		e.POST("/internal/sessions/:conversationID/heartbeat", handler.receiveHeartbeat)
 	}
 	return e
-}
-
-func (h *Handler) getCodexSettings(c echo.Context) error {
-	conversationID := strings.TrimSpace(c.QueryParam("conversationId"))
-	if conversationID != "" {
-		if _, err := h.repository.GetConversation(c.Request().Context(), conversationID); err != nil {
-			return writeRepositoryError(c, err)
-		}
-	}
-	ctx, cancel := context.WithTimeout(c.Request().Context(), 10*time.Second)
-	defer cancel()
-	settings, err := h.settingsReader.ReadSettings(ctx, conversationID)
-	if err != nil {
-		return writeOperationalError(c, http.StatusBadGateway, "Codex settings are unavailable", "codex.settings", err)
-	}
-	source := "auth-broker"
-	if conversationID != "" {
-		source = "conversation"
-	}
-	return writeJSON(c, http.StatusOK, map[string]any{"source": source, "settings": settings})
 }
 
 func (h *Handler) getGlobalAuthStatus(c echo.Context) error {

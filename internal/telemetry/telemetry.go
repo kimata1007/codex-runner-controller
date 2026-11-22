@@ -183,7 +183,7 @@ func SetHTTPRoute(ctx context.Context, method, route string) {
 func safeHTTPRoute(path string) string {
 	switch path {
 	case "/v1/conversations", "/v1/auth/status", "/v1/auth/login", "/v1/auth",
-		"/v1/codex/settings", "/v1/threads", "/v1/auth/tokens",
+		"/v1/threads", "/v1/auth/tokens",
 		"/v1/auth/device-login", "/v1/auth/account", "/v1/auth/credentials":
 		return path
 	}
