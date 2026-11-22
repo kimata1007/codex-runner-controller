@@ -11,6 +11,30 @@ import (
 	"github.com/kimata1007/codex-runner-controller/internal/conversation"
 )
 
+func TestRepositoryListsOnlyActiveRunsForOwnedUnarchivedConversation(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body pipelineRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode request: %v", err)
+			return
+		}
+		sql := body.Requests[0].Stmt.SQL
+		for _, required := range []string{"conversations.user_id = ?", "conversations.status != 'archived'", "runs.status IN ('running', 'waiting_approval')"} {
+			if !strings.Contains(sql, required) {
+				t.Errorf("query missing %q: %s", required, sql)
+			}
+		}
+		data := json.RawMessage(`{"type":"execute","result":{"cols":[{"name":"id"},{"name":"status"}],"rows":[[{"type":"text","value":"run-1"},{"type":"text","value":"running"}]],"affected_row_count":0}}`)
+		_ = json.NewEncoder(w).Encode(pipelineResponseWithClosedStream(streamResult{Type: "ok", Response: data}))
+	}))
+	defer server.Close()
+	repository := NewRepository(NewClient(server.URL, "").WithHTTPClient(server.Client()), "user-1")
+	runs, err := repository.ListActiveRuns(context.Background(), "conversation-1")
+	if err != nil || len(runs) != 1 || runs[0].ID != "run-1" {
+		t.Fatalf("active runs = %+v, error = %v", runs, err)
+	}
+}
+
 func TestRepositoryScopesConversationQueriesToUser(t *testing.T) {
 	server, queries, args := newRepositoryTestServer(t)
 	defer server.Close()
