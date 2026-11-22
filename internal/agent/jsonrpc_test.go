@@ -9,6 +9,22 @@ import (
 	"testing"
 )
 
+func TestAppServerEnvironmentDoesNotExposeControlPlaneTokens(t *testing.T) {
+	input := []string{
+		"PATH=/usr/bin",
+		"CODEX_HOME=/var/lib/codex",
+		"ACCESS_TOKEN=chatgpt-access-token",
+		"GIT_AUTH_TOKEN=git-token",
+		"RUNNER_AGENT_TOKEN=agent-token",
+		"RUNNER_API_TOKEN=api-token",
+	}
+	got := appServerEnvironment(input)
+	want := []string{"PATH=/usr/bin", "CODEX_HOME=/var/lib/codex", "ACCESS_TOKEN=chatgpt-access-token"}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("appServerEnvironment() = %v, want %v", got, want)
+	}
+}
+
 func TestJSONRPCClientCallHandlesEventsBeforeResponse(t *testing.T) {
 	clientReader, serverWriter := io.Pipe()
 	serverReader, clientWriter := io.Pipe()

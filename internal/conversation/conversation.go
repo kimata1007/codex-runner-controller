@@ -52,3 +52,8 @@ type Lister interface {
 type RepositoryConfigurer interface {
 	CreateConversationWithRepository(context.Context, *RepositoryConfig) (Conversation, error)
 }
+
+// Archiver marks a conversation as archived while preserving its history.
+type Archiver interface {
+	ArchiveConversation(context.Context, string) error
+}

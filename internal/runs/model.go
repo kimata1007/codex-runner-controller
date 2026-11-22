@@ -24,6 +24,12 @@ type Run struct {
 	CreatedAt      time.Time  `json:"created_at"`
 }
 
+// ActiveRun identifies a non-terminal run that a re-opened PWA can reconnect to.
+type ActiveRun struct {
+	ID     string `json:"id"`
+	Status string `json:"status"`
+}
+
 type Event struct {
 	ID        string
 	RunID     string
@@ -31,9 +37,4 @@ type Event struct {
 	EventType string
 	Payload   string
 	CreatedAt time.Time
-}
-
-type ActiveRun struct {
-	ID     string `json:"id"`
-	Status string `json:"status"`
 }

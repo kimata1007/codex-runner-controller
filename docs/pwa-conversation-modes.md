@@ -1,8 +1,5 @@
-# PWAの会話モードと復元
+# PWAのリポジトリ選択と履歴復元
 
-PWAで`chat`と`implement`を切り替えられます。
+PWAにchat/implementのモード切替はありません。会話を作るとき、入力欄の追加メニューからリポジトリURLとrevisionを選ぶと、その会話の作業先になります。リポジトリを選ばない会話はリポジトリなしで開始します。
 
-- `chat`: リポジトリなしの相談
-- `implement`: GitリポジトリURLとrevisionを指定した実装作業
-
-会話IDはsessionStorageに保持し、ページ再読み込み時に`GET /v1/conversations/{id}/messages`で履歴を復元します。Codexのthread状態はPodのPVC側、表示用のメッセージはlibSQL側から復元されます。
+現在の会話IDと選択したリポジトリはブラウザのlocalStorageに保持します。会話を開くと`GET /v1/conversations/{id}`で会話、repository設定、メッセージを復元します。Codexのthread状態はPodのPVC側、表示用のメッセージはlibSQL側に保存されます。

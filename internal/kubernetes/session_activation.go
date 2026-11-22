@@ -20,7 +20,7 @@ import (
 const (
 	DefaultSessionNamespace    = "codex-system"
 	DefaultSessionDataSize     = "10Gi"
-	DefaultApprovalPolicy      = "user"
+	DefaultApprovalPolicy      = "never"
 	DefaultSessionReadyTimeout = 60 * time.Second
 )
 
@@ -145,7 +145,10 @@ func (a *SessionActivator) newSpec(conversationID string, repository *session.Re
 		SessionData: v1alpha1.SessionData{
 			StorageClassName: a.StorageClassName,
 			Size:             size,
-			Retain:           true,
+			// The PVC outlives idle Pod deletion because the CodexSession
+			// remains. Delete it with the CodexSession unless an operator
+			// explicitly opts into retaining it after session deletion.
+			Retain: false,
 		},
 		Execution: v1alpha1.Execution{Model: a.Model, ApprovalPolicy: approvalPolicy},
 	}
@@ -282,3 +285,37 @@ func AddToScheme(scheme *runtime.Scheme) error {
 }
 
 var _ session.Activator = (*SessionActivator)(nil)
+
+// DeleteSession removes the session resource. Kubernetes owner references clean up
+// its Pod, Service and (unless retained) PVC asynchronously.
+func (a *SessionActivator) DeleteSession(ctx context.Context, conversationID string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if a == nil || a.Client == nil {
+		return fmt.Errorf("Kubernetes client is required to delete a session")
+	}
+	name, err := SessionName(conversationID)
+	if err != nil {
+		return err
+	}
+	namespace := a.Namespace
+	if namespace == "" {
+		namespace = DefaultSessionNamespace
+	}
+	value := &v1alpha1.CodexSession{}
+	key := types.NamespacedName{Namespace: namespace, Name: name}
+	if err := a.Client.Get(ctx, key, value); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		return fmt.Errorf("read CodexSession for deletion: %w", err)
+	}
+	if value.Spec.ConversationID != conversationID {
+		return fmt.Errorf("CodexSession conversation identity mismatch")
+	}
+	if err := a.Client.Delete(ctx, value); err != nil && !apierrors.IsNotFound(err) {
+		return fmt.Errorf("delete CodexSession: %w", err)
+	}
+	return nil
+}

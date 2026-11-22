@@ -5,6 +5,7 @@ import (
 
 	v1alpha1 "github.com/kimata1007/codex-runner-controller/api/v1alpha1"
 	"github.com/kimata1007/codex-runner-controller/internal/kubernetes"
+	"github.com/kimata1007/codex-runner-controller/internal/telemetry"
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -18,14 +19,20 @@ type CodexSessionController struct {
 }
 
 func (r *CodexSessionController) Reconcile(ctx context.Context, request reconcile.Request) (reconcile.Result, error) {
+	ctx, span := telemetry.Tracer().Start(ctx, "controller.reconcile")
+	defer span.End()
 	session := &v1alpha1.CodexSession{}
 	if err := r.Client.Get(ctx, request.NamespacedName, session); err != nil {
+		telemetry.RecordError(ctx, client.IgnoreNotFound(err))
 		return reconcile.Result{}, client.IgnoreNotFound(err)
 	}
 
-	logic := CodexSessionReconciler{Client: KubernetesResourceClient{Client: r.Client, Owner: session}, Builder: r.Builder}
+	logic := CodexSessionReconciler{Client: KubernetesResourceClient{
+		Client: r.Client, Owner: session, RetainPVC: session.Spec.SessionData.Retain,
+	}, Builder: r.Builder}
 	result, err := logic.ReconcileStatus(ctx, session.Namespace, session.Name, session.Spec, session.Status)
 	if err != nil {
+		telemetry.RecordError(ctx, err)
 		return reconcile.Result{}, err
 	}
 	previousStatus := session.Status

@@ -72,6 +72,9 @@ func (r *Repository) ListConversations(ctx context.Context) ([]conversation.Conv
 	r.mu.RLock()
 	values := make([]conversation.Conversation, 0, len(r.conversations))
 	for _, value := range r.conversations {
+		if value.Status == "archived" {
+			continue
+		}
 		clone := cloneConversation(value)
 		for _, message := range clone.Messages {
 			if message.Role == "user" {
@@ -135,6 +138,7 @@ func (r *Repository) CreateMessage(ctx context.Context, id string, input convers
 		CreatedAt:       now,
 	}
 	value.Messages = append(value.Messages, message)
+	value.Status = "active"
 	value.UpdatedAt = now
 	return message, true, nil
 }
@@ -201,4 +205,19 @@ func conversationTitle(content string) string {
 		return string(runes[:48]) + "…"
 	}
 	return content
+}
+
+func (r *Repository) ArchiveConversation(ctx context.Context, id string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	value, ok := r.conversations[id]
+	if !ok {
+		return fmt.Errorf("%w: %s", conversation.ErrNotFound, id)
+	}
+	value.Status = "archived"
+	value.UpdatedAt = time.Now().UTC()
+	return nil
 }

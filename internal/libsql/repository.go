@@ -100,7 +100,7 @@ func (r *Repository) ListConversations(ctx context.Context) ([]conversation.Conv
 	result, err := r.client.Exec(ctx, `SELECT c.id, c.status, c.created_at, c.updated_at,
 		COALESCE((SELECT m.content FROM messages m WHERE m.conversation_id = c.id AND m.role = 'user' ORDER BY m.sequence LIMIT 1), c.title, '')
 		FROM conversations c
-		WHERE c.user_id = ?
+		WHERE c.user_id = ? AND c.status != 'archived'
 		ORDER BY c.updated_at DESC
 		LIMIT 100`, []Value{Text(r.userID)}, true)
 	if err != nil {
@@ -187,7 +187,7 @@ func (r *Repository) CreateMessage(ctx context.Context, id string, input convers
 		return conversation.Message{}, false, err
 	}
 	if result.AffectedRowCount > 0 {
-		if _, err := r.client.Exec(ctx, `UPDATE conversations SET updated_at = ? WHERE id = ? AND user_id = ?`, []Value{
+		if _, err := r.client.Exec(ctx, `UPDATE conversations SET status = 'active', updated_at = ? WHERE id = ? AND user_id = ?`, []Value{
 			Text(now.Format(time.RFC3339Nano)), Text(id), Text(r.userID),
 		}, false); err != nil {
 			return conversation.Message{}, false, err
@@ -305,4 +305,21 @@ func conversationTitle(content string) string {
 		return string(runes[:48]) + "…"
 	}
 	return content
+}
+
+// ArchiveConversation preserves a user's history while releasing its session resources.
+func (r *Repository) ArchiveConversation(ctx context.Context, id string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	result, err := r.client.Exec(ctx, `UPDATE conversations SET status = 'archived', updated_at = ? WHERE id = ? AND user_id = ?`, []Value{
+		Text(time.Now().UTC().Format(time.RFC3339Nano)), Text(id), Text(r.userID),
+	}, false)
+	if err != nil {
+		return err
+	}
+	if result.AffectedRowCount == 0 {
+		return fmt.Errorf("%w: %s", conversation.ErrNotFound, id)
+	}
+	return nil
 }

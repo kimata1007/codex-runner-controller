@@ -39,6 +39,9 @@ func TestSessionActivatorCreatesSessionAndWaitsUntilReady(t *testing.T) {
 	if created.Spec.SessionData.Size != DefaultSessionDataSize || created.Spec.Execution.ApprovalPolicy != DefaultApprovalPolicy {
 		t.Fatalf("created session defaults = %+v", created.Spec)
 	}
+	if created.Spec.SessionData.Retain {
+		t.Fatal("new session should delete its PVC when the CodexSession is deleted")
+	}
 	if created.Spec.Repository == nil || created.Spec.Repository.URL != repository.URL || created.Spec.Repository.Revision != repository.Revision {
 		t.Fatalf("created session repository = %+v", created.Spec.Repository)
 	}

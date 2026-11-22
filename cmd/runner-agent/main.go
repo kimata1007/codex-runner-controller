@@ -2,19 +2,29 @@ package main
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/kimata1007/codex-runner-controller/internal/agent"
 	"github.com/kimata1007/codex-runner-controller/internal/auth"
+	"github.com/kimata1007/codex-runner-controller/internal/logging"
+	"github.com/kimata1007/codex-runner-controller/internal/telemetry"
 )
 
 func main() {
+	slog.SetDefault(logging.New("runner-agent"))
+	shutdown, err := telemetry.Start(context.Background(), "runner-agent")
+	if err != nil {
+		slog.Error("failed to initialize tracing", "operation", "startup.tracing", "error.type", logging.ErrorType(err))
+		os.Exit(1)
+	}
+	defer telemetry.Shutdown(context.Background(), shutdown)
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -31,40 +41,37 @@ func main() {
 	var runEventSender agent.RunEventSender
 	if eventURL := os.Getenv("RUNNER_EVENT_URL"); eventURL != "" {
 		runEventSender = agent.NewHTTPRunEventSender(eventURL).WithBearerToken(os.Getenv("RUNNER_API_TOKEN"))
+		runEventSender = agent.NewQueuedRunEventSender(ctx, runEventSender, func(err error) {
+			slog.Error("failed to forward App Server run event", "operation", "event.forward", "error.type", logging.ErrorType(err))
+		})
 	}
 	approvals := agent.NewApprovalManager(runEventSender, tracker)
 	process, err := agent.StartProcess(ctx, command, args, func(notification agent.AppServerNotification) {
 		runID := tracker.Current()
-		log.Printf("app-server notification: run=%s method=%s", runID, notification.Method)
+		slog.Debug("App Server notification received", "associated_with_run", runID != "", "method", notification.Method)
 		if runEventSender == nil || runID == "" {
 			if terminalAppServerEvent(notification.Method) {
 				tracker.Clear(runID)
 			}
 			return
 		}
-		// Notification handling must not block the JSON-RPC reader. A short
-		// timeout bounds delivery while the durable event store remains the
-		// source of truth for replay.
-		go func() {
-			eventCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			if err := runEventSender.Send(eventCtx, agent.AppServerRunEvent{
-				RunID: runID, EventType: notification.Method, Payload: notification.Params,
-			}); err != nil {
-				log.Printf("send App Server run event: %v", err)
-			}
-		}()
+		if err := runEventSender.Send(ctx, agent.AppServerRunEvent{
+			RunID: runID, EventType: notification.Method, Payload: notification.Params,
+		}); err != nil {
+			slog.Error("failed to queue App Server run event", "operation", "event.queue", "run_id", runID, "event_type", notification.Method, "error.type", logging.ErrorType(err))
+		}
 		if terminalAppServerEvent(notification.Method) {
 			tracker.Clear(runID)
 		}
 	})
 	if err != nil {
-		log.Fatal(err)
+		slog.Error("failed to start App Server", "operation", "app_server.start", "error.type", logging.ErrorType(err))
+		os.Exit(1)
 	}
 	if heartbeatURL := os.Getenv("RUNNER_HEARTBEAT_URL"); heartbeatURL != "" {
 		heartbeat, heartbeatErr := agent.NewHTTPHeartbeatSinkWithToken(heartbeatURL, os.Getenv("CODEX_CONVERSATION_ID"), os.Getenv("RUNNER_AGENT_TOKEN"))
 		if heartbeatErr != nil {
-			log.Printf("configure heartbeat: %v", heartbeatErr)
+			slog.Error("failed to configure heartbeat", "operation", "heartbeat.configure", "error.type", logging.ErrorType(heartbeatErr))
 		} else {
 			go runHeartbeat(ctx, heartbeat, tracker)
 		}
@@ -78,7 +85,8 @@ func main() {
 		Title:   "Codex Runner Controller",
 		Version: "0.1.0",
 	}); err != nil {
-		log.Fatal(err)
+		slog.Error("failed to initialize App Server session", "operation", "app_server.initialize", "error.type", logging.ErrorType(err))
+		os.Exit(1)
 	}
 
 	address := os.Getenv("RUNNER_AGENT_ADDR")
@@ -87,7 +95,7 @@ func main() {
 	}
 	server := &http.Server{
 		Addr:              address,
-		Handler:           auth.BearerToken(agent.NewHTTPHandlerWithAuthBroker(session, tracker, approvals, os.Getenv("RUNNER_AUTH_BROKER") == "true"), os.Getenv("RUNNER_AGENT_TOKEN")),
+		Handler:           telemetry.HTTPHandler(auth.BearerToken(agent.NewHTTPHandlerWithAuthBroker(session, tracker, approvals, os.Getenv("RUNNER_AUTH_BROKER") == "true"), os.Getenv("RUNNER_AGENT_TOKEN"))),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,
@@ -95,7 +103,7 @@ func main() {
 	}
 	serverErr := make(chan error, 1)
 	go func() {
-		log.Printf("runner-agent listening on %s", address)
+		slog.Info("HTTP server listening", "address", address)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			serverErr <- err
 		}
@@ -106,10 +114,12 @@ func main() {
 	select {
 	case err := <-serverErr:
 		_ = process.Close()
-		log.Fatal(err)
+		slog.Error("HTTP server failed", "operation", "http.server_start", "error.type", logging.ErrorType(err))
+		os.Exit(1)
 	case err := <-processErr:
 		if ctx.Err() == nil {
-			log.Fatalf("app-server exited: %v", err)
+			slog.Error("App Server exited unexpectedly", "operation", "app_server.exit", "error.type", logging.ErrorType(err))
+			os.Exit(1)
 		}
 	case <-ctx.Done():
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -120,7 +130,14 @@ func main() {
 }
 
 func defaultAppServerArgs() []string {
-	args := []string{"app-server", "--listen", "stdio://"}
+	// Kubernetes already isolates each conversation Pod. Do not invoke the Codex Linux sandbox.
+	args := []string{"-c", `sandbox_mode="danger-full-access"`, "app-server", "--listen", "stdio://"}
+	if endpoint := strings.TrimRight(os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"), "/"); endpoint != "" {
+		// Codex has its own OTLP trace exporter; its configuration is not
+		// inherited from the Go OpenTelemetry SDK environment alone.
+		// Avoid exporting logs, prompts, tool output and credentials.
+		args = append([]string{"-c", "otel.trace_exporter={otlp-http={endpoint=" + strconv.Quote(endpoint+"/v1/traces") + ",protocol=\"binary\"}}", "-c", "otel.log_user_prompt=false", "-c", "otel.exporter=\"none\""}, args...)
+	}
 	if strings.TrimSpace(os.Getenv("ACCESS_TOKEN")) == "" {
 		return args
 	}
@@ -146,7 +163,7 @@ func runHeartbeat(ctx context.Context, heartbeat *agent.HTTPHeartbeatSink, track
 		heartbeatCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
 		if err := heartbeat.Report(heartbeatCtx); err != nil && ctx.Err() == nil {
-			log.Printf("report heartbeat: %v", err)
+			slog.Error("failed to report session heartbeat", "operation", "heartbeat.report", "error.type", logging.ErrorType(err))
 		}
 	}
 	report()

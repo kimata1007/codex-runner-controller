@@ -17,6 +17,39 @@ import (
 	"github.com/kimata1007/codex-runner-controller/internal/session"
 )
 
+type activeRunRepository struct {
+	conversation.Repository
+	active []runs.ActiveRun
+}
+
+func (r activeRunRepository) ListActiveRuns(context.Context, string) ([]runs.ActiveRun, error) {
+	return r.active, nil
+}
+
+func TestActiveRunsReconnectionChecksConversationExistence(t *testing.T) {
+	repository := activeRunRepository{Repository: memory.NewRepository(), active: []runs.ActiveRun{{ID: "run-1", Status: runs.StatusRunning}}}
+	conversationValue, err := repository.CreateConversation(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	router := NewRouter(NewHandler(HandlerDependencies{Repository: repository}))
+	response := serveJSON(t, router, http.MethodGet, "/v1/conversations/"+conversationValue.ID+"/runs/active", "")
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "run-1") {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	missing := serveJSON(t, router, http.MethodGet, "/v1/conversations/missing/runs/active", "")
+	if missing.Code != http.StatusNotFound {
+		t.Fatalf("unknown conversation status=%d", missing.Code)
+	}
+	if err := repository.Repository.(interface{ ArchiveConversation(context.Context, string) error }).ArchiveConversation(context.Background(), conversationValue.ID); err != nil {
+		t.Fatal(err)
+	}
+	archived := serveJSON(t, router, http.MethodGet, "/v1/conversations/"+conversationValue.ID+"/runs/active", "")
+	if archived.Code != http.StatusNotFound {
+		t.Fatalf("archived conversation status=%d", archived.Code)
+	}
+}
+
 func TestHealth(t *testing.T) {
 	router := newTestRouter()
 	recorder := httptest.NewRecorder()
@@ -282,34 +315,37 @@ func TestReceiveAppServerRunEventRequiresEventType(t *testing.T) {
 	}
 }
 
-type activeRunRepository struct {
+type approvalListRepository struct {
 	conversation.Repository
-	active []runs.ActiveRun
+	approvals []runs.Approval
 }
 
-func (r activeRunRepository) ListActiveRuns(context.Context, string) ([]runs.ActiveRun, error) {
-	return r.active, nil
+func (r approvalListRepository) ListPendingApprovals(context.Context, string) ([]runs.Approval, error) {
+	return r.approvals, nil
 }
 
-func TestListActiveRunsForConversation(t *testing.T) {
-	repository := activeRunRepository{Repository: memory.NewRepository(), active: []runs.ActiveRun{{ID: "run-1", Status: runs.StatusRunning}}}
+func TestListPendingApprovalsForConversation(t *testing.T) {
+	repository := approvalListRepository{
+		Repository: memory.NewRepository(),
+		approvals:  []runs.Approval{{RunID: "run-1", RequestID: "17", Method: "item/commandExecution/requestApproval", Params: json.RawMessage(`{"command":"go test ./..."}`)}},
+	}
 	conversationValue, err := repository.CreateConversation(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
 	router := NewRouter(NewHandler(HandlerDependencies{Repository: repository}))
-	response := serveJSON(t, router, http.MethodGet, "/v1/conversations/"+conversationValue.ID+"/runs/active", "")
+	response := serveJSON(t, router, http.MethodGet, "/v1/conversations/"+conversationValue.ID+"/approvals", "")
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
 	}
 	var body struct {
-		Runs []runs.ActiveRun `json:"runs"`
+		Approvals []runs.Approval `json:"approvals"`
 	}
 	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if len(body.Runs) != 1 || body.Runs[0].ID != "run-1" || body.Runs[0].Status != runs.StatusRunning {
-		t.Fatalf("active runs = %+v", body.Runs)
+	if len(body.Approvals) != 1 || body.Approvals[0].RunID != "run-1" || body.Approvals[0].RequestID != "17" {
+		t.Fatalf("approvals = %+v", body.Approvals)
 	}
 }
 

@@ -11,6 +11,30 @@ import (
 	"github.com/kimata1007/codex-runner-controller/internal/conversation"
 )
 
+func TestRepositoryListsOnlyActiveRunsForOwnedUnarchivedConversation(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body pipelineRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode request: %v", err)
+			return
+		}
+		sql := body.Requests[0].Stmt.SQL
+		for _, required := range []string{"conversations.user_id = ?", "conversations.status != 'archived'", "runs.status IN ('running', 'waiting_approval')"} {
+			if !strings.Contains(sql, required) {
+				t.Errorf("query missing %q: %s", required, sql)
+			}
+		}
+		data := json.RawMessage(`{"type":"execute","result":{"cols":[{"name":"id"},{"name":"status"}],"rows":[[{"type":"text","value":"run-1"},{"type":"text","value":"running"}]],"affected_row_count":0}}`)
+		_ = json.NewEncoder(w).Encode(pipelineResponse{Results: []streamResult{{Type: "ok", Response: data}}})
+	}))
+	defer server.Close()
+	repository := NewRepository(NewClient(server.URL, "").WithHTTPClient(server.Client()), "user-1")
+	runs, err := repository.ListActiveRuns(context.Background(), "conversation-1")
+	if err != nil || len(runs) != 1 || runs[0].ID != "run-1" {
+		t.Fatalf("active runs = %+v, error = %v", runs, err)
+	}
+}
+
 func TestRepositoryScopesConversationQueriesToUser(t *testing.T) {
 	server, queries, args := newRepositoryTestServer(t)
 	defer server.Close()
@@ -45,6 +69,33 @@ func TestRepositoryScopesConversationQueriesToUser(t *testing.T) {
 		if !containsTextValue((*args)[index], "user-1") {
 			t.Errorf("query %d does not bind the repository user ID", index+1)
 		}
+	}
+}
+
+func TestRepositoryListConversationsExcludesArchivedBeforeLimit(t *testing.T) {
+	server, queries, args := newRepositoryTestServer(t)
+	defer server.Close()
+
+	repository := NewRepository(NewClient(server.URL, "").WithHTTPClient(server.Client()), "user-1")
+	values, err := repository.ListConversations(context.Background())
+	if err != nil {
+		t.Fatalf("list conversations: %v", err)
+	}
+	if len(values) != 1 || values[0].ID != "conversation-1" {
+		t.Fatalf("unexpected conversations: %+v", values)
+	}
+	if len(*queries) != 1 {
+		t.Fatalf("list conversations issued %d queries, want 1", len(*queries))
+	}
+	query := (*queries)[0]
+	if !strings.Contains(query, "WHERE c.user_id = ? AND c.status != 'archived'") {
+		t.Errorf("list query must scope user and exclude archived: %s", query)
+	}
+	if !strings.Contains(query, "ORDER BY c.updated_at DESC\n\t\tLIMIT 100") {
+		t.Errorf("archived filter must run before ordering and limit: %s", query)
+	}
+	if len((*args)[0]) != 1 || !containsTextValue((*args)[0], "user-1") {
+		t.Errorf("unexpected owner filter arguments: %+v", (*args)[0])
 	}
 }
 
@@ -85,7 +136,7 @@ func newRepositoryTestServer(t *testing.T) (*httptest.Server, *[]string, *[][]Va
 			t.Errorf("decode pipeline request: %v", err)
 			return
 		}
-		if len(body.Requests) != 1 || body.Requests[0].Stmt == nil {
+		if len(body.Requests) != 2 || body.Requests[0].Stmt == nil || body.Requests[1].Type != "close" {
 			t.Errorf("unexpected pipeline request: %+v", body.Requests)
 			return
 		}
@@ -112,9 +163,7 @@ func newRepositoryTestServer(t *testing.T) (*httptest.Server, *[]string, *[][]Va
 			t.Errorf("marshal execute response: %v", err)
 			return
 		}
-		_ = json.NewEncoder(writer).Encode(pipelineResponse{
-			Results: []streamResult{{Type: "ok", Response: response}},
-		})
+		_ = json.NewEncoder(writer).Encode(pipelineResponseWithClosedStream(streamResult{Type: "ok", Response: response}))
 	}))
 	return server, &queries, &args
 }
@@ -135,11 +184,11 @@ func TestRepositoryLatestThreadID(t *testing.T) {
 			t.Errorf("decode request: %v", err)
 			return
 		}
-		if len(body.Requests) != 1 || body.Requests[0].Stmt == nil || !strings.Contains(body.Requests[0].Stmt.SQL, "ORDER BY created_at DESC") {
+		if len(body.Requests) != 2 || body.Requests[0].Stmt == nil || body.Requests[1].Type != "close" || !strings.Contains(body.Requests[0].Stmt.SQL, "ORDER BY created_at DESC") {
 			t.Errorf("unexpected query: %+v", body.Requests)
 		}
 		response := json.RawMessage(`{"type":"execute","result":{"cols":[{"name":"thread_id"}],"rows":[[{"type":"text","value":"thread-1"}]],"affected_row_count":0}}`)
-		_ = json.NewEncoder(writer).Encode(pipelineResponse{Results: []streamResult{{Type: "ok", Response: response}}})
+		_ = json.NewEncoder(writer).Encode(pipelineResponseWithClosedStream(streamResult{Type: "ok", Response: response}))
 	}))
 	defer server.Close()
 
@@ -153,28 +202,32 @@ func TestRepositoryLatestThreadID(t *testing.T) {
 	}
 }
 
-func TestRepositoryListsActiveRunsForConversation(t *testing.T) {
+func TestRepositoryListsPendingApprovalsForConversation(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		var body pipelineRequest
 		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
 			t.Errorf("decode request: %v", err)
 			return
 		}
-		query := body.Requests[0].Stmt
-		if !strings.Contains(query.SQL, "runs.status IN ('running', 'waiting_approval')") || !strings.Contains(query.SQL, "conversations.user_id = ?") {
-			t.Errorf("query does not filter active runs by owner: %s", query.SQL)
+		if len(body.Requests) != 2 || body.Requests[1].Type != "close" {
+			t.Errorf("stream was not closed: %+v", body.Requests)
+			return
 		}
-		response := json.RawMessage(`{"type":"execute","result":{"cols":[{"name":"id"},{"name":"status"}],"rows":[[{"type":"text","value":"run-1"},{"type":"text","value":"running"}]],"affected_row_count":0}}`)
-		_ = json.NewEncoder(writer).Encode(pipelineResponse{Results: []streamResult{{Type: "ok", Response: response}}})
+		query := body.Requests[0].Stmt
+		if !strings.Contains(query.SQL, "a.status = 'pending'") || !strings.Contains(query.SQL, "c.user_id = ?") {
+			t.Errorf("query does not filter pending approvals by owner: %s", query.SQL)
+		}
+		response := json.RawMessage(`{"type":"execute","result":{"cols":[{"name":"run_id"},{"name":"request_id"},{"name":"action_type"},{"name":"summary"}],"rows":[[{"type":"text","value":"run-1"},{"type":"text","value":"17"},{"type":"text","value":"item/commandExecution/requestApproval"},{"type":"text","value":"{\"command\":\"go test ./...\"}"}]],"affected_row_count":0}}`)
+		_ = json.NewEncoder(writer).Encode(pipelineResponseWithClosedStream(streamResult{Type: "ok", Response: response}))
 	}))
 	defer server.Close()
 
 	repository := NewRepository(NewClient(server.URL, "").WithHTTPClient(server.Client()), "user-1")
-	active, err := repository.ListActiveRuns(context.Background(), "conversation-1")
+	approvals, err := repository.ListPendingApprovals(context.Background(), "conversation-1")
 	if err != nil {
-		t.Fatalf("list active runs: %v", err)
+		t.Fatalf("list pending approvals: %v", err)
 	}
-	if len(active) != 1 || active[0].ID != "run-1" || active[0].Status != "running" {
-		t.Fatalf("active = %+v", active)
+	if len(approvals) != 1 || approvals[0].RunID != "run-1" || approvals[0].RequestID != "17" || string(approvals[0].Params) != `{"command":"go test ./..."}` {
+		t.Fatalf("approvals = %+v", approvals)
 	}
 }

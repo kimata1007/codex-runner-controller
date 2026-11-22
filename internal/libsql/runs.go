@@ -24,11 +24,13 @@ func (r *Repository) LatestThreadID(ctx context.Context, conversationID string) 
 	return result.Rows[0][0].Value, true, nil
 }
 
+// ListActiveRuns only returns runs belonging to the authenticated user and an
+// unarchived conversation. The caller verifies the conversation separately too.
 func (r *Repository) ListActiveRuns(ctx context.Context, conversationID string) ([]runs.ActiveRun, error) {
 	result, err := r.client.Exec(ctx, `SELECT runs.id, runs.status
-		FROM runs
-		JOIN conversations ON conversations.id = runs.conversation_id
+		FROM runs JOIN conversations ON conversations.id = runs.conversation_id
 		WHERE runs.conversation_id = ? AND conversations.user_id = ?
+		AND conversations.status != 'archived'
 		AND runs.status IN ('running', 'waiting_approval')
 		ORDER BY runs.created_at`, []Value{Text(conversationID), Text(r.userID)}, true)
 	if err != nil {
@@ -199,6 +201,32 @@ func (r *Repository) ResolveApproval(ctx context.Context, runID, requestID, stat
 		Text(status), Text(string(payload)), Text(time.Now().UTC().Format(time.RFC3339Nano)), Text(runID), Text(requestID),
 	}, false)
 	return err
+}
+
+func (r *Repository) ListPendingApprovals(ctx context.Context, conversationID string) ([]runs.Approval, error) {
+	result, err := r.client.Exec(ctx, `SELECT a.run_id, a.request_id, a.action_type, a.summary
+		FROM approvals a
+		JOIN runs r ON r.id = a.run_id
+		JOIN conversations c ON c.id = r.conversation_id
+		WHERE c.id = ? AND c.user_id = ? AND a.status = 'pending'
+		ORDER BY a.created_at, a.request_id`, []Value{Text(conversationID), Text(r.userID)}, true)
+	if err != nil {
+		return nil, err
+	}
+	approvals := make([]runs.Approval, 0, len(result.Rows))
+	for _, row := range result.Rows {
+		if len(row) < 4 {
+			return nil, fmt.Errorf("libsql: pending approval row has %d columns", len(row))
+		}
+		params := json.RawMessage(row[3].Value)
+		if len(params) == 0 || !json.Valid(params) {
+			params = json.RawMessage(`{}`)
+		}
+		approvals = append(approvals, runs.Approval{
+			RunID: row[0].Value, RequestID: row[1].Value, Method: row[2].Value, Params: params,
+		})
+	}
+	return approvals, nil
 }
 
 func (r *Repository) persistAssistantMessage(ctx context.Context, runID string) error {

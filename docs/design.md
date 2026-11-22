@@ -109,10 +109,10 @@ HTTPで接続できることはクライアントPodをステートレスにで�
       sessionData:
         storageClassName: local-path
         size: 10Gi
-        retain: true
+        retain: false
       execution:
         model: default
-        approvalPolicy: user
+        approvalPolicy: never
       repository:
         url: https://github.com/kimata1007/example.git
         revision: main

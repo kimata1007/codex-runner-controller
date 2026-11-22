@@ -4,13 +4,17 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/kimata1007/codex-runner-controller/internal/agent"
+	"github.com/kimata1007/codex-runner-controller/internal/telemetry"
 )
 
 // Client calls the runner-agent HTTP API from the Runner API.
@@ -24,7 +28,7 @@ type Client struct {
 func NewClient(baseURL string) *Client { return NewClientWithToken(baseURL, "") }
 
 func NewClientWithToken(baseURL, token string) *Client {
-	return &Client{baseURL: strings.TrimRight(baseURL, "/"), token: token, httpClient: http.DefaultClient}
+	return &Client{baseURL: strings.TrimRight(baseURL, "/"), token: token, httpClient: &http.Client{Transport: telemetry.HTTPTransport(nil)}}
 }
 
 func (c *Client) WithHTTPClient(client *http.Client) *Client {
@@ -155,17 +159,33 @@ func (c *Client) request(ctx context.Context, method, path string, requestBody a
 	if err != nil {
 		return fmt.Errorf("encode request: %w", err)
 	}
-	request, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, bytes.NewReader(payload))
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	request.Header.Set("Content-Type", "application/json")
-	if c.token != "" {
-		request.Header.Set("Authorization", "Bearer "+c.token)
-	}
-	response, err := c.httpClient.Do(request)
-	if err != nil {
-		return err
+	// A newly Ready Agent Pod may precede the kube-proxy/EndpointSlice update.
+	// Retry only ECONNREFUSED (the connection was never established); never
+	// retry HTTP errors or ambiguous disconnects after a request was sent.
+	const maxConnectionAttempts = 30
+	const connectionRetryDelay = 200 * time.Millisecond
+	var response *http.Response
+	for attempt := 0; attempt < maxConnectionAttempts; attempt++ {
+		request, requestErr := http.NewRequestWithContext(ctx, method, c.baseURL+path, bytes.NewReader(payload))
+		if requestErr != nil {
+			return fmt.Errorf("create request: %w", requestErr)
+		}
+		request.Header.Set("Content-Type", "application/json")
+		if c.token != "" {
+			request.Header.Set("Authorization", "Bearer "+c.token)
+		}
+		response, err = c.httpClient.Do(request)
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, syscall.ECONNREFUSED) || attempt == maxConnectionAttempts-1 {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(connectionRetryDelay):
+		}
 	}
 	defer response.Body.Close()
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
