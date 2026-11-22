@@ -130,7 +130,8 @@ func main() {
 }
 
 func defaultAppServerArgs() []string {
-	args := []string{"app-server", "--listen", "stdio://"}
+	// Kubernetes already isolates each conversation Pod. Do not invoke the Codex Linux sandbox.
+	args := []string{"-c", `sandbox_mode="danger-full-access"`, "app-server", "--listen", "stdio://" }
 	if endpoint := strings.TrimRight(os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"), "/"); endpoint != "" {
 		// Codex has its own OTLP trace exporter; its configuration is not
 		// inherited from the Go OpenTelemetry SDK environment alone.
