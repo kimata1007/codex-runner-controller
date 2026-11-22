@@ -27,7 +27,8 @@ func (r activeRunRepository) ListActiveRuns(context.Context, string) ([]runs.Act
 }
 
 func TestActiveRunsReconnectionChecksConversationExistence(t *testing.T) {
-	repository := activeRunRepository{Repository: memory.NewRepository(), active: []runs.ActiveRun{{ID: "run-1", Status: runs.StatusRunning}}}
+	base := memory.NewRepository()
+	repository := activeRunRepository{Repository: base, active: []runs.ActiveRun{{ID: "run-1", Status: runs.StatusRunning}}}
 	conversationValue, err := repository.CreateConversation(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -41,7 +42,7 @@ func TestActiveRunsReconnectionChecksConversationExistence(t *testing.T) {
 	if missing.Code != http.StatusNotFound {
 		t.Fatalf("unknown conversation status=%d", missing.Code)
 	}
-	if err := repository.Repository.(interface{ ArchiveConversation(context.Context, string) error }).ArchiveConversation(context.Background(), conversationValue.ID); err != nil {
+	if err := base.ArchiveConversation(context.Background(), conversationValue.ID); err != nil {
 		t.Fatal(err)
 	}
 	archived := serveJSON(t, router, http.MethodGet, "/v1/conversations/"+conversationValue.ID+"/runs/active", "")
