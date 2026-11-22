@@ -41,12 +41,12 @@ type Handler struct {
 // HandlerDependencies groups the optional collaborators used by the HTTP API.
 // Keeping the constructor stable avoids encoding every new dependency in its name.
 type HandlerDependencies struct {
-	Repository     conversation.Repository
-	Dispatcher     MessageDispatcher
-	Activator      session.Activator
-	EventStore     RunEventStore
-	EventHub       RunEventHub
-	AuthBroker     ChatGPTAuthBroker
+	Repository conversation.Repository
+	Dispatcher MessageDispatcher
+	Activator  session.Activator
+	EventStore RunEventStore
+	EventHub   RunEventHub
+	AuthBroker ChatGPTAuthBroker
 }
 
 type ChatGPTAuthBroker interface {
