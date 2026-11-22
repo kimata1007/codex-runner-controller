@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kimata1007/codex-runner-controller/internal/conversation"
 )
@@ -94,7 +95,7 @@ func TestRepositoryListConversationsExcludesArchivedBeforeLimit(t *testing.T) {
 	if !strings.Contains(query, "ORDER BY c.updated_at DESC\n\t\tLIMIT 100") {
 		t.Errorf("archived filter must run before ordering and limit: %s", query)
 	}
-	if len((*args)[0]) != 1 || !containsTextValue((*args)[0], "user-1") {
+	if len((*args)[0]) != 2 || !containsTextValue((*args)[0], "user-1") {
 		t.Errorf("unexpected owner filter arguments: %+v", (*args)[0])
 	}
 }
@@ -118,10 +119,10 @@ func TestRepositoryCreateFirstMessage(t *testing.T) {
 	if !strings.Contains(insert, "COALESCE((SELECT MAX(sequence) FROM messages WHERE conversation_id = ?), 0) + 1") {
 		t.Errorf("first message sequence is not initialized to 1: %s", insert)
 	}
-	if !strings.Contains(insert, "WHERE EXISTS (SELECT 1 FROM conversations WHERE id = ? AND user_id = ?)") {
+	if !strings.Contains(insert, "WHERE EXISTS (SELECT 1 FROM conversations WHERE id = ? AND user_id = ? AND status != 'archived'") {
 		t.Errorf("insert is not scoped to the conversation owner: %s", insert)
 	}
-	if len((*args)[0]) != 8 || !containsTextValue((*args)[0], "user-1") {
+	if len((*args)[0]) != 9 || !containsTextValue((*args)[0], "user-1") {
 		t.Errorf("unexpected insert arguments: %+v", (*args)[0])
 	}
 }
@@ -148,7 +149,7 @@ func newRepositoryTestServer(t *testing.T) (*httptest.Server, *[]string, *[][]Va
 		result := statementResult{}
 		switch {
 		case strings.HasPrefix(statement.SQL, "SELECT c.id, c.status"):
-			result.Rows = [][]Value{{Text("conversation-1"), Text("active"), Text("2026-01-01T00:00:00Z"), Text("2026-01-01T00:00:00Z"), Null(), Null()}}
+			result.Rows = [][]Value{{Text("conversation-1"), Text("active"), Text(time.Now().UTC().Format(time.RFC3339Nano)), Text(time.Now().UTC().Format(time.RFC3339Nano)), Null(), Null()}}
 		case strings.HasPrefix(statement.SQL, "SELECT id FROM conversations"):
 			result.Rows = [][]Value{{Text("conversation-1")}}
 		case strings.HasPrefix(statement.SQL, "INSERT INTO messages"):

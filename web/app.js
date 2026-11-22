@@ -84,7 +84,9 @@ async function request(path, options = {}) {
       const body = await response.json();
       detail = body.message || body.error || '';
     } catch (_) { /* Use the status-based message when the response is not JSON. */ }
-    throw new Error(detail || `リクエストに失敗しました（${response.status}）`);
+    const error = new Error(detail || `リクエストに失敗しました（${response.status}）`);
+    error.status = response.status;
+    throw error;
   }
   if (response.status === 204) return null;
   return response.json();
@@ -554,7 +556,16 @@ async function openConversation(id) {
       void resumeActiveRuns(result.id, resumedRunController.signal);
     }
   } catch (error) {
-    setStatus(`チャットを開けませんでした: ${error.message}`, 'error');
+    if (error.status === 410) {
+      // The user might have selected a different conversation while this request was in flight.
+      if (state.conversationID === id || !state.conversationID) {
+        startNewConversation();
+        await loadConversationList();
+        setStatus('期限切れのチャットをアーカイブしました');
+      }
+    } else {
+      setStatus(`チャットを開けませんでした: ${error.message}`, 'error');
+    }
   }
 }
 
@@ -890,9 +901,34 @@ async function refreshCodexAccount() {
 
 refreshCodexAccount();
 window.addEventListener('pageshow', refreshCodexAccount);
+// Keep the history list in sync when the server archives a conversation.
+async function refreshArchivedConversations() {
+  if (document.hidden) return;
+  try {
+    await loadConversationList();
+    if (!state.conversationID || state.sending) return;
+    const conversationID = state.conversationID;
+    try {
+      await request(`/v1/conversations/${encodeURIComponent(conversationID)}`);
+    } catch (error) {
+      // Ignore delayed responses for a conversation the user has left.
+      if (error.status === 410 && state.conversationID === conversationID) {
+        startNewConversation();
+        setStatus('期限切れのチャットをアーカイブしました');
+      }
+    }
+  } catch (_) {
+    // An intermittent list error should not discard the current conversation.
+  }
+}
+setInterval(refreshArchivedConversations, 60 * 1000);
+window.addEventListener('pageshow', refreshArchivedConversations);
 window.addEventListener('online', refreshCodexAccount);
 document.addEventListener('visibilitychange', () => {
-  if (!document.hidden) refreshCodexAccount();
+  if (!document.hidden) {
+    refreshCodexAccount();
+    refreshArchivedConversations();
+  }
 });
 loadConversationList().then(async () => {
   if (state.conversationID) await openConversation(state.conversationID);

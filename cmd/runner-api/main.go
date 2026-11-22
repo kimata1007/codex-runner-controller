@@ -79,6 +79,13 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	if store, ok := repository.(conversation.RetentionStore); ok {
+		var cleaner runnerapi.ConversationSessionCleaner
+		if value, ok := activator.(runnerapi.ConversationSessionCleaner); ok {
+			cleaner = value
+		}
+		go runnerapi.RunConversationArchiver(ctx, store, cleaner)
+	}
 
 	go func() {
 		<-ctx.Done()

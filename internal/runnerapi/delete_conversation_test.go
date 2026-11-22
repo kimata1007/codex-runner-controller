@@ -30,23 +30,17 @@ func TestArchiveConversationPreservesHistory(t *testing.T) {
 	if err != nil || len(listed) != 0 {
 		t.Fatalf("archived conversation remains in history list: %+v err=%v", listed, err)
 	}
-	archived, err := repo.GetConversation(context.Background(), value.ID)
-	if err != nil || archived.Status != "archived" {
-		t.Fatalf("conversation status=%q err=%v", archived.Status, err)
+	if _, err := repo.GetConversation(context.Background(), value.ID); !errors.Is(err, conversation.ErrArchived) {
+		t.Fatalf("archived conversation remained accessible: %v", err)
 	}
-	messages, err := repo.ListMessages(context.Background(), value.ID)
-	if err != nil || len(messages) != 1 || messages[0].Content != "hello" {
-		t.Fatalf("conversation history was not preserved: messages=%+v err=%v", messages, err)
+	if _, err := repo.ListMessages(context.Background(), value.ID); !errors.Is(err, conversation.ErrArchived) {
+		t.Fatalf("archived messages remained accessible: %v", err)
 	}
-	if _, _, err := repo.CreateMessage(context.Background(), value.ID, conversation.NewMessage{Content: "continue"}); err != nil {
-		t.Fatalf("could not resume archived conversation: %v", err)
+	if _, _, err := repo.CreateMessage(context.Background(), value.ID, conversation.NewMessage{Content: "continue"}); !errors.Is(err, conversation.ErrArchived) {
+		t.Fatalf("archived conversation was revived: %v", err)
 	}
-	resumed, err := repo.GetConversation(context.Background(), value.ID)
-	if err != nil || resumed.Status != "active" {
-		t.Fatalf("resumed conversation status=%q err=%v", resumed.Status, err)
-	}
-	if response := serveJSON(t, router, http.MethodDelete, "/v1/conversations/"+value.ID, ""); response.Code != http.StatusNoContent {
-		t.Fatalf("repeated archive returned %d", response.Code)
+	if response := serveJSON(t, router, http.MethodDelete, "/v1/conversations/"+value.ID, ""); response.Code != http.StatusGone {
+		t.Fatalf("repeated archive returned %d, want 410", response.Code)
 	}
 }
 

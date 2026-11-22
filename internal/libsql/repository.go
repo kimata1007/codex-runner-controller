@@ -9,6 +9,7 @@ import (
 
 	"github.com/kimata1007/codex-runner-controller/internal/conversation"
 	"github.com/kimata1007/codex-runner-controller/internal/db"
+	"github.com/kimata1007/codex-runner-controller/internal/session"
 )
 
 var _ conversation.Repository = (*Repository)(nil)
@@ -72,6 +73,9 @@ func (r *Repository) GetConversation(ctx context.Context, id string) (conversati
 	}
 
 	row := result.Rows[0]
+	if row[1].Value == "archived" {
+		return conversation.Conversation{}, fmt.Errorf("%w: %s", conversation.ErrArchived, id)
+	}
 	createdAt, err := parseTime(row[2])
 	if err != nil {
 		return conversation.Conversation{}, err
@@ -79,6 +83,9 @@ func (r *Repository) GetConversation(ctx context.Context, id string) (conversati
 	updatedAt, err := parseTime(row[3])
 	if err != nil {
 		return conversation.Conversation{}, err
+	}
+	if !updatedAt.Add(session.DefaultRetentionPeriod).After(time.Now().UTC()) {
+		return conversation.Conversation{}, fmt.Errorf("%w: %s", conversation.ErrArchived, id)
 	}
 	value := conversation.Conversation{
 		ID:        row[0].Value,
@@ -101,8 +108,9 @@ func (r *Repository) ListConversations(ctx context.Context) ([]conversation.Conv
 		COALESCE((SELECT m.content FROM messages m WHERE m.conversation_id = c.id AND m.role = 'user' ORDER BY m.sequence LIMIT 1), c.title, '')
 		FROM conversations c
 		WHERE c.user_id = ? AND c.status != 'archived'
+		AND julianday(c.updated_at) > julianday(?)
 		ORDER BY c.updated_at DESC
-		LIMIT 100`, []Value{Text(r.userID)}, true)
+		LIMIT 100`, []Value{Text(r.userID), Text(time.Now().UTC().Add(-session.DefaultRetentionPeriod).Format(time.RFC3339Nano))}, true)
 	if err != nil {
 		return nil, err
 	}
@@ -137,6 +145,9 @@ func (r *Repository) ListMessages(ctx context.Context, id string) ([]conversatio
 		return nil, err
 	}
 	if !exists {
+		if _, err := r.GetConversation(ctx, id); err != nil {
+			return nil, err
+		}
 		return nil, fmt.Errorf("%w: %s", conversation.ErrNotFound, id)
 	}
 	return r.listMessages(ctx, id)
@@ -147,7 +158,7 @@ func (r *Repository) listMessages(ctx context.Context, id string) ([]conversatio
 		messages.client_message_id, messages.status, messages.created_at
 		FROM messages
 		JOIN conversations ON conversations.id = messages.conversation_id
-		WHERE messages.conversation_id = ? AND conversations.user_id = ?
+		WHERE messages.conversation_id = ? AND conversations.user_id = ? AND conversations.status != 'archived'
 		ORDER BY messages.sequence`, []Value{Text(id), Text(r.userID)}, true)
 	if err != nil {
 		return nil, err
@@ -179,15 +190,16 @@ func (r *Repository) CreateMessage(ctx context.Context, id string, input convers
 		(id, conversation_id, role, content, sequence, status, client_message_id, created_at)
 		SELECT ?, ?, 'user', ?, COALESCE((SELECT MAX(sequence) FROM messages WHERE conversation_id = ?), 0) + 1,
 		       'queued', ?, ?
-		WHERE EXISTS (SELECT 1 FROM conversations WHERE id = ? AND user_id = ?)
+		WHERE EXISTS (SELECT 1 FROM conversations WHERE id = ? AND user_id = ? AND status != 'archived'
+			AND julianday(updated_at) > julianday(?))
 		ON CONFLICT(conversation_id, client_message_id) DO NOTHING`, []Value{
-		Text(messageID), Text(id), Text(input.Content), Text(id), clientMessageID, Text(now.Format(time.RFC3339Nano)), Text(id), Text(r.userID),
+		Text(messageID), Text(id), Text(input.Content), Text(id), clientMessageID, Text(now.Format(time.RFC3339Nano)), Text(id), Text(r.userID), Text(now.Add(-session.DefaultRetentionPeriod).Format(time.RFC3339Nano)),
 	}, false)
 	if err != nil {
 		return conversation.Message{}, false, err
 	}
 	if result.AffectedRowCount > 0 {
-		if _, err := r.client.Exec(ctx, `UPDATE conversations SET status = 'active', updated_at = ? WHERE id = ? AND user_id = ?`, []Value{
+		if _, err := r.client.Exec(ctx, `UPDATE conversations SET updated_at = ? WHERE id = ? AND user_id = ? AND status != 'archived'`, []Value{
 			Text(now.Format(time.RFC3339Nano)), Text(id), Text(r.userID),
 		}, false); err != nil {
 			return conversation.Message{}, false, err
@@ -208,6 +220,9 @@ func (r *Repository) CreateMessage(ctx context.Context, id string, input convers
 		return conversation.Message{}, false, err
 	}
 	if !exists {
+		if _, err := r.GetConversation(ctx, id); err != nil {
+			return conversation.Message{}, false, err
+		}
 		return conversation.Message{}, false, fmt.Errorf("%w: %s", conversation.ErrNotFound, id)
 	}
 	if input.ClientMessageID == "" {
@@ -218,7 +233,7 @@ func (r *Repository) CreateMessage(ctx context.Context, id string, input convers
 		messages.client_message_id, messages.status, messages.created_at
 		FROM messages
 		JOIN conversations ON conversations.id = messages.conversation_id
-		WHERE messages.conversation_id = ? AND messages.client_message_id = ? AND conversations.user_id = ?`, []Value{Text(id), Text(input.ClientMessageID), Text(r.userID)}, true)
+		WHERE messages.conversation_id = ? AND messages.client_message_id = ? AND conversations.user_id = ? AND conversations.status != 'archived'`, []Value{Text(id), Text(input.ClientMessageID), Text(r.userID)}, true)
 	if err != nil {
 		return conversation.Message{}, false, err
 	}
@@ -258,7 +273,7 @@ func (r *Repository) SetMessageStatus(ctx context.Context, id, status string) er
 }
 
 func (r *Repository) conversationExists(ctx context.Context, id string) (bool, error) {
-	result, err := r.client.Exec(ctx, `SELECT id FROM conversations WHERE id = ? AND user_id = ?`, []Value{Text(id), Text(r.userID)}, true)
+	result, err := r.client.Exec(ctx, `SELECT id FROM conversations WHERE id = ? AND user_id = ? AND status != 'archived' AND julianday(updated_at) > julianday(?)`, []Value{Text(id), Text(r.userID), Text(time.Now().UTC().Add(-session.DefaultRetentionPeriod).Format(time.RFC3339Nano))}, true)
 	if err != nil {
 		return false, err
 	}
@@ -322,4 +337,56 @@ func (r *Repository) ArchiveConversation(ctx context.Context, id string) error {
 		return fmt.Errorf("%w: %s", conversation.ErrNotFound, id)
 	}
 	return nil
+}
+
+func (r *Repository) TouchConversation(ctx context.Context, id string, at time.Time) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	formatted := at.UTC().Format(time.RFC3339Nano)
+	_, err := r.client.Exec(ctx, `UPDATE conversations SET updated_at =
+		CASE WHEN julianday(updated_at) < julianday(?) THEN ? ELSE updated_at END
+		WHERE id = ? AND user_id = ? AND status != 'archived'`, []Value{
+		Text(formatted), Text(formatted), Text(id), Text(r.userID),
+	}, false)
+	return err
+}
+
+// ArchiveInactiveConversations never archives conversations with active queued,
+// running, or approval-waiting work. Already archived records remain eligible
+// for retries of the idempotent Kubernetes session cleanup.
+func (r *Repository) ArchiveInactiveConversations(ctx context.Context, cutoff time.Time) ([]string, error) {
+	formatted := cutoff.UTC().Format(time.RFC3339Nano)
+	result, err := r.client.Exec(ctx, `SELECT c.id, c.status FROM conversations c
+		WHERE c.user_id = ? AND julianday(c.updated_at) <= julianday(?)
+		AND (c.status = 'archived' OR NOT EXISTS (
+			SELECT 1 FROM runs r WHERE r.conversation_id = c.id
+			AND r.status IN ('queued', 'running', 'waiting_approval')
+		))`, []Value{Text(r.userID), Text(formatted)}, true)
+	if err != nil {
+		return nil, err
+	}
+	cleanup := make([]string, 0, len(result.Rows))
+	for _, row := range result.Rows {
+		if len(row) < 2 {
+			return nil, fmt.Errorf("libsql: retention row has %d columns", len(row))
+		}
+		id := row[0].Value
+		if row[1].Value != "archived" {
+			updated, err := r.client.Exec(ctx, `UPDATE conversations SET status = 'archived'
+				WHERE id = ? AND user_id = ? AND status != 'archived'
+				AND julianday(updated_at) <= julianday(?)
+				AND NOT EXISTS (SELECT 1 FROM runs WHERE conversation_id = ?
+					AND status IN ('queued', 'running', 'waiting_approval'))`,
+				[]Value{Text(id), Text(r.userID), Text(formatted), Text(id)}, false)
+			if err != nil {
+				return nil, err
+			}
+			if updated.AffectedRowCount == 0 {
+				continue
+			}
+		}
+		cleanup = append(cleanup, id)
+	}
+	return cleanup, nil
 }

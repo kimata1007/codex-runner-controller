@@ -279,8 +279,14 @@ func (h *Handler) checkHealth(c echo.Context) error {
 }
 
 func (h *Handler) receiveHeartbeat(c echo.Context) error {
-	if err := h.activity.Touch(c.Request().Context(), c.Param("conversationID"), time.Now().UTC()); err != nil {
+	at := time.Now().UTC()
+	if err := h.activity.Touch(c.Request().Context(), c.Param("conversationID"), at); err != nil {
 		return writeOperationalError(c, http.StatusBadGateway, "failed to record heartbeat", "session_heartbeat", err)
+	}
+	if recorder, ok := h.repository.(conversation.ActivityRecorder); ok {
+		if err := recorder.TouchConversation(c.Request().Context(), c.Param("conversationID"), at); err != nil {
+			return writeOperationalError(c, http.StatusBadGateway, "failed to record conversation activity", "conversation_heartbeat", err)
+		}
 	}
 	return writeJSON(c, http.StatusAccepted, map[string]string{"status": "accepted"})
 }
@@ -653,6 +659,9 @@ func writeOperationalErrorWithAttributes(c echo.Context, status int, message, op
 }
 
 func writeRepositoryError(c echo.Context, err error) error {
+	if errors.Is(err, conversation.ErrArchived) {
+		return writeError(c, http.StatusGone, "conversation has been archived")
+	}
 	if errors.Is(err, conversation.ErrNotFound) {
 		return writeError(c, http.StatusNotFound, "conversation not found")
 	}

@@ -46,8 +46,37 @@ func TestActiveRunsReconnectionChecksConversationExistence(t *testing.T) {
 		t.Fatal(err)
 	}
 	archived := serveJSON(t, router, http.MethodGet, "/v1/conversations/"+conversationValue.ID+"/runs/active", "")
-	if archived.Code != http.StatusNotFound {
-		t.Fatalf("archived conversation status=%d", archived.Code)
+	if archived.Code != http.StatusGone {
+		t.Fatalf("archived conversation status=%d, want %d", archived.Code, http.StatusGone)
+	}
+}
+
+func TestArchivedConversationIsGoneFromUIAndCannotBeResurrected(t *testing.T) {
+	repository := memory.NewRepository()
+	value, err := repository.CreateConversation(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.ArchiveConversation(context.Background(), value.ID); err != nil {
+		t.Fatal(err)
+	}
+	router := NewRouter(NewHandler(HandlerDependencies{Repository: repository}))
+	for _, test := range []struct {
+		method string
+		path   string
+		body   string
+	}{
+		{http.MethodGet, "/v1/conversations/" + value.ID, ""},
+		{http.MethodPost, "/v1/conversations/" + value.ID + "/messages", `{"content":"revive"}`},
+	} {
+		response := serveJSON(t, router, test.method, test.path, test.body)
+		if response.Code != http.StatusGone {
+			t.Fatalf("%s %s: status = %d, body = %s", test.method, test.path, response.Code, response.Body.String())
+		}
+	}
+	response := serveJSON(t, router, http.MethodGet, "/v1/conversations", "")
+	if response.Code != http.StatusOK || strings.Contains(response.Body.String(), value.ID) {
+		t.Fatalf("archived conversation visible in UI list: %s", response.Body.String())
 	}
 }
 
