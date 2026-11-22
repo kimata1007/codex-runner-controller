@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.0.17](https://github.com/kimata1007/codex-runner-controller/compare/v0.0.16...v0.0.17) - 2026-11-22
+
+- feat: restore active Codex run streams after PWA reload by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/89
+- feat: safely archive inactive conversations after seven days by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/95
+
 ## [v0.0.16](https://github.com/kimata1007/codex-runner-controller/compare/v0.0.15...v0.0.16) - 2026-11-22
 
 - fix: prevent stale PWA assets and refresh ChatGPT auth status by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/128
