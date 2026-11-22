@@ -25,7 +25,7 @@ func TestRepositoryListsOnlyActiveRunsForOwnedUnarchivedConversation(t *testing.
 			}
 		}
 		data := json.RawMessage(`{"type":"execute","result":{"cols":[{"name":"id"},{"name":"status"}],"rows":[[{"type":"text","value":"run-1"},{"type":"text","value":"running"}]],"affected_row_count":0}}`)
-		_ = json.NewEncoder(w).Encode(pipelineResponse{Results: []streamResult{{Type: "ok", Response: data}}})
+		_ = json.NewEncoder(w).Encode(pipelineResponseWithClosedStream(streamResult{Type: "ok", Response: data}))
 	}))
 	defer server.Close()
 	repository := NewRepository(NewClient(server.URL, "").WithHTTPClient(server.Client()), "user-1")
