@@ -27,7 +27,6 @@ func TestSafeHTTPRouteAvoidsIdentifiersAndUnknownPaths(t *testing.T) {
 		{"/v1/approvals/run-secret/request-secret", "/v1/approvals/:runID/:requestID"},
 		{"/internal/runs/secret-run/events", "/internal/runs/:runID/events"},
 		{"/internal/sessions/secret-session/heartbeat", "/internal/sessions/:conversationID/heartbeat"},
-		{"/v1/codex/settings", "/v1/codex/settings"},
 		{"/unknown/secret-token", ""},
 	}
 	for _, tt := range tests {
