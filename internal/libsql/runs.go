@@ -24,6 +24,28 @@ func (r *Repository) LatestThreadID(ctx context.Context, conversationID string) 
 	return result.Rows[0][0].Value, true, nil
 }
 
+// ListActiveRuns only returns runs belonging to the authenticated user and an
+// unarchived conversation. The caller verifies the conversation separately too.
+func (r *Repository) ListActiveRuns(ctx context.Context, conversationID string) ([]runs.ActiveRun, error) {
+	result, err := r.client.Exec(ctx, `SELECT runs.id, runs.status
+		FROM runs JOIN conversations ON conversations.id = runs.conversation_id
+		WHERE runs.conversation_id = ? AND conversations.user_id = ?
+		AND conversations.status != 'archived'
+		AND runs.status IN ('running', 'waiting_approval')
+		ORDER BY runs.created_at`, []Value{Text(conversationID), Text(r.userID)}, true)
+	if err != nil {
+		return nil, err
+	}
+	active := make([]runs.ActiveRun, 0, len(result.Rows))
+	for _, row := range result.Rows {
+		if len(row) < 2 {
+			return nil, fmt.Errorf("libsql: active run row has %d columns", len(row))
+		}
+		active = append(active, runs.ActiveRun{ID: row[0].Value, Status: row[1].Value})
+	}
+	return active, nil
+}
+
 func (r *Repository) CreateRun(ctx context.Context, conversationID, messageID, threadID string) (runs.Run, error) {
 	now := time.Now().UTC()
 	run := runs.Run{

@@ -17,6 +17,40 @@ import (
 	"github.com/kimata1007/codex-runner-controller/internal/session"
 )
 
+type activeRunRepository struct {
+	conversation.Repository
+	active []runs.ActiveRun
+}
+
+func (r activeRunRepository) ListActiveRuns(context.Context, string) ([]runs.ActiveRun, error) {
+	return r.active, nil
+}
+
+func TestActiveRunsReconnectionChecksConversationExistence(t *testing.T) {
+	base := memory.NewRepository()
+	repository := activeRunRepository{Repository: base, active: []runs.ActiveRun{{ID: "run-1", Status: runs.StatusRunning}}}
+	conversationValue, err := repository.CreateConversation(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	router := NewRouter(NewHandler(HandlerDependencies{Repository: repository}))
+	response := serveJSON(t, router, http.MethodGet, "/v1/conversations/"+conversationValue.ID+"/runs/active", "")
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "run-1") {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	missing := serveJSON(t, router, http.MethodGet, "/v1/conversations/missing/runs/active", "")
+	if missing.Code != http.StatusNotFound {
+		t.Fatalf("unknown conversation status=%d", missing.Code)
+	}
+	if err := base.ArchiveConversation(context.Background(), conversationValue.ID); err != nil {
+		t.Fatal(err)
+	}
+	archived := serveJSON(t, router, http.MethodGet, "/v1/conversations/"+conversationValue.ID+"/runs/active", "")
+	if archived.Code != http.StatusGone {
+		t.Fatalf("archived conversation status=%d, want %d", archived.Code, http.StatusGone)
+	}
+}
+
 func TestArchivedConversationIsGoneFromUIAndCannotBeResurrected(t *testing.T) {
 	repository := memory.NewRepository()
 	value, err := repository.CreateConversation(context.Background())

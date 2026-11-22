@@ -413,8 +413,12 @@ function addMessage(role, content) {
 }
 
 function addApproval(runID, payload) {
+  if ([...elements.messages.querySelectorAll('.approval-card')].some((item) =>
+    item.dataset.runId === runID && item.dataset.requestId === payload.requestId)) return;
   const item = document.createElement('li');
   item.className = 'approval-card';
+  item.dataset.runId = runID;
+  item.dataset.requestId = payload.requestId || '';
   const heading = document.createElement('div');
   heading.className = 'approval-heading';
   const mark = document.createElement('span');
@@ -491,7 +495,36 @@ function scrollTranscriptToEnd() {
   requestAnimationFrame(() => { elements.transcript.scrollTop = elements.transcript.scrollHeight; });
 }
 
+let resumedRunController = null;
+
+async function resumeActiveRuns(conversationID, signal) {
+  try {
+    const result = await request(`/v1/conversations/${encodeURIComponent(conversationID)}/runs/active`, {signal});
+    for (const run of result.runs || []) {
+      if (signal.aborted || state.conversationID !== conversationID) return;
+      setStatus(run.status === 'waiting_approval' ? '承認待ち' : '応答を再接続しています…', 'working');
+      const assistantMessage = addMessage('assistant', '');
+      try {
+        const outcome = await streamEvents(run.id, assistantMessage, {signal});
+        if (signal.aborted || state.conversationID !== conversationID) return;
+        if (outcome === 'completed') setStatus('完了');
+        else if (outcome === 'failed') setStatus('実行に失敗しました', 'error');
+        else if (outcome === 'interrupted') setStatus('応答が中断されました');
+        else setStatus('応答が終了しました');
+      } catch (error) {
+        if (!signal.aborted && state.conversationID === conversationID)
+          setStatus(`応答の再接続に失敗しました: ${error.message}`, 'error');
+      }
+    }
+  } catch (error) {
+    if (!signal.aborted && state.conversationID === conversationID)
+      setStatus(`実行状態を取得できませんでした: ${error.message}`, 'error');
+  }
+}
+
 async function openConversation(id) {
+  resumedRunController?.abort();
+  resumedRunController = null;
   closeSidebar();
   setStatus('チャットを開いています…');
   try {
@@ -518,11 +551,18 @@ async function openConversation(id) {
     }
     setStatus('');
     await loadConversationList();
+    if (state.conversationID === result.id) {
+      resumedRunController = new AbortController();
+      void resumeActiveRuns(result.id, resumedRunController.signal);
+    }
   } catch (error) {
     if (error.status === 410) {
-      startNewConversation();
-      await loadConversationList();
-      setStatus('期限切れのチャットをアーカイブしました');
+      // The user might have selected a different conversation while this request was in flight.
+      if (state.conversationID === id || !state.conversationID) {
+        startNewConversation();
+        await loadConversationList();
+        setStatus('期限切れのチャットをアーカイブしました');
+      }
     } else {
       setStatus(`チャットを開けませんでした: ${error.message}`, 'error');
     }
@@ -538,6 +578,8 @@ function conversationTitle(conversation) {
 }
 
 function startNewConversation() {
+  resumedRunController?.abort();
+  resumedRunController = null;
   clearDeleteSelection();
   state.conversationID = '';
   localStorage.removeItem('codex.currentConversation');
@@ -579,8 +621,8 @@ async function createConversation() {
   return result;
 }
 
-async function streamEvents(runID, assistantMessage) {
-  const response = await fetch(`/v1/runs/${encodeURIComponent(runID)}/events`, {credentials: 'same-origin'});
+async function streamEvents(runID, assistantMessage, options = {}) {
+  const response = await fetch(`/v1/runs/${encodeURIComponent(runID)}/events`, {credentials: 'same-origin', ...options});
   if (!response.ok || !response.body) throw new Error(`イベントを受信できませんでした（${response.status}）`);
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -859,7 +901,6 @@ async function refreshCodexAccount() {
 
 refreshCodexAccount();
 window.addEventListener('pageshow', refreshCodexAccount);
-
 // Keep the history list in sync when the server archives a conversation.
 async function refreshArchivedConversations() {
   if (document.hidden) return;
