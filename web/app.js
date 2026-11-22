@@ -837,11 +837,29 @@ document.addEventListener('keydown', (event) => {
 });
 
 renderRepository();
-request('/v1/auth/status').then((status) => {
-  if (status.authenticated) setCodexAccount(status.account);
-  else clearCodexAccount();
-}).catch(() => clearCodexAccount());
+async function refreshCodexAccount() {
+  try {
+    const status = await request('/v1/auth/status', {cache: 'no-store'});
+    if (status.authenticated) setCodexAccount(status.account);
+    else clearCodexAccount();
+  } catch (_) {
+    // A temporary API/network failure does not mean the OAuth session expired.
+    elements.accountLabel.textContent = 'ChatGPT 接続状態を確認できません';
+    elements.accountIndicator.hidden = false;
+  }
+}
+
+refreshCodexAccount();
+window.addEventListener('pageshow', refreshCodexAccount);
+window.addEventListener('online', refreshCodexAccount);
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) refreshCodexAccount();
+});
 loadConversationList().then(async () => {
   if (state.conversationID) await openConversation(state.conversationID);
 });
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js', {updateViaCache: 'none'})
+    .then((registration) => registration.update())
+    .catch(() => { /* The web app remains usable without a service worker. */ });
+}
