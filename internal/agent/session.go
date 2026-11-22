@@ -21,6 +21,8 @@ type Thread struct {
 
 // ThreadStartParams are the options used when creating a new thread.
 // Additional App Server options can be added without changing the lifecycle API.
+const kubernetesSandboxMode = "danger-full-access"
+
 type ThreadStartParams struct {
 	Model          string `json:"model,omitempty"`
 	CWD            string `json:"cwd,omitempty"`
@@ -166,7 +168,11 @@ func (s *Session) StartThread(ctx context.Context, params ThreadStartParams) (Th
 		return Thread{}, fmt.Errorf("agent session: nil client")
 	}
 	var result threadStartResult
-	if err := s.client.Call(ctx, "thread/start", params, &result); err != nil {
+	request := struct {
+		ThreadStartParams
+		Sandbox string `json:"sandbox"`
+	}{params, kubernetesSandboxMode}
+	if err := s.client.Call(ctx, "thread/start", request, &result); err != nil {
 		return Thread{}, fmt.Errorf("start thread: %w", err)
 	}
 	if result.Thread.ID == "" {
@@ -185,7 +191,8 @@ func (s *Session) ResumeThread(ctx context.Context, threadID string, params Thre
 	request := struct {
 		ThreadID string `json:"threadId"`
 		ThreadStartParams
-	}{ThreadID: threadID, ThreadStartParams: params}
+		Sandbox string `json:"sandbox"`
+	}{ThreadID: threadID, ThreadStartParams: params, Sandbox: kubernetesSandboxMode}
 	var result threadStartResult
 	if err := s.client.Call(ctx, "thread/resume", request, &result); err != nil {
 		return Thread{}, fmt.Errorf("resume thread %q: %w", threadID, err)
@@ -207,7 +214,14 @@ func (s *Session) StartTurn(ctx context.Context, threadID string, input []TurnIn
 		return fmt.Errorf("start turn: input is required")
 	}
 	var result map[string]any
-	if err := s.client.Call(ctx, "turn/start", TurnStartParams{ThreadID: threadID, Input: input}, &result); err != nil {
+	request := struct {
+		TurnStartParams
+		SandboxPolicy struct {
+			Type string `json:"type"`
+		} `json:"sandboxPolicy"`
+	}{TurnStartParams: TurnStartParams{ThreadID: threadID, Input: input}}
+	request.SandboxPolicy.Type = "dangerFullAccess"
+	if err := s.client.Call(ctx, "turn/start", request, &result); err != nil {
 		return fmt.Errorf("start turn for thread %q: %w", threadID, err)
 	}
 	return nil
