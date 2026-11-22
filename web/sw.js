@@ -17,6 +17,7 @@ self.addEventListener('fetch', (event) => {
   const request = event.request;
   const url = new URL(request.url);
   if (request.method !== 'GET' || url.origin !== self.location.origin) return;
+  if (url.pathname.startsWith('/v1/') || url.pathname.startsWith('/internal/')) return;
   // Never serve authenticated or dynamic API requests from the shell cache.
   if (!shellPaths.has(url.pathname) && request.mode !== 'navigate') return;
 
