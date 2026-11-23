@@ -155,6 +155,17 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .message p { margin: 0; white-space: pre-wrap; }
 .message.user { max-width: min(86%, 620px); align-self: flex-end; padding: 11px 16px; border-radius: 12px 12px 4px 12px; background: #f0f1ee; color: #30332e; }
 .message.assistant { align-self: stretch; }
+.run-progress {
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-size: 14px;
+}
+.run-progress summary { cursor: pointer; }
+.run-progress ol { margin: 8px 0 0; padding-inline-start: 22px; }
+.run-progress li + li { margin-top: 4px; }
+.message.assistant .run-progress p + p { margin-top: 4px; }
 .message.assistant p + p { margin-top: 14px; }
 .message-error { align-self: flex-start; margin: -12px 0 0; color: var(--danger); font-size: 14px; line-height: 1.55; }
 
