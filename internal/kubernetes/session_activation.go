@@ -57,33 +57,33 @@ func (a *SessionActivator) Activate(ctx context.Context, activation session.Acti
 	}
 
 	key := types.NamespacedName{Namespace: namespace, Name: name}
-	session := &v1alpha1.CodexSession{}
-	err = a.Client.Get(ctx, key, session)
+	resource := &v1alpha1.CodexSession{}
+	err = a.Client.Get(ctx, key, resource)
 	if apierrors.IsNotFound(err) {
-		session = &v1alpha1.CodexSession{
+		resource = &v1alpha1.CodexSession{
 			TypeMeta:   metav1.TypeMeta{APIVersion: v1alpha1.GroupVersion.String(), Kind: "CodexSession"},
 			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
 			Spec:       a.newSpec(conversationID, activation.Repository),
 		}
-		if err := a.Client.Create(ctx, session); err != nil {
+		if err := a.Client.Create(ctx, resource); err != nil {
 			if !apierrors.IsAlreadyExists(err) {
 				return fmt.Errorf("create CodexSession: %w", err)
 			}
-			if err := a.Client.Get(ctx, key, session); err != nil {
+			if err := a.Client.Get(ctx, key, resource); err != nil {
 				return fmt.Errorf("read concurrently created CodexSession: %w", err)
 			}
 		}
 	} else if err != nil {
 		return fmt.Errorf("get CodexSession: %w", err)
 	}
-	repositoryChanged := activation.Repository != nil && (session.Spec.Repository == nil ||
-		session.Spec.Repository.URL != activation.Repository.URL || session.Spec.Repository.Revision != activation.Repository.Revision)
-	if session.Spec.DesiredState != v1alpha1.DesiredStateActive || repositoryChanged {
-		session.Spec.DesiredState = v1alpha1.DesiredStateActive
+	repositoryChanged := activation.Repository != nil && (resource.Spec.Repository == nil ||
+		resource.Spec.Repository.URL != activation.Repository.URL || resource.Spec.Repository.Revision != activation.Repository.Revision)
+	if resource.Spec.DesiredState != v1alpha1.DesiredStateActive || repositoryChanged {
+		resource.Spec.DesiredState = v1alpha1.DesiredStateActive
 		if activation.Repository != nil {
-			session.Spec.Repository = &v1alpha1.Repository{URL: activation.Repository.URL, Revision: activation.Repository.Revision}
+			resource.Spec.Repository = &v1alpha1.Repository{URL: activation.Repository.URL, Revision: activation.Repository.Revision}
 		}
-		if err := a.Client.Update(ctx, session); err != nil {
+		if err := a.Client.Update(ctx, resource); err != nil {
 			return fmt.Errorf("update CodexSession: %w", err)
 		}
 	}
@@ -105,16 +105,19 @@ func (a *SessionActivator) Activate(ctx context.Context, activation session.Acti
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
-		if err := a.Client.Get(readyCtx, key, session); err != nil {
+		if err := a.Client.Get(readyCtx, key, resource); err != nil {
 			return fmt.Errorf("read CodexSession status: %w", err)
 		}
-		if session.Spec.DesiredState != v1alpha1.DesiredStateActive {
+		if resource.Spec.DesiredState != v1alpha1.DesiredStateActive {
 			return fmt.Errorf("CodexSession %q is not active", name)
 		}
-		if session.Status.Phase == v1alpha1.PhaseFailed {
+		if resource.Status.Phase == v1alpha1.PhaseBusy || resource.Status.Phase == v1alpha1.PhaseWaitingForApproval {
+			return session.ErrSessionHasActiveRun
+		}
+		if resource.Status.Phase == v1alpha1.PhaseFailed {
 			return fmt.Errorf("CodexSession %q failed to start", name)
 		}
-		if session.Status.Phase == v1alpha1.PhaseReady && session.Status.ObservedGeneration >= session.Generation {
+		if resource.Status.Phase == v1alpha1.PhaseReady && resource.Status.ObservedGeneration >= resource.Generation {
 			return nil
 		}
 		select {

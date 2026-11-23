@@ -86,6 +86,7 @@ func main() {
 		}
 		go runnerapi.RunConversationArchiver(ctx, store, cleaner)
 	}
+	go apiHandler.RunQueueWorker(ctx, 0)
 
 	go func() {
 		<-ctx.Done()

@@ -2,11 +2,14 @@ package session
 
 import (
 	"context"
+	"errors"
 	"time"
 )
 
 // DefaultRetentionPeriod is distinct from the short Pod idle timeout.
 const DefaultRetentionPeriod = 7 * 24 * time.Hour
+
+var ErrSessionHasActiveRun = errors.New("session already has an active run")
 
 // Activation identifies the conversation whose runner-agent must be reachable.
 type Activation struct {

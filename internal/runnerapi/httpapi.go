@@ -27,6 +27,7 @@ const maxRequestBodyBytes = 1 << 20
 type Handler struct {
 	repository        conversation.Repository
 	statusStore       MessageStatusStore
+	queueStore        QueuedMessageStore
 	dispatcher        MessageDispatcher
 	approvalResponder ApprovalResponder
 	activator         session.Activator
@@ -60,6 +61,7 @@ type ChatGPTAuthBroker interface {
 
 func NewHandler(dependencies HandlerDependencies) *Handler {
 	statusStore, _ := dependencies.Repository.(MessageStatusStore)
+	queueStore, _ := dependencies.Repository.(QueuedMessageStore)
 	eventProjector, _ := dependencies.Repository.(RunEventProjector)
 	approvalResponder, _ := dependencies.Dispatcher.(ApprovalResponder)
 	activity, _ := dependencies.Activator.(session.ActivityRecorder)
@@ -67,6 +69,7 @@ func NewHandler(dependencies HandlerDependencies) *Handler {
 	return &Handler{
 		repository:        dependencies.Repository,
 		statusStore:       statusStore,
+		queueStore:        queueStore,
 		dispatcher:        dependencies.Dispatcher,
 		approvalResponder: approvalResponder,
 		activator:         dependencies.Activator,
@@ -87,11 +90,16 @@ type ApprovalResponder interface {
 	RespondApproval(context.Context, string, string, any) error
 }
 
-// MessageStatusStore atomically claims queued messages before dispatch and
-// restores them when a dispatch attempt fails.
+// MessageStatusStore atomically claims queued messages and tracks dispatch state.
 type MessageStatusStore interface {
 	ClaimQueuedMessage(context.Context, string) (bool, error)
 	SetMessageStatus(context.Context, string, string) error
+}
+
+// QueuedMessageStore provides durable, per-conversation FIFO dispatch claims.
+type QueuedMessageStore interface {
+	ListQueuedConversationIDs(context.Context) ([]string, error)
+	ClaimNextQueuedMessage(context.Context, string) (conversation.Message, bool, error)
 }
 
 type SessionPhaseRecorder interface {
@@ -486,29 +494,37 @@ func (h *Handler) createMessage(c echo.Context) error {
 					break
 				}
 			}
+			if message.Status == "queued" {
+				return writeJSON(c, http.StatusAccepted, map[string]any{"message": messageResponseFrom(message), "queued": true})
+			}
 		} else {
 			message.Status = "running"
 		}
-	}
-	if dispatchable && h.activator != nil {
-		conversationValue, err := h.repository.GetConversation(c.Request().Context(), conversationID)
-		if err != nil {
-			h.resetQueuedMessage(c, message.ID)
-			return writeRepositoryError(c, err)
-		}
-		var repository *session.Repository
-		if conversationValue.Repository != nil {
-			repository = &session.Repository{URL: conversationValue.Repository.URL, Revision: conversationValue.Repository.Revision}
-		}
-		if err := h.activator.Activate(c.Request().Context(), session.Activation{ConversationID: conversationID, RequestedAt: time.Now().UTC(), Repository: repository}); err != nil {
-			h.resetQueuedMessage(c, message.ID)
-			return writeOperationalError(c, http.StatusServiceUnavailable, "failed to activate session", "session_activate", err)
+		if dispatchable && h.activator != nil {
+			conversationValue, err := h.repository.GetConversation(c.Request().Context(), conversationID)
+			if err != nil {
+				h.resetQueuedMessage(c, message.ID)
+				return writeRepositoryError(c, err)
+			}
+			var repository *session.Repository
+			if conversationValue.Repository != nil {
+				repository = &session.Repository{URL: conversationValue.Repository.URL, Revision: conversationValue.Repository.Revision}
+			}
+			if err := h.activator.Activate(c.Request().Context(), session.Activation{ConversationID: conversationID, RequestedAt: time.Now().UTC(), Repository: repository}); err != nil {
+				if errors.Is(err, session.ErrSessionHasActiveRun) {
+					h.resetQueuedMessage(c, message.ID)
+					message.Status = "queued"
+					return writeJSON(c, http.StatusAccepted, map[string]any{"message": messageResponseFrom(message), "queued": true})
+				}
+				_ = h.statusStore.SetMessageStatus(c.Request().Context(), message.ID, "failed")
+				return writeOperationalError(c, http.StatusServiceUnavailable, "failed to activate session", "session_activate", err)
+			}
 		}
 	}
 	if dispatchable && h.dispatcher != nil {
-		run, err := h.dispatcher.Dispatch(c.Request().Context(), message.ConversationID, message.ID, request.ThreadID, message.Content)
+		run, err := h.dispatchClaimedMessage(c.Request().Context(), message, request.ThreadID)
 		if err != nil {
-			h.resetQueuedMessage(c, message.ID)
+			_ = h.statusStore.SetMessageStatus(c.Request().Context(), message.ID, "failed")
 			if h.phase != nil {
 				_ = h.phase.SetPhase(c.Request().Context(), message.ConversationID, v1alpha1.PhaseFailed)
 			}
@@ -516,9 +532,6 @@ func (h *Handler) createMessage(c echo.Context) error {
 				"conversation_id", message.ConversationID,
 				"message_id", message.ID,
 			)
-		}
-		if h.phase != nil {
-			_ = h.phase.SetPhase(c.Request().Context(), message.ConversationID, v1alpha1.PhaseBusy)
 		}
 		message.Status = "running"
 		return writeJSON(c, http.StatusAccepted, map[string]any{
