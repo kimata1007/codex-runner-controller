@@ -500,25 +500,27 @@ func (h *Handler) createMessage(c echo.Context) error {
 		} else {
 			message.Status = "running"
 		}
-		if dispatchable && h.activator != nil {
-			conversationValue, err := h.repository.GetConversation(c.Request().Context(), conversationID)
-			if err != nil {
+	}
+	if dispatchable && h.activator != nil {
+		conversationValue, err := h.repository.GetConversation(c.Request().Context(), conversationID)
+		if err != nil {
+			h.resetQueuedMessage(c, message.ID)
+			return writeRepositoryError(c, err)
+		}
+		var repository *session.Repository
+		if conversationValue.Repository != nil {
+			repository = &session.Repository{URL: conversationValue.Repository.URL, Revision: conversationValue.Repository.Revision}
+		}
+		if err := h.activator.Activate(c.Request().Context(), session.Activation{ConversationID: conversationID, RequestedAt: time.Now().UTC(), Repository: repository}); err != nil {
+			if errors.Is(err, session.ErrSessionHasActiveRun) && h.dispatcher != nil {
 				h.resetQueuedMessage(c, message.ID)
-				return writeRepositoryError(c, err)
+				message.Status = "queued"
+				return writeJSON(c, http.StatusAccepted, map[string]any{"message": messageResponseFrom(message), "queued": true})
 			}
-			var repository *session.Repository
-			if conversationValue.Repository != nil {
-				repository = &session.Repository{URL: conversationValue.Repository.URL, Revision: conversationValue.Repository.Revision}
-			}
-			if err := h.activator.Activate(c.Request().Context(), session.Activation{ConversationID: conversationID, RequestedAt: time.Now().UTC(), Repository: repository}); err != nil {
-				if errors.Is(err, session.ErrSessionHasActiveRun) {
-					h.resetQueuedMessage(c, message.ID)
-					message.Status = "queued"
-					return writeJSON(c, http.StatusAccepted, map[string]any{"message": messageResponseFrom(message), "queued": true})
-				}
+			if h.statusStore != nil && h.dispatcher != nil {
 				_ = h.statusStore.SetMessageStatus(c.Request().Context(), message.ID, "failed")
-				return writeOperationalError(c, http.StatusServiceUnavailable, "failed to activate session", "session_activate", err)
 			}
+			return writeOperationalError(c, http.StatusServiceUnavailable, "failed to activate session", "session_activate", err)
 		}
 	}
 	if dispatchable && h.dispatcher != nil {
