@@ -17,9 +17,9 @@ func TestPolicy(t *testing.T) {
 	}
 	for _, tc := range []struct {
 		source, destination Identity
-		port uint16
-		at time.Time
-		want bool
+		port                uint16
+		at                  time.Time
+		want                bool
 	}{
 		{a, dest, 443, now, true},
 		{b, dest, 443, now, false},
