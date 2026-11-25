@@ -24,6 +24,15 @@ type SessionPolicySpec struct {
 	Grants    []NetworkGrant  `json:"grants"`
 	Model     *ModelPolicy    `json:"model,omitempty"`
 	Web       *WebPolicy      `json:"web,omitempty"`
+	GitHub    *GitHubPolicy   `json:"github,omitempty"`
+}
+
+type GitHubPolicy struct {
+	Owner        string `json:"owner"`
+	Repository   string `json:"repository"`
+	BaseBranch   string `json:"baseBranch"`
+	Push         bool   `json:"push"`
+	PullRequests bool   `json:"pullRequests"`
 }
 
 type WebPolicy struct {
@@ -80,6 +89,10 @@ func (in *SessionPolicy) DeepCopyObject() runtime.Object {
 	*out = *in
 	in.ObjectMeta.DeepCopyInto(&out.ObjectMeta)
 	out.Spec.Grants = slices.Clone(in.Spec.Grants)
+	if in.Spec.GitHub != nil {
+		github := *in.Spec.GitHub
+		out.Spec.GitHub = &github
+	}
 	if in.Spec.Web != nil {
 		web := *in.Spec.Web
 		web.Registries = slices.Clone(web.Registries)

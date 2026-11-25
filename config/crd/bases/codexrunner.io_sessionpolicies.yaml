@@ -49,6 +49,15 @@ spec:
                 version: {type: integer, format: int64, minimum: 1}
                 expiresAt: {type: string, format: date-time}
                 revoked: {type: boolean}
+                github:
+                  type: object
+                  required: [owner, repository, baseBranch, push, pullRequests]
+                  properties:
+                    owner: {type: string, minLength: 1, maxLength: 39, pattern: '^[A-Za-z0-9][A-Za-z0-9-]*$'}
+                    repository: {type: string, minLength: 1, maxLength: 100, pattern: '^[A-Za-z0-9_.-]+$'}
+                    baseBranch: {type: string, minLength: 1, maxLength: 128, pattern: '^[A-Za-z0-9_-]+(/[A-Za-z0-9_-]+)*$'}
+                    push: {type: boolean}
+                    pullRequests: {type: boolean}
                 web:
                   type: object
                   required: [fetch, search, registries, requestsPerMinute]
