@@ -41,6 +41,7 @@ func run(ctx context.Context) error {
 	tlsDirectory := flag.String("tls-dir", "/var/run/codex/issuer-tls", "mounted HTTPS key pair directory")
 	policyNamespace := flag.String("policy-namespace", "codex-security", "SessionPolicy namespace")
 	sessionNamespace := flag.String("session-namespace", "codex-sessions", "isolated Session Pod namespace")
+	apiNamespace := flag.String("runner-api-namespace", "codex-system", "trusted Runner API namespace")
 	runtimeClass := flag.String("runtime-class", "codex-gvisor", "required Session Pod runtime class")
 	nodeNamespace := flag.String("node-proxy-namespace", "codex-security", "Node Proxy DaemonSet namespace")
 	nodeServiceAccount := flag.String("node-proxy-service-account", "codex-node-proxy", "Node Proxy ServiceAccount name")
@@ -52,7 +53,8 @@ func run(ctx context.Context) error {
 	}
 	if *policyNamespace == "" || *sessionNamespace == "" || *policyNamespace == *sessionNamespace ||
 		*runtimeClass == "" || *nodeNamespace == "" || *nodeNamespace == *sessionNamespace ||
-		*nodeServiceAccount == "" || *nodeDaemonSet == "" || *ttl < time.Second || *ttl > 10*time.Minute {
+		*nodeServiceAccount == "" || *nodeDaemonSet == "" || *apiNamespace == "" || *apiNamespace == *sessionNamespace ||
+		*ttl < time.Second || *ttl > 10*time.Minute {
 		return errors.New("invalid identity issuer configuration")
 	}
 	config, err := rest.InClusterConfig()
@@ -84,9 +86,10 @@ func run(ctx context.Context) error {
 		Reader: reader, Domain: *domain, PolicyNamespace: *policyNamespace,
 		SessionNamespace: *sessionNamespace, RuntimeClass: *runtimeClass,
 	}
+	trusted := zerotrust.TrustedWorkloads{Reader: reader, Domain: *domain, APINamespace: *apiNamespace, SecurityNamespace: *policyNamespace}
 	server := &http.Server{
 		Addr:              *address,
-		Handler:           zerotrust.NewIssuerHandler(ca, nodes, policies),
+		Handler:           zerotrust.NewIssuerHandler(ca, nodes, policies, trusted),
 		ReadHeaderTimeout: 3 * time.Second,
 		ReadTimeout:       8 * time.Second,
 		WriteTimeout:      12 * time.Second,

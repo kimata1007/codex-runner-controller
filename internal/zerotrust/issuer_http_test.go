@@ -113,7 +113,8 @@ func newTestIssuer(t *testing.T) (*httptest.Server, client.Client, *x509.Certifi
 	ca, key := makeTestCA(t, now)
 	files := CAFiles{Directory: t.TempDir(), Domain: testDomain}
 	writeCAFiles(t, files.Directory, ca, key, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: ca.Raw}))
-	server := httptest.NewUnstartedServer(NewIssuerHandler(files, nodes, testPolicyStore(kube)))
+	server := httptest.NewUnstartedServer(NewIssuerHandler(files, nodes, testPolicyStore(kube),
+		TrustedWorkloads{Reader: kube, Domain: testDomain, APINamespace: "codex-system", SecurityNamespace: testPolicyNamespace}))
 	server.TLS = &tls.Config{MinVersion: tls.VersionTLS13, MaxVersion: tls.VersionTLS13}
 	server.StartTLS()
 	t.Cleanup(server.Close)

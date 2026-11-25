@@ -6,3 +6,4 @@ resources:
   - agent-serviceaccount.yaml
   - role.yaml
   - rolebinding.yaml
+  - identity-issuer-reader.yaml
