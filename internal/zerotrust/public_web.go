@@ -24,6 +24,8 @@ var forbiddenNetworks = []netip.Prefix{
 	netip.MustParsePrefix("100.64.0.0/10"),
 	netip.MustParsePrefix("192.0.0.0/24"),
 	netip.MustParsePrefix("192.0.2.0/24"),
+	netip.MustParsePrefix("192.88.99.0/24"),
+	netip.MustParsePrefix("168.63.129.16/32"),
 	netip.MustParsePrefix("198.18.0.0/15"),
 	netip.MustParsePrefix("198.51.100.0/24"),
 	netip.MustParsePrefix("203.0.113.0/24"),
@@ -33,6 +35,7 @@ var forbiddenNetworks = []netip.Prefix{
 	netip.MustParsePrefix("64:ff9b:1::/48"),
 	netip.MustParsePrefix("2001::/23"),
 	netip.MustParsePrefix("2001:db8::/32"),
+	netip.MustParsePrefix("3fff::/20"),
 	netip.MustParsePrefix("2002::/16"),
 }
 
@@ -70,11 +73,11 @@ func NewPublicWeb() *PublicWeb {
 	dialer := &net.Dialer{Timeout: 5 * time.Second}
 	transport := &http.Transport{
 		// Never honor ambient HTTP_PROXY variables.
-		Proxy:                 nil,
-		DisableKeepAlives:     true,
-		DisableCompression:    true,
-		TLSHandshakeTimeout:   5 * time.Second,
-		ResponseHeaderTimeout: 10 * time.Second,
+		Proxy:                  nil,
+		DisableKeepAlives:      true,
+		DisableCompression:     true,
+		TLSHandshakeTimeout:    5 * time.Second,
+		ResponseHeaderTimeout:  10 * time.Second,
 		MaxResponseHeaderBytes: 64 << 10,
 		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 			host, port, err := net.SplitHostPort(addr)
@@ -119,32 +122,49 @@ type WebResult struct {
 }
 
 func (w *PublicWeb) Fetch(ctx context.Context, rawURL string) (WebResult, error) {
-	var result WebResult
+	status, media, body, err := w.FetchBounded(ctx, rawURL, 2<<20, nil)
+	return WebResult{Status: status, ContentType: media, Body: string(body)}, err
+}
+
+// FetchBounded additionally restricts every redirect when allowHost is set.
+func (w *PublicWeb) FetchBounded(ctx context.Context, rawURL string, maximum int64, allowHost func(string) bool) (int, string, []byte, error) {
+	if maximum < 1 || maximum > 32<<20 {
+		return 0, "", nil, errors.New("invalid download limit")
+	}
 	if len(rawURL) > 8192 {
-		return result, errors.New("URL too long")
+		return 0, "", nil, errors.New("URL too long")
 	}
 	u, err := url.Parse(rawURL)
-	if err != nil || validateWebURL(u) != nil {
-		return result, errors.New("invalid public web URL")
+	if err != nil || validateWebURL(u) != nil || (allowHost != nil && !allowHost(u.Hostname())) {
+		return 0, "", nil, errors.New("invalid public web URL")
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
-		return result, err
+		return 0, "", nil, err
 	}
 	req.Header.Set("User-Agent", "codex-runner-web-proxy/1")
 	req.Header.Set("Accept-Encoding", "identity")
-	resp, err := w.client.Do(req)
+	httpClient := *w.client
+	if allowHost != nil {
+		check := httpClient.CheckRedirect
+		httpClient.CheckRedirect = func(r *http.Request, previous []*http.Request) error {
+			if !allowHost(r.URL.Hostname()) {
+				return errors.New("download redirect is outside the approved registry")
+			}
+			return check(r, previous)
+		}
+	}
+	resp, err := httpClient.Do(req)
 	if err != nil {
-		return result, errors.New("web fetch failed")
+		return 0, "", nil, errors.New("web fetch failed")
 	}
 	defer resp.Body.Close()
 	if enc := resp.Header.Get("Content-Encoding"); enc != "" && enc != "identity" {
-		return result, errors.New("compressed responses not supported")
+		return 0, "", nil, errors.New("compressed responses not supported")
 	}
-	const maxBody = 2 << 20
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBody+1))
-	if err != nil || len(body) > maxBody {
-		return result, errors.New("web response too large or unreadable")
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maximum+1))
+	if err != nil || int64(len(body)) > maximum {
+		return 0, "", nil, errors.New("web response too large or unreadable")
 	}
-	return WebResult{Status: resp.StatusCode, ContentType: resp.Header.Get("Content-Type"), Body: string(body)}, nil
+	return resp.StatusCode, resp.Header.Get("Content-Type"), body, nil
 }
