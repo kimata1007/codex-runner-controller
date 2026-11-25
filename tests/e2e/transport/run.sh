@@ -10,10 +10,11 @@ cd "$(dirname "$0")/../../.."
 
 kubectl create namespace codex-system --dry-run=client -o yaml | kubectl apply -f -
 kubectl -n codex-system apply -f config/rbac/identity-issuer-reader.yaml
-kubectl -n codex-security delete daemonset codex-node-proxy --wait=true --timeout=90s
+kubectl -n codex-security delete daemonset codex-node-proxy --ignore-not-found --wait=true --timeout=90s
 kubectl -n codex-security get secret codex-identity-issuer-tls -o json |
   jq -r '.data["tls.crt"] | @base64d' |
-  kubectl -n codex-security create configmap codex-identity-issuer-trust --from-file=ca.crt=/dev/stdin
+  kubectl -n codex-security create configmap codex-identity-issuer-trust --from-file=ca.crt=/dev/stdin --dry-run=client -o yaml |
+  kubectl apply -f -
 kubectl kustomize config/node-proxy |
   sed 's|image: ghcr.io/kimata1007/codex-node-proxy:[^ ]*|image: local/codex-node-proxy:e2e|' |
   kubectl apply -f -

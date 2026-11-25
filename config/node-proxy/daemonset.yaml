@@ -31,7 +31,7 @@ spec:
             readOnlyRootFilesystem: true
             capabilities:
               drop: [ALL]
-            add: [CHOWN, DAC_OVERRIDE, FOWNER, FSETID]
+              add: [CHOWN, DAC_OVERRIDE, FOWNER, FSETID]
           volumeMounts:
             - {name: cni-config, mountPath: /host-cni-config}
             - {name: cni-bin, mountPath: /host-cni-bin}
