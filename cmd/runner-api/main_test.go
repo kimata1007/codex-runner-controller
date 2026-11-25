@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -41,6 +40,7 @@ func (r *handlerTestRepository) ListEvents(_ context.Context, runID string, afte
 }
 
 func TestRepositoryFromEnvironmentDefaultsToMemory(t *testing.T) {
+	t.Setenv("DATABASE_URL", "")
 	t.Setenv("LIBSQL_URL", "")
 
 	repository, err := repositoryFromEnvironment(context.Background())
@@ -52,54 +52,20 @@ func TestRepositoryFromEnvironmentDefaultsToMemory(t *testing.T) {
 	}
 }
 
-func TestRepositoryFromEnvironmentMigratesLibSQL(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v3/pipeline" || r.Method != http.MethodPost {
-			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
-			http.Error(w, "unexpected request", http.StatusBadRequest)
-			return
-		}
-		if r.Header.Get("Authorization") != "Bearer test-token" {
-			t.Error("missing libSQL authorization")
-		}
-		var request struct {
-			Requests []struct {
-				Type string `json:"type"`
-				SQL  string `json:"sql"`
-			} `json:"requests"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-			t.Errorf("decode request: %v", err)
-		}
-		if len(request.Requests) != 2 || request.Requests[0].Type != "sequence" || request.Requests[0].SQL == "" || request.Requests[1].Type != "close" {
-			t.Errorf("unexpected schema request: %+v", request.Requests)
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"results":[{"type":"ok","response":{"type":"sequence"}},{"type":"ok"}]}`))
-	}))
-	defer server.Close()
-
-	t.Setenv("LIBSQL_URL", server.URL)
-	t.Setenv("LIBSQL_AUTH_TOKEN", "test-token")
-	repository, err := repositoryFromEnvironment(context.Background())
-	if err != nil {
-		t.Fatalf("repositoryFromEnvironment: %v", err)
-	}
-	if repository == nil {
-		t.Fatal("repository is nil")
+func TestRepositoryFromEnvironmentRejectsLegacyConfig(t *testing.T) {
+	t.Setenv("DATABASE_URL", "")
+	t.Setenv("LIBSQL_URL", "http://legacy")
+	if repo, err := repositoryFromEnvironment(context.Background()); err == nil || repo != nil {
+		t.Fatalf("expected legacy configuration error, got %v %v", repo, err)
 	}
 }
 
-func TestRepositoryFromEnvironmentReturnsMigrationError(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		http.Error(w, "unavailable", http.StatusServiceUnavailable)
-	}))
-	defer server.Close()
-
-	t.Setenv("LIBSQL_URL", server.URL)
-	repository, err := repositoryFromEnvironment(context.Background())
-	if err == nil || repository != nil {
-		t.Fatalf("expected migration error, got repository=%v err=%v", repository, err)
+func TestRepositoryFromEnvironmentReturnsConnectionError(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost:1/test?sslmode=disable")
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if repo, err := repositoryFromEnvironment(ctx); err == nil || repo != nil {
+		t.Fatalf("expected connection error, got %v %v", repo, err)
 	}
 }
 
