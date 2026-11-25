@@ -22,6 +22,21 @@ type SessionPolicySpec struct {
 	ExpiresAt metav1.Time     `json:"expiresAt"`
 	Revoked   bool            `json:"revoked"`
 	Grants    []NetworkGrant  `json:"grants"`
+	Model     *ModelPolicy    `json:"model,omitempty"`
+}
+
+type ModelPolicy struct {
+	BudgetMicros      int64        `json:"budgetMicros"`
+	RequestsPerMinute int64        `json:"requestsPerMinute"`
+	Models            []ModelGrant `json:"models"`
+}
+
+type ModelGrant struct {
+	Name                   string `json:"name"`
+	MaxInputBytes          int64  `json:"maxInputBytes"`
+	MaxOutputTokens        int64  `json:"maxOutputTokens"`
+	InputMicrosPerMillion  int64  `json:"inputMicrosPerMillion"`
+	OutputMicrosPerMillion int64  `json:"outputMicrosPerMillion"`
 }
 
 // SessionWorkload contains immutable references to the enrolled resources.
@@ -57,6 +72,11 @@ func (in *SessionPolicy) DeepCopyObject() runtime.Object {
 	*out = *in
 	in.ObjectMeta.DeepCopyInto(&out.ObjectMeta)
 	out.Spec.Grants = slices.Clone(in.Spec.Grants)
+	if in.Spec.Model != nil {
+		model := *in.Spec.Model
+		model.Models = slices.Clone(model.Models)
+		out.Spec.Model = &model
+	}
 	return out
 }
 

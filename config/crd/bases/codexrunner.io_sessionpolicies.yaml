@@ -49,6 +49,27 @@ spec:
                 version: {type: integer, format: int64, minimum: 1}
                 expiresAt: {type: string, format: date-time}
                 revoked: {type: boolean}
+                model:
+                  type: object
+                  required: [budgetMicros, requestsPerMinute, models]
+                  properties:
+                    budgetMicros: {type: integer, format: int64, minimum: 1, maximum: 1000000000000}
+                    requestsPerMinute: {type: integer, format: int64, minimum: 1, maximum: 1200}
+                    models:
+                      type: array
+                      x-kubernetes-list-type: map
+                      x-kubernetes-list-map-keys: [name]
+                      minItems: 1
+                      maxItems: 8
+                      items:
+                        type: object
+                        required: [name, maxInputBytes, maxOutputTokens, inputMicrosPerMillion, outputMicrosPerMillion]
+                        properties:
+                          name: {type: string, minLength: 1, maxLength: 128, pattern: '^[a-zA-Z0-9][a-zA-Z0-9._-]*$'}
+                          maxInputBytes: {type: integer, format: int64, minimum: 1, maximum: 1048576}
+                          maxOutputTokens: {type: integer, format: int64, minimum: 1, maximum: 131072}
+                          inputMicrosPerMillion: {type: integer, format: int64, minimum: 1, maximum: 1000000000}
+                          outputMicrosPerMillion: {type: integer, format: int64, minimum: 1, maximum: 1000000000}
                 grants:
                   type: array
                   maxItems: 16
