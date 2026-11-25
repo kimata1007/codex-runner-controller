@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.0.19](https://github.com/kimata1007/codex-runner-controller/compare/v0.0.18...v0.0.19) - 2026-11-25
+
+- Mermaid の図を SVG 画像に変換するときに配色を保持する by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/142
+
 ## [v0.0.18](https://github.com/kimata1007/codex-runner-controller/compare/v0.0.17...v0.0.18) - 2026-11-25
 
 - Queue messages while a session is busy by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/132
