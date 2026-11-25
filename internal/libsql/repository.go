@@ -252,7 +252,9 @@ func (r *Repository) ClaimQueuedMessage(ctx context.Context, id string) (bool, e
 		return false, err
 	}
 	result, err := r.client.Exec(ctx, `UPDATE messages SET status = 'running'
-		WHERE id = ? AND status = 'queued'
+		WHERE id = ? AND status = 'queued' AND role = 'user'
+		AND NOT EXISTS (SELECT 1 FROM messages earlier WHERE earlier.conversation_id = messages.conversation_id
+			AND earlier.role = 'user' AND earlier.status = 'queued' AND earlier.sequence < messages.sequence)
 		AND NOT EXISTS (SELECT 1 FROM messages active WHERE active.conversation_id = messages.conversation_id
 			AND active.role = 'user' AND active.status = 'running')`, []Value{Text(id)}, false)
 	if err != nil {
