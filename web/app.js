@@ -1,3 +1,4 @@
+import {OutputRenderer} from './output-renderer.js';
 const state = {
   conversationID: new URL(location.href).searchParams.get('conversation') || localStorage.getItem('codex.currentConversation') || '',
   repository: readStoredRepository(),
@@ -403,13 +404,14 @@ function renderHistory(conversations) {
 function addMessage(role, content) {
   const item = document.createElement('li');
   item.className = `message ${role === 'user' ? 'user' : 'assistant'}`;
-  const paragraph = document.createElement('p');
-  paragraph.textContent = content;
+  const paragraph = document.createElement(role === 'user' ? 'p' : 'div');
+  const renderer = role === 'user' ? null : new OutputRenderer(paragraph);
+  if (renderer) renderer.render(content); else paragraph.textContent = content;
   item.append(paragraph);
   elements.messages.append(item);
   elements.emptyState.hidden = true;
   scrollTranscriptToEnd();
-  return {item, paragraph};
+  return {item, paragraph, renderer, source: content};
 }
 
 function addApproval(runID, payload) {
@@ -646,7 +648,8 @@ async function streamEvents(runID, assistantMessage, options = {}) {
           }
           const text = payload.text || payload.delta || payload.content || '';
           if (text) {
-            assistantMessage.paragraph.textContent += text;
+            assistantMessage.source += text;
+            assistantMessage.renderer.render(assistantMessage.source);
             scrollTranscriptToEnd();
           }
         } catch (_) {
