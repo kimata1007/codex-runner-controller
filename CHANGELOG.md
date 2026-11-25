@@ -1,5 +1,11 @@
 # Changelog
 
+## [v0.0.18](https://github.com/kimata1007/codex-runner-controller/compare/v0.0.17...v0.0.18) - 2026-11-25
+
+- Queue messages while a session is busy by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/132
+- Add extensible AI output rendering to the PWA by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/135
+- PWAに作業の途中経過を表示する by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/131
+
 ## [v0.0.17](https://github.com/kimata1007/codex-runner-controller/compare/v0.0.16...v0.0.17) - 2026-11-22
 
 - feat: restore active Codex run streams after PWA reload by @kimata1007 in https://github.com/kimata1007/codex-runner-controller/pull/89
