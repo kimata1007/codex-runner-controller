@@ -1,0 +1,9 @@
+FROM golang:1.24 AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+COPY internal/zerotrust ./internal/zerotrust
+COPY cmd/node-proxy ./cmd/node-proxy
+RUN CGO_ENABLED=0 go build -trimpath -o /node-proxy ./cmd/node-proxy
+FROM gcr.io/distroless/static-debian12:nonroot
+COPY --from=build /node-proxy /node-proxy
+ENTRYPOINT ["/node-proxy"]
