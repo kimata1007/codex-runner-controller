@@ -1,383 +1,190 @@
 # Codex Runner Controller 全体設計書
-- ステータス: Draft
-- 作成日: 2026-10-31
-- 対象リポジトリ: codex-runner-controller
-- 目的: Kubernetes上で、会話単位のCodex実行環境を安全に起動・停止・再開する
-## 1. 概要
-本システムは、モバイルまたはWeb UIから受け取った会話を、Kubernetes上のセッションPodでCodex App Serverに処理させるための基盤である。
-会話が始まるとAPIが会話とメッセージをlibSQLへ保存し、CodexSessionカスタムリソースを作成または更新する。Codex Runner Controllerはそのカスタムリソースを監視し、必要なセッションPodとPVCを作成する。Pod内のrunner-agentはCodex App Serverを子プロセスとして起動し、保存済みのスレッドを再開してターンを実行する。
-会話が一定時間アイドルになった場合、ControllerはPodだけを削除する。CodexSession、libSQLの会話記録、必要なPVCは保持する。次のメッセージが来たときは同じCodexSessionを再アクティブ化し、Podを再作成してthread/resumeを実行する。
-この設計における「ステートレス」はPodを使い捨てにするという意味であり、会話を再開するための状態まで捨てるという意味ではない。
-## 2. 設計方針
-### 2.1 JobではなくセッションPodを使う
-Kubernetes Jobは、1回の処理が完了したら終了するバッチ処理に適している。一方、今回のCodex実行は、ユーザーの追加入力、ストリーミング、承認要求、実装作業を同じスレッドで継続する必要がある。
-したがって、会話ごとにControllerが管理する通常のPodを使用する。
-- 1つのConversationに対して最大1つのアクティブなCodexSession
-- 1つのCodexSessionに対して最大1つのrunner Pod
-- 1つのSessionでは同時に1つのturnだけを実行
-- Pod障害時はControllerが再作成する
-- アイドル時はPodを削除するが、会話とセッション状態は保持する
-### 2.2 Codex App Serverを使用する
-Codex App Serverは、アプリケーションからCodexを組み込むためのプロトコルである。initialize、thread/start、thread/resume、turn/start、ストリーミングイベント、承認要求を扱えるため、モバイルUIの会話と実装作業を同じスレッドに接続できる。
-Codex App Serverはrunner-agentと標準入出力で接続する。APIサーバーが直接Codexプロセスを操作するのではなく、runner-agentがPod内でApp Serverを起動して管理する。
-codex execは単発のスクリプトやCIジョブには適しているが、今回のような継続会話、ストリーミング、割り込み、ユーザー承認を必要とする用途にはApp Serverを採用する。
-### 2.3 CRDはインフラの望ましい状態を表す
-メッセージ本文やストリーミングイベントをKubernetesのetcdやCRDに保存しない。CRDにはセッションの識別子、リポジトリ、ライフサイクル、認証情報への参照など、ControllerがPodを管理するために必要な情報だけを保存する。
-会話、メッセージ、ターン、イベント、承認要求はlibSQLに保存する。
-## 3. コンポーネント
-### 3.1 Mobile/Web Client
-会話画面を提供する。初期リリースではテキスト入力に限定し、音声入力は後続機能とする。
-責務:
-- 会話の作成
-- メッセージの送信
-- 会話履歴の表示
-- ストリーミング応答の表示
-- 承認要求の表示と回答
-- 会話中の相談と実装作業の継続
-Codex公式モバイルアプリを任意のKubernetesバックエンドへ接続する設計にはしない。本システム用の薄いWebまたはモバイルクライアントを用意する。
-### 3.2 API Server
-外部クライアントからの唯一の入口である。公開するのはAPI Serverだけで、runner PodやlibSQLを直接インターネットへ公開しない。
-責務:
-- ユーザー認証と認可
-- Conversation、Message、Runの永続化
-- CodexSession CRの作成・更新
-- runner-agentとの内部通信
-- App Serverイベントのクライアントへの配信
-- 承認要求の受付
-- 冪等性とメッセージ順序の管理
-API ServerはPodを直接作成しない。Pod作成はCodex Runner Controllerに委譲する。
-### 3.3 Codex Runner Controller
-Goとcontroller-runtimeで実装するKubernetes Controllerである。CodexSessionを監視し、セッションPod、PVC、必要なServiceを望ましい状態へ収束させる。
-責務:
-- CodexSessionのwatchとreconcile
-- session Podの作成、readiness確認、削除
-- セッションPVCの作成と保持ポリシーの適用
-- ownerReferenceによるリソース管理
-- idle timeoutの判定
-- Pod障害時の再作成とバックオフ
-- CodexSession.statusの更新
-- Podへの安全な設定・Secret・ServiceAccountの注入
-Controllerはユーザーのメッセージ本文を解釈しない。リポジトリや実行権限などの実行条件はAPIとユーザー操作で確定し、ControllerはCRに記載された望ましい状態を実現する。
-### 3.4 runner-agent
-runner Pod内で起動する小さなプロセスである。Controllerではなく、Pod内の実行責務を担当する。
-責務:
-- Codex App Serverを子プロセスとして起動
-- stdin/stdoutのJSON-RPCを処理
-- initializeとinitializedを実行
-- 新規セッションではthread/startを実行
-- 既存セッションでは保存済みthread IDでthread/resumeを実行
-- turn/startを実行
-- agentMessage/deltaなどのイベントをAPI Serverへ転送
-- turn/completed、failed、interruptedを記録
-- approval requestをAPI Serverへ転送
-- heartbeatと最終活動時刻を通知
-- App Server終了時の再起動またはPod終了
-App Serverとrunner-agentは同じコンテナ内で起動する子プロセス構成を基本とする。App Serverを独立したサイドカーにするとstdin/stdoutの接続とプロセスライフサイクルの管理が複雑になるため、初期実装では採用しない。
-### 3.5 Codex App Server
-runner-agentがPod内で起動する実プロセスである。アプリケーションからは直接公開しない。
-代表的なライフサイクル:
-1. runner-agentがcodex app-server --listen stdio://を起動
-2. initializeを送信
-3. initializedを送信
-4. 新規ならthread/start、既存ならthread/resume
-5. ユーザー入力ごとにturn/start
-6. ストリーミングイベントをrunner-agentがAPI Serverへ転送
-7. turn/completedまたは承認要求を待つ
-### 3.6 libSQL
-アプリケーションのシステム・オブ・レコードとして使用する。初期構成では現在のKubernetesクラスタ内にsqldをStatefulSetとして配置し、PVCでデータを保持する。
-HTTPで接続できることはクライアントPodをステートレスにできる利点であるが、libSQLサーバー自体はステートフルである。したがって、以下を必須とする。
-- StatefulSet
-- PVC
-- ClusterIP Service
-- 認証用Secret
-- バックアップと復元手順
-- データベース障害時のアラート
-現在のクラスタがlocal-pathのノードローカルストレージを使う場合、ノード障害だけではデータを守れない。定期バックアップを別の保存先へ送る設計を別途用意する。
-## 4. Kubernetesリソース
-### 4.1 CodexSession CRD
-主リソースはCodexSessionとする。CodexRunは1ターンの実行記録としてlibSQL上の概念に留め、初期リリースではCRDとして作らない。
-例:
-    apiVersion: codexrunner.io/v1alpha1
-    kind: CodexSession
-    metadata:
-      name: conversation-001
-      namespace: codex-system
-    spec:
-      conversationId: conversation-001
-      desiredState: Active
-      idleTimeoutSeconds: 1800
-      sessionData:
-        storageClassName: local-path
-        size: 10Gi
-        retain: false
-      execution:
-        model: default
-        approvalPolicy: never
-      repository:
-        url: https://github.com/kimata1007/example.git
-        revision: main
-    status:
-      phase: Ready
-      threadId: thread_123
-      podName: codex-session-abc
-      workspaceClaim: codex-session-abc
-      lastActivityAt: "2026-10-31T00:00:00Z"
-      observedGeneration: 1
-      conditions: []
-実際のCRDでは、repositoryは実装対象がある場合に指定する。会話開始時点でリポジトリなしでも作成できる。
-### 4.2 spec
-- conversationId: libSQL上のConversation ID
-- desiredState: ActiveまたはSuspended
-- idleTimeoutSeconds: Podを停止するまでのアイドル時間
-- sessionData: Codex履歴とワークスペースを保持するPVCの設定
-- execution.model: 使用モデルの論理名
-- execution.approvalPolicy: 承認を要求するポリシー
-- repository.url: 実装対象リポジトリ
-- repository.revision: ブランチ、タグ、またはコミット
-- credentialsRef: GitHubやモデル認証のSecret参照
-トークン、ユーザーメッセージ、会話本文、OAuth access tokenはCRDに保存しない。
-### 4.3 status.phase
-初期の状態は次のとおりとする。
-- Suspended: Podが存在しない休止状態
-- Starting: PodまたはPVCを作成中
-- Ready: runner-agentが接続可能
-- Busy: turnを実行中
-- WaitingForApproval: ユーザー承認待ち
-- Failed: 再試行可能なエラー
-- Terminating: Pod削除処理中
-### 4.4 Pod
-PodはControllerが直接作成する。DeploymentやJobは使わない。
-Podの構成:
-- runner-agentコンテナ
-- runner-agentが子プロセスとして起動するCodex App Server
-- session-data PVC
-- 必要に応じてGitHub認証Secret
--専用ServiceAccount
-- readinessProbeとlivenessProbe
-- rootless実行、capability drop、seccomp、read-only root filesystem
-- workspaceだけ書き込み可能
-runner PodはClusterIP ServiceまたはAPI Serverからのみ到達可能にし、外部公開しない。
-### 4.5 PVC
-Pod削除後も会話を再開するため、セッションごとにPVCを保持する。
-PVCには少なくとも次を保存する。
-- Codexのローカルスレッド履歴
-- CODEX_HOME
-- 実装用のGitワークツリー
-- 途中生成物
-- 必要なセッション固有のキャッシュ
-PVCを削除すると、libSQL上の会話履歴は残っていても、App Serverのthread/resumeだけでは同じ実行状態を完全に復元できない場合がある。PVCの保持は、会話再開と実装途中状態の保持に必要である。
-## 5. データモデル
-### 5.1 conversations
-- id
-- user_id
-- title
-- status
-- codex_session_name
-- created_at
-- updated_at
-### 5.2 messages
-- id
-- conversation_id
-- role: user、assistant、system
-- content
-- sequence
-- status
-- client_message_id
-- created_at
-conversation_idとsequenceに一意制約を置き、クライアント再送時はclient_message_idで冪等に処理する。
-### 5.3 runs
-- id
-- conversation_id
-- message_id
-- thread_id
-- status: queued、running、waiting_approval、completed、failed、interrupted
-- started_at
-- completed_at
-- error_code
-- error_message
-### 5.4 events
-- id
-- run_id
-- sequence
-- event_type
-- payload
-- created_at
-すべてのdeltaを長期保存するとデータ量が増えるため、初期リリースではUIに必要なイベントと最終メッセージを保存する。監査用途が必要になった場合は保持期間を設定したイベント保存を追加する。
-### 5.5 approvals
-- id
-- run_id
-- request_id
-- action_type
-- summary
-- status: pending、approved、rejected、expired
-- response
-- created_at
-- resolved_at
-## 6. リクエストから実行までの流れ
-### 6.1 新しい会話
-1. クライアントがPOST /v1/conversationsを呼ぶ。
-2. API ServerがConversationをlibSQLに作成する。
-3. API ServerがCodexSessionを作成する。初期状態はdesiredState=Suspendedでもよい。
-4. クライアントが最初のメッセージを送る。
-5. API ServerがメッセージをlibSQLに保存する。
-6. API ServerがCodexSessionのdesiredStateをActiveへ更新する。
-7. ControllerがPVCとPodを作成する。
-8. runner-agentが起動し、App Serverを起動する。
-9. runner-agentがthread/startを実行し、thread IDをAPI Serverへ通知する。
-10. runner-agentがキューからメッセージを取得し、turn/startを実行する。
-11. イベントをAPI Serverへ転送し、API ServerはlibSQLへ状態を保存しつつクライアントへSSEで配信する。
-12. turn/completedを受け取ったらRunとassistant messageを完了させる。
-### 6.2 既存会話の再開
-1. 休止中のConversationへクライアントがメッセージを送る。
-2. API ServerがメッセージをlibSQLへ保存する。
-3. API ServerがCodexSessionをActiveへ更新する。
-4. ControllerがPodを再作成する。PVCは既存のものを再アタッチする。
-5. runner-agentがApp Serverを起動する。
-6. 保存済みthread IDを使用してthread/resumeを実行する。
-7. 保存済みメッセージを二重に送らず、新しいユーザーメッセージだけをturn/startする。
-8. 実行中のRunとイベントを再接続する。
-thread IDはlibSQLとCodexSession.statusの両方に保持してもよいが、システム・オブ・レコードはlibSQLとする。statusはControllerや運用者が観測するための参照情報とする。
-### 6.3 会話中に実装を開始する場合
-会話開始時に相談用と実装用を固定しない。自然言語だけで書き込み権限を自動的に拡張せず、実装操作が必要になった時点で対象リポジトリ、ブランチ、GitHub権限、承認ポリシーを確定する。
-既存の会話で実装を開始する場合も、thread IDとPVCを維持したまま、必要なワークスペースを用意する。
-実装を開始する前に次を確認する。
-- リポジトリとrevisionが明示されている
-- GitHub Secretが参照可能である
-- ワークスペースPVCがマウントされている
-- 書き込み操作の承認ポリシーが設定されている
-- Pod削除時も未コミット変更をPVCに保持する
-## 7. アイドルとPod削除
-Controllerは、次の条件をすべて満たした場合にPodを削除する。
-- desiredStateがActiveでない、またはidle timeoutを超えている
-- turnがrunningではない
-- approvalがpendingではない
-- runner-agentのheartbeatが停止中で、削除対象が明確である
-削除時に保持するもの:
-- CodexSession CR
-- Conversation、Message、Run、Approval
-- session-data PVC
-- thread ID
-- session Pod用のClusterIP Service
-削除するもの:
-- runner Pod
-新しいメッセージが来た場合は、API ServerがdesiredStateをActiveへ戻し、Controllerが再作成する。
-初期値のidleTimeoutSecondsは1800秒とする。実装中や承認待ちの場合はアイドル扱いにしない。
-## 8. APIとrunner-agentの通信
-初期実装では、API Serverを実行キューとイベントの窓口とする。
-公開API:
+
+本書は目標アーキテクチャの規範である。実装の進捗や履歴は記載しない。アーキテクチャ図は [diagrams.md](diagrams.md) を参照する。
+
+## 1. 目的と設計原則
+
+Kubernetes上で会話単位のCodex実行環境を起動・停止・再開し、ユーザーの指示に基づく相談、Web調査、コード編集、ビルド、テスト、Git push、Pull Request作成を自律的に実行する。
+
+**Zero Trust, Maximum Autonomy — AIを信頼せず、AIが自由に動作できる境界を構築する。**
+
+- Session Pod全体を非信頼領域とする。runner-agent、Codex App Server、シェル、取得したソース、依存パッケージ、PVCの内容、AIが返すイベントも信頼しない。
+- AIに固定Token、OAuth資格情報、API Key、証明書秘密鍵、Kubernetes API Tokenを渡さない。環境変数、引数、ファイル、ボリューム、履歴、ログのいずれにも配置しない。公開設定値やセッション識別子は秘密として扱わない。
+- Workload Identity、mTLS、Authorization、NetworkPolicyを独立した防御層とする。ネットワークの位置や暗黙の信頼で認証を省略しない。
+- Node ProxyをGoで自作する。暗号、TLS、OSの隔離機構は標準技術を使用し、汎用Service Mesh全体を再実装しない。
+- Runner APIからSession Podへ実行制御接続を開始する。結果・承認要求・イベントはその接続上で返す。
+- Default Deny、Fail Closedを徹底する。AIがProxyを迂回したり、別Sessionになりすましたりできないことを必須とする。
+- 許可された操作範囲ではコマンド単位の承認を求めない。権限拡張と特に重大な外部操作を別途認可する。
+
+信頼する基盤はKubernetes API、Controller、Runner API、ノードOS、CNI、Node Proxy、Identity Issuer、Policy Store、外部サービスProxyである。各基盤間も明示的な認証・認可を要求する。ノードやCAの侵害はセッション隔離の保証範囲外とし、専用ノードプールと権限の分離により影響を限定する。AIに許可されたデータを許可された外部サービスへ送信するリスクは残る。
+
+## 2. コンポーネント
+
+| コンポーネント | 責務 |
+| --- | --- |
+| Mobile/Web Client | 会話作成、入力、履歴、SSE、承認、権限設定 |
+| Runner API | ユーザー認証・会話認可、Message/Runの永続化、FIFOキュー、セッション制御、イベント検証・SSE、権限の確定 |
+| Codex Runner Controller | CodexSessionのreconcile、Pod/PVC/Service/ServiceAccount/通信ポリシーの管理、Idle停止、Identityと権限の失効 |
+| Session Pod | 非信頼のrunner-agent、Codex App Server、Shell、Git・Webツール |
+| Conversation Store | Conversation、Message、Run、Event、Approvalの永続化 |
+| Session PVC | 会話固有のCODEX_HOME、スレッド履歴、Gitワークツリー。秘密情報を保存しない |
+| Identity Issuer | ワークロードを検証し、短命X.509証明書を発行する |
+| Node Proxy | ノード単位の通信捕捉、送信元Identity解決、L4認可、mTLS、受信認可、監査 |
+| Policy Store | 管理側だけが更新できる有効期限付きの認可情報 |
+| CNI / NetworkPolicy | 強制的な通信経路、送信元偽装防止、ネットワーク隔離 |
+| GitHub Proxy | Git取得・push・PR作成/更新を操作単位で認可し、GitHub認証を代理する |
+| Web Proxy | Web検索、公開ページ取得、必要なパッケージ取得を認可する |
+| Model Proxy | モデル認証を代理し、利用可能モデル・予算・リクエストを制御する |
+
+会話DBはRunner APIの専用データストアとし、Session Podから直接アクセスさせない。DB製品は独立した永続化設計に従う。Kubernetes CRDにはインフラの望ましい状態のみを保持し、本文・イベント・資格情報は保存しない。
+
+## 3. Workload Identity
+
+Workload Identityはユーザー認証とは独立して、動作中のワークロードを認証する。人間の認可はRunner API、Podの認証はNode ProxyとIdentity Issuerが担当する。IdentityはSPIFFE URI形式とし、例として以下を使用する。
+
+- spiffe://codex.local/system/runner-api
+- spiffe://codex.local/system/controller
+- spiffe://codex.local/session/conversation-001/pod/PodUID（実際は正規化されたUID）
+- spiffe://codex.local/proxy/github
+- spiffe://codex.local/proxy/web
+- spiffe://codex.local/proxy/model
+
+Identityの発行・利用手順:
+
+1. Controllerが認可済みCodexSessionからPodと専用ServiceAccountを作成する。Pod UIDとNode割当はKubernetes APIを正本とする。
+2. CNIがPodのNetwork Namespace、インターフェース、接続世代をPod UIDに結びつけ、ノード側の信頼できる状態に登録する。
+3. Node Proxyはノードに紐づいた認証情報でIdentity Issuerへ接続する。Issuerは認証済みノード、Pod UID、ServiceAccount、配置先、管理対象であることを検証し、当該ノードに存在する許可済みワークロードに限り発行を認める。
+4. Node ProxyがPodごとに秘密鍵を生成し、CSRの署名により鍵の所有を証明する。Issuerは要求内の自己申告SANを使用せず、検証済み情報からIdentityを構成し署名する。
+5. Node Proxyが短命証明書と秘密鍵をAI Pod外に保持する。初期TTLは5分、期限前にローテーションする。CA鍵はIssuer側に隔離する。証明書・鍵・信頼バンドルの配布とローテーションは標準X.509/SPIFFE準拠の実装を利用する。
+6. Pod削除・再作成・移動時は古いPod UIDの発行権限、通信ルート、認可、既存接続を失効させる。IP再利用でIdentityを継承しない。
+
+IPアドレス、AIの自己申告ヘッダー、Session IDだけによる認証は禁止する。WIF（Workload Identity Federation）は外部の認証基盤との信頼連携・短命資格情報交換が必要な場合に限って利用し、クラスタ内部のWorkload Identityとは区別する。
+
+## 4. Node Proxyと通信経路
+
+Node Proxyは各対象ノードにDaemonSetとして配置する。信頼されたノード側のCNI連携がPodの通信を捕捉し、Pod UIDと本来の宛先をNode Proxyへ伝える。AI側から設定変更できない経路を用いる。LinuxのNetwork Namespace、veth、iptables/nftablesまたはeBPFを利用できるが、採用する実装は実際のCNI/Sandbox Runtimeとの互換性を満たすことを条件とする。
+
+Node Proxyの内部コンポーネント:
+
+| コンポーネント | 責務 |
+| --- | --- |
+| Traffic Interceptor | CNI連携、元ソケット・送信元・宛先の信頼できる取得 |
+| Identity Resolver | ライブなPod UID・ノード配置と通信元の照合 |
+| Certificate Manager | ワークロードごとの証明書・鍵の取得、更新、破棄 |
+| Authorization Engine | 送信元Identity、接続先Identity、ポート、方向の完全一致による認可 |
+| mTLS Transport | 双方の証明書を検証して通信を中継 |
+| Audit Logger | 許可・拒否・接続ID・Identity・時刻を記録 |
+
+送信側Node Proxyは送信元ワークロードの証明書を用い、受信側Node Proxyは目的ワークロードの証明書を用いる。双方がCAチェーン、有効期限、用途、期待するURI SAN、秘密鍵の所有を検証する。TLS 1.3を使用する。受信側でも独立して送信元と宛先を認可する。同じノード内の通信も同じ認可を通過させる。mTLSは双方の身元と通信の機密性・完全性を検証するものであり、相手の操作を無条件に許可するものではない。
+
+Node ProxyはGitHub操作やWeb検索等の業務ロジックを持たない。外部サービスProxyへ伝えるIdentityは、認証済み接続に結びつける。受信Proxyから宛先サービスへのローカル区間は外部から迂回できないよう隔離し、呼び出し元が任意に指定するヘッダーを信用しない。
+
+## 5. AuthorizationとNetworkPolicy
+
+L4の接続認可とL7の操作認可を分離する。Policy Storeの権限はユーザー認可済みのセッション設定から生成し、Controllerのみが更新できる。未登録・期限切れ・検証失敗時は拒否する。変更・失効は既存接続にも適用し、検証できなくなった接続を有限時間内に切断する。
+
+| 通信元 | 宛先 | 許可範囲 |
+| --- | --- | --- |
+| Runner API | Session Pod | 対象セッションの制御接続 |
+| Runner API | Conversation Store | 会話・実行状態の保存 |
+| Runner API / Controller | Kubernetes API | 各RBACで限定された操作 |
+| Session Pod | GitHub Proxy | 認可済みRepository・操作 |
+| Session Pod | Web Proxy | 検索・公開ページ・パッケージ取得 |
+| Session Pod | Model Proxy | 認可済み推論 |
+| Node Proxy | Identity Issuer / Policy Store | ノードに許された認証・認可情報 |
+| Session Pod | Runner API / DB / Kubernetes API / 他Session / 外部ネットワーク | 新規接続を拒否 |
+
+表は新規接続の方針であり、許可済み接続の応答と明示的に必要な基盤通信は別途定義する。DNSは必要最小限とし、任意の外部DNS・DoH・直接IP・IPv6・ホスト/メタデータ・同一ノード経路を含む迂回を遮断する。Kubernetes NetworkPolicyの適用例外（ノード通信等）をCNI/ホスト側の強制で補う。NetworkPolicyが実際に有効なCNIを必須とする。
+
+## 6. AI実行環境とライフサイクル
+
+- 1 Conversationにつき最大1アクティブCodexSession、1 Sessionにつき最大1 Pod、1 turnのみ同時実行する。
+- 管理領域、認証・Proxy領域、非信頼実行領域をNamespace/RBACで分離する。Session PodにはgVisor等のSandbox Runtime、Restricted Pod Security、non-root、seccomp、capability drop ALL、no privilege escalation、read-only root filesystem、リソース上限を適用する。
+- hostNetwork、hostPID、hostIPC、hostPath、特権コンテナ、ServiceAccount Tokenの自動マウント、共有書き込み領域は禁止する。Session PVCと必要最小限の一時領域だけ書き込み可能とする。
+- ControllerはPodの起動前から隔離を適用し、Identity、認可、強制経路が整うまでRunner APIへReadyを返さない。隔離不能なら実行しない。
+- runner-agentは非信頼Pod内でCodex App Serverをstdio JSON-RPCで起動し、initialize、thread/startまたはthread/resume、turn/start、承認、ストリーミングを仲介する。管理用Tokenや外部資格情報は持たない。
+- Runner APIはメッセージを永続化し、FIFOキューから原子的にclaimする。Runner APIが対象Podへの認証済み制御接続を開始し、コマンド送信とイベント受信を行う。Session Podからの新規管理接続を許可しない。イベントのRun/Session所有関係、順序、サイズを検証し、Podが送信する内容を管理権限の証明として扱わない。
+- Idle時は実行中・承認待ちでないPodを停止する。PVCと会話履歴は保持する。次のメッセージで新しいPod UIDとIdentityを発行して再開する。削除時は認可・ルート・資格情報を失効させる。
+
+CodexSession CRDはconversationId、desiredState、idleTimeoutSeconds、sessionData、execution、repository、permissionsを持つ。permissionsは管理側が確定した操作範囲とし、Secret名・Tokenは含めない。statusにはphase（Suspended/Starting/Ready/Busy/WaitingForApproval/Failed/Terminating）、threadId、podName、workspaceClaim、lastActivityAt、observedGeneration、conditionsを保持する。
+
+## 7. 外部サービスProxy
+
+### 7.1 GitHub Proxy
+
+GitHub AppのRepository限定・短命installation tokenをProxyだけが取得する。AIは標準git/gh互換インターフェース、または限定された操作APIを利用する。Tokenを返却するcredential helperは禁止する。Git smart HTTPの転送ではpush対象refを検証するか、同等の強制可能なRepository rulesetと組み合わせる。
+
+セッションごとにRepository、許可操作、専用ブランチprefix、PR baseを固定する。clone、fetch、commit、許可ブランチへのpush、PR作成・更新は自律的に実行可能とする。main等の保護ブランチへの直接push、他Sessionのブランチ書き込み、任意Repository、merge、破壊的操作は拒否または別途人間が認可する。GitHub Actions経由の権限昇格やSecret流出を防ぐため、非信頼PRで特権workflowを実行しない。Proxyの資格情報や上流の認証ヘッダーは応答・ログに含めない。
+
+### 7.2 Web Proxy
+
+検索エンジンの検索APIと公開Webページの取得を提供する。必要なパッケージ取得も許可済みの取得経路で提供する。任意のHTTP CONNECTや未検証の汎用トンネルは提供しない。公開HTTPS宛先のみを許可し、DNS解決結果の検証と接続先固定、リダイレクトの再検証、プライベート・予約済みIP、メタデータAPI、クラスタ内部宛先の拒否を行う。取得サイズ、時間、回数、並列数を制限する。検索語やURLによるデータ送信は可能であるため、機密Repositoryの外部通信はユーザーの権限設定に従う。
+
+### 7.3 Model Proxy
+
+OpenAI等への推論リクエストを代理する。API Keyまたは対応するユーザー認証は信頼領域で管理し、Session Podに実資格情報を渡さない。利用者・Session・モデル・予算を認可し、推論ストリーミングを中継する。Codex App Serverの接続先変更とAPI互換性を満たすこと。ChatGPTアカウント認証を外部化できない方式は有効化しない。認証方式ごとに公式に対応する接続方式を検証し、失敗時にToken注入へフォールバックしない。
+
+## 8. APIとデータ
+
+公開APIはRunner APIに限定する。Tailnet等は到達範囲を制限するが、ユーザー認証・会話所有権の検証を省略しない。
+
 - POST /v1/conversations
 - GET /v1/conversations/{id}
 - GET /v1/conversations/{id}/messages
 - POST /v1/conversations/{id}/messages
 - GET /v1/runs/{runID}/events
 - POST /v1/approvals/{runID}/{requestID}
-内部API:
-- POST /internal/runs/{runID}/events
-- POST /internal/sessions/{id}/heartbeat
-runner-agentからAPI Serverへのアウトバウンド接続を基本とする。API ServerがPodへ直接接続する方式に比べ、Podの再作成やネットワーク一時障害に強く、runner Podを外部公開する必要がない。
-内部APIはPod単位の短期トークンまたはServiceAccount認証で保護する。メッセージの取得はleaseまたはDBトランザクションで1回だけ実行されるようにする。
-## 9. 認証とSecret
-認証方式は実装時にProviderとして分離する。
-- App Serverへのモデル認証
-- ユーザーごとのChatGPT OAuthまたはサーバー管理のAPI認証
-- GitHub APIまたはGit over HTTPS/SSH認証
-- クライアントとAPI Server間のユーザー認証
-アクセストークンをlibSQL、CRD、Podのログへ保存しない。Kubernetes Secretまたは外部Secret管理からPodへ注入し、runner-agentにだけ参照させる。
-Codex App ServerをSign in with ChatGPTで利用する場合、App Server起動時にアクセストークンを環境変数へ渡し、トークン更新時はApp Serverを再起動して保存済みthread IDでthread/resumeする。トークン更新をrunner-agentまたはAPI Serverの責務として明確化する。
-## 10. 障害時の挙動
-### API Server障害
-libSQLに保存済みのメッセージは失われない。クライアントはclient_message_idで再送できる。ストリーミング接続は切断されるが、完了済みメッセージは履歴から取得できる。
-### Controller障害
-Controller再起動後にCodexSessionを再concileする。PodとPVCはownerReferenceに基づき再発見する。Controllerは多重Podを作らないよう、Pod名またはラベルで既存リソースを確認する。
-### runner Pod障害
-PodはControllerにより再作成される。PVCとthread IDを保持し、runner-agentはApp Serverを再起動してthread/resumeを実行する。実行中Runは一定時間後に再試行可能な状態へ遷移させる。
-同じturnを自動再実行すると重複した副作用が発生する可能性があるため、再試行ポリシーは操作の種類ごとに分ける。GitHubへのpushや外部システムへの書き込みは自動再試行せず、ユーザー確認を要求する。
-### libSQL障害
-新しいメッセージ受付とイベント保存を停止する。既存Podは実行を継続できる場合があるが、状態を保存できないため、一定時間後に安全に停止する。バックアップからの復元手順を運用Runbookに記載する。
-### App Server認証期限切れ
-runner-agentは認証エラーを検出してAPI Serverへ通知する。API Serverまたは認証Providerがトークンを更新し、App Serverを再起動してthread/resumeする。無限再試行はせず、認証が必要な状態をユーザーへ表示する。
-## 11. セキュリティ境界
-- 外部公開するのはAPI Serverだけ
-- runner PodとlibSQLはClusterIPで内部公開
-- runner PodごとにServiceAccountを分離する
-- runner Podの権限は最小化する
-- ControllerのRBACはCodexSession、Pod、PVC、必要なServiceに限定する
-- GitHub Secret、モデル認証、ユーザーOAuthをログへ出さない
-- Podはrootless、capability drop、seccompを適用する
-- workspaceへの書き込みと外部ネットワーク接続を明示的に許可する
-- 外部へのpush、削除、課金、メール送信などは承認を要求する
-- 監査対象の操作はApprovalとRunに記録する
-## 12. 推奨リポジトリ構成
-    api/
-      cmd/api/
-      internal/http/
-      internal/store/
-      internal/session/
-    controller/
-      api/v1alpha1/
-      internal/controller/
-      cmd/main.go
-    runner-agent/
-      cmd/runner-agent/
-      internal/appserver/
-      internal/queue/
-      internal/transport/
-    deploy/
-      crd/
-      controller/
-      runner/
-      libsql/
-    docs/
-      design.md
-      operations.md
-      security.md
-初期段階ではAPI、Controller、runner-agentを同じリポジトリで管理する。イメージはコンポーネントごとに分け、リリースは同じバージョン番号で追跡できるようにする。
-## 13. 実装フェーズ
-### Phase 1: 最小の会話ループ
-- Goプロジェクト初期化
-- libSQL接続とMigration
-- ConversationとMessage API
-- CodexSession CRD
-- ControllerによるPod作成
-- runner-agentによるApp Server起動
-- thread/startとturn/start
-- 最終応答の保存
-### Phase 2: セッション再開
-- session-data PVC
-- thread ID保存
-- thread/resume
-- Pod削除とidle timeout
-- Pod再作成
-- ストリーミングイベント
-### Phase 3: リポジトリを使った実装
-- Gitリポジトリ取得
-- branchとworkspaceの管理
-- GitHub Secret
-- 差分確認
-- 承認要求
-- pushやPull Request作成の明示承認
-### Phase 4: 運用強化
-- NetworkPolicy
-- バックアップと復元テスト
-- メトリクスとログ
-- 失敗時の再試行とdead-letter状態
-- 認証更新
-- 複数ユーザー対応
-- 期限付きPVCとコスト制御
-音声入力はPhase 4以降のクライアント機能として扱い、実行基盤と分離する。
-## 14. 未決事項
-実装開始前に次を確定する。
-1. App Serverのモデル認証をChatGPT OAuthにするか、サーバー管理のAPI認証にするか。
-2. GitHub操作をSSH、Fine-grained token、GitHub Appのどれで行うか。
-3. libSQLのバックアップ先と保持期間。
-4. PVCをlocal-pathから別ストレージへ移行する必要があるか。
-5. クライアントの初期実装をWeb PWAにするか、Expoベースのモバイルアプリにするか。
-6. ユーザー認証と複数ユーザー分離をPhase 1から入れるか。
-7. App Serverのローカルスレッド履歴とlibSQLの会話履歴の整合性をどの時点で検証するか。
-## 15. 参考資料
-- Codex as a platform: https://developers.openai.com/blog/codex-as-a-platform
-- Codex App Server: https://developers.openai.com/siwc/token-sharing-open-source/codex-app-server
-- App Server preview limitations: https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations
-- Kubernetes Custom Resources: https://kubernetes.io/docs/concepts/extend-kubernetes/api-extension/custom-resources/
-- Kubernetes Operator pattern: https://kubernetes.io/docs/concepts/extend-kubernetes/operator/
-- libSQL server: https://github.com/tursodatabase/libsql/tree/main/libsql-server
+
+データモデル:
+
+| Entity | 主な属性 |
+| --- | --- |
+| Conversation | id, user_id, title, status, codex_session_name, created_at, updated_at |
+| Message | id, conversation_id, role, content, sequence, status, client_message_id, created_at |
+| Run | id, conversation_id, message_id, thread_id, status, started_at, completed_at, error_code, error_message |
+| Event | id, run_id, sequence, event_type, payload, created_at |
+| Approval | id, run_id, request_id, action_type, summary, status, response, created_at, resolved_at |
+| SessionPolicy | session, pod_uid, grants, version, expires_at |
+| SecurityAudit | timestamp, source_identity, destination_identity, operation, decision, reason, request_id |
+
+Messageはconversation_idとsequenceを一意とし、client_message_idで冪等に処理する。Runの状態はqueued/running/waiting_approval/completed/failed/interruptedとする。永続化を先に行い、SSE再接続で必要な履歴を復元する。SecurityAuditには秘密、検索語や本文等の機密データを無条件に保存しない。保管期間・アクセス権を設定する。
+
+## 9. 障害と運用
+
+| 障害 | 挙動 |
+| --- | --- |
+| Node Proxy / CNI | 直接通信へフォールバックせず拒否 |
+| Identity Issuer / Policy Store | 新規認証・認可に失敗したら拒否。既存接続も期限や失効に従い切断 |
+| Runner API / Conversation Store | 永続化できない実行を開始せず、再接続・冪等処理で復旧 |
+| Controller | 再起動後reconcile。多重Podを作らない |
+| Session Pod | 新しいIdentityで再作成。PVCからthread/resume |
+| 外部Proxy / 資格情報期限切れ | 操作を失敗させ、信頼領域で再取得。AIへ資格情報を渡さない |
+
+外部書き込みの結果が不明な場合は無条件再試行せず、冪等性または上流の状態確認によって二重実行を防ぐ。DB/PVCのバックアップ・復元、CA鍵の保護・ローテーション、監査ログ、利用量とリソース上限を運用要件とする。
+
+## 10. 実装・受入条件
+
+全コンポーネントのコード、Controller統合、デプロイマニフェスト、コンテナイメージ、CI、E2Eを揃える。次を満たさない構成を本番のゼロトラスト実行環境として有効化してはならない。
+
+| 検証 | 合格条件 |
+| --- | --- |
+| Workload Identity | 他Pod/他Node/削除済みPodのIdentityを取得・偽装できない |
+| mTLS | 不正CA、期限切れ、別Identity、平文接続を拒否 |
+| CNI/NetworkPolicy | 同一・異なるノード、直接IP、IPv6、DNS、ホスト、メタデータ経由の迂回を拒否 |
+| Authorization | 別Session、未許可Repository、保護branch、merge、DB/K8sを拒否。失効済み接続を切断 |
+| Secretless | env、proc、ファイル、PVC、ログ、Proxy応答に実資格情報がない |
+| Sandbox | ホスト・他Session・共有データへのアクセスを拒否し、リソース上限が機能する |
+| 正常系 | 会話、再開、検索、取得、編集、ビルド、テスト、Git push、PR作成/更新、モデル推論が動作 |
+| 障害系 | Proxy/CNI/Issuer/Policyの停止・期限切れでFail Closed、復旧時も権限逸脱なし |
+
+実クラスタに相当する複数Nodeの環境で正常系と攻撃想定E2Eを実行する。単体テストのみでは通信経路の強制・隔離の成立を証明したことにはならない。
+
+## 11. 参考資料
+
+- [Kubernetes ServiceAccount](https://kubernetes.io/docs/concepts/security/service-accounts/)
+- [Kubernetes NetworkPolicy](https://kubernetes.io/docs/concepts/services-networking/network-policies/)
+- [Pod Security Standards](https://kubernetes.io/docs/concepts/security/pod-security-standards/)
+- [SPIFFE](https://spiffe.io/)
+- [TLS 1.3 (RFC 8446)](https://www.rfc-editor.org/rfc/rfc8446)
+- [gVisor](https://gvisor.dev/)
+- [GitHub Apps](https://docs.github.com/en/apps)
