@@ -19,9 +19,9 @@ import (
 	"github.com/kimata1007/codex-runner-controller/internal/conversation"
 	"github.com/kimata1007/codex-runner-controller/internal/events"
 	"github.com/kimata1007/codex-runner-controller/internal/kubernetes"
-	"github.com/kimata1007/codex-runner-controller/internal/libsql"
 	"github.com/kimata1007/codex-runner-controller/internal/logging"
 	"github.com/kimata1007/codex-runner-controller/internal/memory"
+	"github.com/kimata1007/codex-runner-controller/internal/postgres"
 	"github.com/kimata1007/codex-runner-controller/internal/runnerapi"
 	"github.com/kimata1007/codex-runner-controller/internal/runs"
 	"github.com/kimata1007/codex-runner-controller/internal/session"
@@ -109,7 +109,7 @@ func runtimeFromEnvironment(repository conversation.Repository) (runnerapi.Messa
 	runStore, ok := repository.(runs.Store)
 	if !ok {
 		if agentURL != "" {
-			return nil, nil, nil, errors.New("RUNNER_AGENT_URL requires a run-capable libSQL repository")
+			return nil, nil, nil, errors.New("RUNNER_AGENT_URL requires a run-capable PostgreSQL repository")
 		}
 		return nil, nil, nil, nil
 	}
@@ -199,14 +199,21 @@ func gitCredentialsSecretNameFromEnvironment() string {
 }
 
 func repositoryFromEnvironment(ctx context.Context) (conversation.Repository, error) {
-	libSQLURL := os.Getenv("LIBSQL_URL")
-	if libSQLURL == "" {
+	dsn := strings.TrimSpace(os.Getenv("DATABASE_URL"))
+	if dsn == "" {
+		if os.Getenv("LIBSQL_URL") != "" {
+			return nil, errors.New("LIBSQL_URL is no longer supported; set DATABASE_URL")
+		}
 		return memory.NewRepository(), nil
 	}
 
-	client := libsql.NewClient(libSQLURL, os.Getenv("LIBSQL_AUTH_TOKEN"))
-	repository := libsql.NewRepository(client, os.Getenv("RUNNER_API_USER_ID"))
+	client, err := postgres.NewClient(ctx, dsn)
+	if err != nil {
+		return nil, err
+	}
+	repository := postgres.NewRepository(client, os.Getenv("RUNNER_API_USER_ID"))
 	if err := repository.Migrate(ctx); err != nil {
+		_ = client.Close()
 		return nil, fmt.Errorf("database migration: %w", err)
 	}
 	return repository, nil

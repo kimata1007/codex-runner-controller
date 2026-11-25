@@ -12,7 +12,7 @@ diagnostics() {
   kubectl -n "$NAMESPACE" get pods,deploy,sts,svc,pvc,secret,codexsessions -o wide || true
   kubectl -n "$NAMESPACE" describe pods || true
   kubectl -n "$NAMESPACE" get events --sort-by=.lastTimestamp || true
-  for workload in deploy/codex-runner-controller deploy/codex-runner-api sts/libsql; do
+  for workload in deploy/codex-runner-controller deploy/codex-runner-api sts/postgres; do
     kubectl -n "$NAMESPACE" logs "$workload" --all-containers --tail=200 || true
   done
   echo "::endgroup::"
@@ -60,16 +60,16 @@ wait_for_complete_conversation() {
     fi
     sleep 3
   done
-  echo "Timed out: real Agent/App Server event was not persisted to libSQL" >&2
+  echo "Timed out: real Agent/App Server event was not persisted to PostgreSQL" >&2
   return 1
 }
 
-echo "Deploying real Runner API, Controller and libSQL into Kind"
+echo "Deploying real Runner API, Controller and PostgreSQL into Kind"
 # These test overlays reuse production manifests above tests/e2e. Kustomize
 # normally disallows reading outside its directory; relax that restriction
 # only for this local, trusted CI test overlay.
 kubectl kustomize --load-restrictor=LoadRestrictionsNone tests/e2e | kubectl apply -f -
-kubectl -n "$NAMESPACE" rollout status statefulset/libsql --timeout=180s
+kubectl -n "$NAMESPACE" rollout status statefulset/postgres --timeout=180s
 kubectl -n "$NAMESPACE" rollout status deployment/codex-runner-controller --timeout=180s
 kubectl -n "$NAMESPACE" rollout status deployment/codex-runner-api --timeout=180s
 
@@ -89,7 +89,7 @@ if [[ "$api_ready" != true ]]; then
   exit 1
 fi
 
-echo "Creating conversation using the REAL Runner API and libSQL"
+echo "Creating conversation using the REAL Runner API and PostgreSQL"
 conversation_response="$(curl --fail --silent --show-error --max-time 15 \
   -X POST -H 'Content-Type: application/json' -d '{}' "$BASE_URL/v1/conversations")"
 conversation_id="$(jq -er '.id | select(type=="string" and length>0)' <<< "$conversation_response")"
@@ -115,7 +115,7 @@ kubectl -n "$NAMESPACE" get svc "$conversation_id" -o jsonpath='{.spec.ports[0].
 
 echo "Checking persisted App Server events for the run through Runner API SSE"
 # The real runner-agent forwards child-process notifications to Runner API,
-# which persists them in libSQL. Replayed SSE events prove this end-to-end
+# which persists them in PostgreSQL. Replayed SSE events prove this end-to-end
 # path; child-process stderr is not necessarily forwarded to pod logs.
 deadline=$((SECONDS + 60))
 events_seen=false
@@ -139,7 +139,7 @@ if [[ "$events_seen" != true ]]; then
   exit 1
 fi
 
-echo "Checking the asynchronous App Server notification returned to Runner API and libSQL"
+echo "Checking the asynchronous App Server notification returned to Runner API and PostgreSQL"
 wait_for_complete_conversation "$conversation_id"
 echo "End-to-end user message and simulated Codex response persisted (run $run_id)"
 
