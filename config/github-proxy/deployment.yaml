@@ -1,0 +1,93 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: codex-github-proxy
+  namespace: codex-security
+spec:
+  replicas: 2
+  selector:
+    matchLabels: {app.kubernetes.io/name: codex-github-proxy}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: codex-github-proxy}
+    spec:
+      serviceAccountName: codex-github-proxy
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: github-proxy
+          image: ghcr.io/kimata1007/codex-github-proxy:v0.0.18
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: GITHUB_APP_ID
+              valueFrom:
+                configMapKeyRef: {name: codex-github-app, key: app-id}
+            - name: POD_UID
+              valueFrom:
+                fieldRef: {fieldPath: metadata.uid}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          readinessProbe:
+            exec:
+              command: ["/github-proxy", "-healthcheck"]
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {cpu: "1", memory: 256Mi}
+          volumeMounts:
+            - {name: socket, mountPath: /run/codex-node/github}
+            - {name: credentials, mountPath: /var/run/codex/github, readOnly: true}
+      volumes:
+        - name: socket
+          hostPath: {path: /run/codex-node/github, type: Directory}
+        - name: credentials
+          secret:
+            secretName: codex-github-app
+            defaultMode: 0440
+            items: [{key: private-key.pem, path: private-key.pem}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: github-proxy-unix-only
+  namespace: codex-security
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: codex-github-proxy}
+  policyTypes: [Ingress, Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: kube-system}
+          podSelector:
+            matchLabels: {k8s-app: kube-dns}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 0.0.0.0/8
+              - 10.0.0.0/8
+              - 100.64.0.0/10
+              - 127.0.0.0/8
+              - 168.63.129.16/32
+              - 169.254.0.0/16
+              - 172.16.0.0/12
+              - 192.0.0.0/24
+              - 192.0.2.0/24
+              - 192.88.99.0/24
+              - 192.168.0.0/16
+              - 198.18.0.0/15
+              - 198.51.100.0/24
+              - 203.0.113.0/24
+              - 224.0.0.0/4
+              - 240.0.0.0/4
+      ports:
+        - {protocol: TCP, port: 443}
