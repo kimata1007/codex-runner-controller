@@ -50,13 +50,21 @@ function markdown(source) {
   return node;
 }
 
-function safeSvg(source) {
+function safeSvg(source, {mermaid = false} = {}) {
   // Display as an image, never inject AI-provided SVG into the document.
   if (!globalThis.DOMPurify) throw Error('SVG sanitizer unavailable');
+  // Mermaid draws with CSS. Keep it only for generated diagrams in the
+  // isolated image document, where scripts and external resources are disabled.
+  const forbiddenTags = ['foreignObject', 'script', 'image', 'use', 'a', 'animate', 'set'];
+  const forbiddenAttributes = ['href', 'xlink:href'];
+  if (!mermaid) {
+    forbiddenTags.push('style');
+    forbiddenAttributes.push('style');
+  }
   const clean = globalThis.DOMPurify.sanitize(source, {
     USE_PROFILES: {svg: true, svgFilters: true},
-    FORBID_TAGS: ['foreignObject', 'style', 'script', 'image', 'use', 'a', 'animate', 'set'],
-    FORBID_ATTR: ['href', 'xlink:href', 'style']
+    FORBID_TAGS: forbiddenTags,
+    FORBID_ATTR: forbiddenAttributes
   });
   const doc = new DOMParser().parseFromString(clean, 'image/svg+xml');
   if (doc.documentElement.localName !== 'svg' || doc.documentElement.namespaceURI !== svgNS) throw Error('Invalid SVG');
@@ -102,7 +110,7 @@ function renderBlock(block) {
       node.append(code(block));
       globalThis.mermaid.initialize({startOnLoad: false, securityLevel: 'strict', flowchart: {htmlLabels: false}, maxTextSize: 50000});
       globalThis.mermaid.render('output-diagram-' + (++sequence), block.source)
-        .then(({svg}) => { if (node.isConnected) node.replaceChildren(safeSvg(svg)); })
+        .then(({svg}) => { if (node.isConnected) node.replaceChildren(safeSvg(svg, {mermaid: true})); })
         .catch(() => {});
       return node;
     }
