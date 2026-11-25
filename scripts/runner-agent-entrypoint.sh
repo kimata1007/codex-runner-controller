@@ -36,5 +36,12 @@ if [ -n "${CODEX_REPOSITORY_URL:-}" ]; then
 	git_cmd -C "$workspace" reset --hard "$CODEX_REPOSITORY_REVISION"
 fi
 
+# CODEX_HOME can be a persistent volume; refresh the bundled skill on startup.
+if [ -f /opt/runner-skills/output-rendering/SKILL.md ]; then
+    skill_dir="${CODEX_HOME:-/var/lib/codex}/skills/output-rendering"
+    mkdir -p "$skill_dir"
+    cp /opt/runner-skills/output-rendering/SKILL.md "$skill_dir/SKILL.md"
+fi
+
 unset GIT_AUTH_TOKEN
 exec /runner-agent

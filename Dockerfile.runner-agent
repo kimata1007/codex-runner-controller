@@ -16,6 +16,7 @@ RUN test -n "$CODEX_CLI_VERSION" \
   && npm cache clean --force
 COPY --from=build /out/runner-agent /runner-agent
 COPY scripts/runner-agent-entrypoint.sh /runner-agent-entrypoint
+COPY skills/output-rendering/SKILL.md /opt/runner-skills/output-rendering/SKILL.md
 RUN useradd --create-home --uid 10001 --user-group codex \
   && mkdir -p /var/lib/codex \
   && chmod 0755 /runner-agent-entrypoint \
