@@ -1,0 +1,86 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: codex-model-usage
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: codex-model-proxy
+  namespace: codex-security
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: codex-model-proxy
+rules:
+  - apiGroups: [""]
+    resources: [nodes]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: codex-model-proxy
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: codex-model-proxy
+subjects: [{kind: ServiceAccount, name: codex-model-proxy, namespace: codex-security}]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: codex-model-proxy
+  namespace: codex-security
+rules:
+  - apiGroups: [codexrunner.io]
+    resources: [sessionpolicies]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: codex-model-proxy
+  namespace: codex-security
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: codex-model-proxy}
+subjects: [{kind: ServiceAccount, name: codex-model-proxy, namespace: codex-security}]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: codex-model-proxy
+  namespace: codex-sessions
+rules:
+  - apiGroups: [""]
+    resources: [pods, serviceaccounts]
+    verbs: [get]
+  - apiGroups: [codexrunner.io]
+    resources: [codexsessions]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: codex-model-proxy
+  namespace: codex-sessions
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: codex-model-proxy}
+subjects: [{kind: ServiceAccount, name: codex-model-proxy, namespace: codex-security}]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: codex-model-proxy
+  namespace: codex-model-usage
+rules:
+  - apiGroups: [""]
+    resources: [configmaps]
+    verbs: [get, create, update]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: codex-model-proxy
+  namespace: codex-model-usage
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: codex-model-proxy}
+subjects: [{kind: ServiceAccount, name: codex-model-proxy, namespace: codex-security}]
