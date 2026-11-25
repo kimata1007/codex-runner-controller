@@ -165,8 +165,14 @@ func (r *Repository) ClaimQueuedMessage(ctx context.Context, id string) (bool, e
 			if value.Messages[index].ID != id {
 				continue
 			}
-			if value.Messages[index].Status != "queued" {
+			if value.Messages[index].Status != "queued" || value.Messages[index].Role != "user" {
 				return false, nil
+			}
+			for activeIndex := range value.Messages {
+				if value.Messages[activeIndex].Role == "user" && (value.Messages[activeIndex].Status == "running" ||
+					(activeIndex < index && value.Messages[activeIndex].Status == "queued")) {
+					return false, nil
+				}
 			}
 			value.Messages[index].Status = "running"
 			value.UpdatedAt = time.Now().UTC()
@@ -174,6 +180,51 @@ func (r *Repository) ClaimQueuedMessage(ctx context.Context, id string) (bool, e
 		}
 	}
 	return false, fmt.Errorf("message %q not found", id)
+}
+
+func (r *Repository) ListQueuedConversationIDs(ctx context.Context) ([]string, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	ids := make([]string, 0)
+	for id, value := range r.conversations {
+		for _, message := range value.Messages {
+			if message.Role == "user" && message.Status == "queued" {
+				ids = append(ids, id)
+				break
+			}
+		}
+	}
+	sort.Strings(ids)
+	return ids, nil
+}
+
+func (r *Repository) ClaimNextQueuedMessage(ctx context.Context, conversationID string) (conversation.Message, bool, error) {
+	if err := ctx.Err(); err != nil {
+		return conversation.Message{}, false, err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	value, ok := r.conversations[conversationID]
+	if !ok {
+		return conversation.Message{}, false, fmt.Errorf("%w: %s", conversation.ErrNotFound, conversationID)
+	}
+	for _, message := range value.Messages {
+		if message.Role == "user" && message.Status == "running" {
+			return conversation.Message{}, false, nil
+		}
+	}
+	for index := range value.Messages {
+		message := &value.Messages[index]
+		if message.Role == "user" && message.Status == "queued" {
+			message.Status = "running"
+			value.UpdatedAt = time.Now().UTC()
+			return *message, true, nil
+		}
+	}
+	return conversation.Message{}, false, nil
 }
 
 func (r *Repository) SetMessageStatus(ctx context.Context, id, status string) error {

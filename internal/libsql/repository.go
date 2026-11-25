@@ -251,11 +251,59 @@ func (r *Repository) ClaimQueuedMessage(ctx context.Context, id string) (bool, e
 	if err := ctx.Err(); err != nil {
 		return false, err
 	}
-	result, err := r.client.Exec(ctx, `UPDATE messages SET status = 'running' WHERE id = ? AND status = 'queued'`, []Value{Text(id)}, false)
+	result, err := r.client.Exec(ctx, `UPDATE messages SET status = 'running'
+		WHERE id = ? AND status = 'queued' AND role = 'user'
+		AND NOT EXISTS (SELECT 1 FROM messages earlier WHERE earlier.conversation_id = messages.conversation_id
+			AND earlier.role = 'user' AND earlier.status = 'queued' AND earlier.sequence < messages.sequence)
+		AND NOT EXISTS (SELECT 1 FROM messages active WHERE active.conversation_id = messages.conversation_id
+			AND active.role = 'user' AND active.status = 'running')`, []Value{Text(id)}, false)
 	if err != nil {
 		return false, err
 	}
 	return result.AffectedRowCount > 0, nil
+}
+
+func (r *Repository) ListQueuedConversationIDs(ctx context.Context) ([]string, error) {
+	result, err := r.client.Exec(ctx, `SELECT DISTINCT conversation_id FROM messages
+		WHERE role = 'user' AND status = 'queued' ORDER BY conversation_id`, nil, true)
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(result.Rows))
+	for _, row := range result.Rows {
+		if len(row) == 0 {
+			return nil, fmt.Errorf("libsql: queued conversation row has no columns")
+		}
+		ids = append(ids, row[0].Value)
+	}
+	return ids, nil
+}
+
+func (r *Repository) ClaimNextQueuedMessage(ctx context.Context, conversationID string) (conversation.Message, bool, error) {
+	if err := ctx.Err(); err != nil {
+		return conversation.Message{}, false, err
+	}
+	result, err := r.client.Exec(ctx, `UPDATE messages SET status = 'running'
+		WHERE id = (
+			SELECT id FROM messages
+			WHERE conversation_id = ? AND role = 'user' AND status = 'queued'
+			ORDER BY sequence LIMIT 1
+		)
+		AND status = 'queued'
+		AND NOT EXISTS (SELECT 1 FROM messages active WHERE active.conversation_id = messages.conversation_id
+			AND active.role = 'user' AND active.status = 'running')
+		RETURNING id, conversation_id, role, content, client_message_id, status, created_at`, []Value{Text(conversationID)}, true)
+	if err != nil {
+		return conversation.Message{}, false, err
+	}
+	if len(result.Rows) == 0 {
+		return conversation.Message{}, false, nil
+	}
+	message, err := messageFromRow(result.Rows[0])
+	if err != nil {
+		return conversation.Message{}, false, err
+	}
+	return message, true, nil
 }
 
 func (r *Repository) SetMessageStatus(ctx context.Context, id, status string) error {
