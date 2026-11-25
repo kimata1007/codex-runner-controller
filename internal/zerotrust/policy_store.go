@@ -58,7 +58,8 @@ func (s PolicyStore) Lookup(ctx context.Context, podUID types.UID, now time.Time
 	grants := make([]Grant, 0, len(spec.Grants))
 	for _, grant := range spec.Grants {
 		source, destination := Identity(grant.Source), Identity(grant.Destination)
-		if grant.Protocol != "tcp" || (source == id) == (destination == id) {
+		session, ok := topologySession(s.Domain, source, destination, grant.Port)
+		if grant.Protocol != "tcp" || !ok || session != id {
 			return SessionAuthorization{}, ErrPolicyDenied
 		}
 		grants = append(grants, Grant{Source: source, Destination: destination, Port: grant.Port})
