@@ -3,3 +3,4 @@ kind: Kustomization
 
 resources:
   - bases/codexrunner.io_codexsessions.yaml
+  - bases/codexrunner.io_sessionpolicies.yaml

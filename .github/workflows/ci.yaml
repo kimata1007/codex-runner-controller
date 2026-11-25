@@ -31,6 +31,8 @@ jobs:
         run: go test ./...
       - name: Vet
         run: go vet ./...
+      - name: Test zero-trust concurrency
+        run: go test -race ./internal/zerotrust/...
 
   web:
     runs-on: ubuntu-24.04
@@ -53,9 +55,13 @@ jobs:
       - name: Check out
         uses: actions/checkout@v7.0.1
       - name: Validate Kustomize output
-        run: kubectl kustomize config > /tmp/codex-runner-manifests.yaml
+        run: |
+          kubectl kustomize config > /tmp/codex-runner-manifests.yaml
+          kubectl kustomize config/identity-issuer > /tmp/codex-identity-issuer-manifests.yaml
       - name: Validate YAML is non-empty
-        run: test -s /tmp/codex-runner-manifests.yaml
+        run: |
+          test -s /tmp/codex-runner-manifests.yaml
+          test -s /tmp/codex-identity-issuer-manifests.yaml
 
   container-images:
     runs-on: ubuntu-24.04
@@ -71,6 +77,8 @@ jobs:
             dockerfile: Dockerfile.runner-agent
           - name: runner-pwa
             dockerfile: Dockerfile.runner-pwa
+          - name: identity-issuer
+            dockerfile: Dockerfile.identity-issuer
     steps:
       - name: Check out
         uses: actions/checkout@v7.0.1

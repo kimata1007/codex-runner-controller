@@ -1,0 +1,62 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: sessionpolicies.codexrunner.io
+spec:
+  group: codexrunner.io
+  scope: Namespaced
+  names:
+    plural: sessionpolicies
+    singular: sessionpolicy
+    kind: SessionPolicy
+    listKind: SessionPolicyList
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: [spec]
+          x-kubernetes-validations:
+            - rule: self.metadata.name == self.spec.workload.podUID
+              message: policy name must match the enrolled Pod UID
+          properties:
+            spec:
+              type: object
+              required: [workload, version, expiresAt, revoked, grants]
+              x-kubernetes-validations:
+                - rule: self == oldSelf || self.version > oldSelf.version
+                  message: changing a policy requires increasing its version
+                - rule: '!oldSelf.revoked || self.revoked'
+                  message: a revoked Pod UID cannot be reauthorized
+              properties:
+                workload:
+                  type: object
+                  required: [sessionName, sessionUID, podName, podUID, nodeName, nodeUID, serviceAccountName, serviceAccountUID]
+                  x-kubernetes-validations:
+                    - rule: self == oldSelf
+                      message: workload identity bindings are immutable
+                  properties:
+                    sessionName: {type: string, minLength: 1, maxLength: 128, pattern: '^[a-z0-9][a-z0-9-]*$'}
+                    sessionUID: {type: string, minLength: 1, maxLength: 128}
+                    podName: {type: string, minLength: 1, maxLength: 253}
+                    podUID: {type: string, minLength: 1, maxLength: 128, pattern: '^[a-z0-9][a-z0-9-]*$'}
+                    nodeName: {type: string, minLength: 1, maxLength: 253}
+                    nodeUID: {type: string, minLength: 1, maxLength: 128}
+                    serviceAccountName: {type: string, minLength: 1, maxLength: 253}
+                    serviceAccountUID: {type: string, minLength: 1, maxLength: 128}
+                version: {type: integer, format: int64, minimum: 1}
+                expiresAt: {type: string, format: date-time}
+                revoked: {type: boolean}
+                grants:
+                  type: array
+                  maxItems: 16
+                  items:
+                    type: object
+                    required: [source, destination, protocol, port]
+                    properties:
+                      source: {type: string, minLength: 1, maxLength: 528}
+                      destination: {type: string, minLength: 1, maxLength: 528}
+                      protocol: {type: string, enum: [tcp]}
+                      port: {type: integer, minimum: 1, maximum: 65535}

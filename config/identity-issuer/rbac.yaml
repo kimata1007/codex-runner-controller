@@ -1,0 +1,92 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: codex-identity-issuer
+  namespace: codex-security
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: codex-identity-issuer
+rules:
+  - apiGroups: [authentication.k8s.io]
+    resources: [tokenreviews]
+    verbs: [create]
+  - apiGroups: [""]
+    resources: [nodes]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: codex-identity-issuer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: codex-identity-issuer
+subjects:
+  - kind: ServiceAccount
+    name: codex-identity-issuer
+    namespace: codex-security
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: codex-identity-issuer
+  namespace: codex-security
+rules:
+  - apiGroups: [apps]
+    resources: [daemonsets]
+    resourceNames: [codex-node-proxy]
+    verbs: [get]
+  - apiGroups: [""]
+    resources: [serviceaccounts]
+    resourceNames: [codex-node-proxy]
+    verbs: [get]
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get]
+  - apiGroups: [codexrunner.io]
+    resources: [sessionpolicies]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: codex-identity-issuer
+  namespace: codex-security
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: codex-identity-issuer
+subjects:
+  - kind: ServiceAccount
+    name: codex-identity-issuer
+    namespace: codex-security
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: codex-identity-issuer
+  namespace: codex-sessions
+rules:
+  - apiGroups: [""]
+    resources: [pods, serviceaccounts]
+    verbs: [get]
+  - apiGroups: [codexrunner.io]
+    resources: [codexsessions]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: codex-identity-issuer
+  namespace: codex-sessions
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: codex-identity-issuer
+subjects:
+  - kind: ServiceAccount
+    name: codex-identity-issuer
+    namespace: codex-security

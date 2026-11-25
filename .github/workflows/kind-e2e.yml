@@ -51,3 +51,32 @@ jobs:
           path: ${{ runner.temp }}/kind-e2e-debug/
           if-no-files-found: warn
           retention-days: 7
+
+  identity-e2e:
+    name: Kubernetes identity issuance
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Create multi-node Kind cluster
+        uses: helm/kind-action@ea822c7bf1874f08e5a491df991c228edffc3376 # v1.15.2
+        with:
+          version: v0.33.0
+          kubectl_version: v1.37.1
+          node_image: kindest/node:v1.37.0@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5
+          cluster_name: codex-identity
+          config: tests/e2e/identity/kind.yaml
+          wait: 120s
+      - name: Build and load the image
+        run: |
+          docker build -f Dockerfile.identity-issuer -t local/codex-identity-issuer:e2e .
+          kind load docker-image --name codex-identity local/codex-identity-issuer:e2e
+      - name: Verify node attestation and policy revocation
+        run: bash tests/e2e/identity/run.sh
+      - name: Collect Kubernetes diagnostics
+        if: failure()
+        run: |
+          kubectl -n codex-security get pods -o wide
+          kubectl -n codex-security logs deployment/codex-identity-issuer --all-pods=true || true
+          kubectl -n codex-sessions get events --sort-by=.lastTimestamp

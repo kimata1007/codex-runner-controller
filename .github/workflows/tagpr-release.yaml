@@ -48,6 +48,8 @@ jobs:
             dockerfile: Dockerfile.runner-agent
           - name: runner-pwa
             dockerfile: Dockerfile.runner-pwa
+          - name: identity-issuer
+            dockerfile: Dockerfile.identity-issuer
     steps:
       - name: Check out release tag
         uses: actions/checkout@v7.0.1
