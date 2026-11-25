@@ -1,0 +1,12 @@
+FROM golang:1.24.12-bookworm@sha256:322a794c4289ad86e3043e5d9f16ead790463658a1bd2c3983427f02983ab978 AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/node-proxy ./cmd/node-proxy && \
+    CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/codex-session-cni ./cmd/codex-session-cni
+
+FROM scratch
+COPY --from=build /out/node-proxy /out/codex-session-cni /
+USER 0:65532
+ENTRYPOINT ["/node-proxy"]

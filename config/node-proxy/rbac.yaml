@@ -1,0 +1,92 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: codex-node-proxy
+  namespace: codex-security
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: codex-node-proxy
+rules:
+  - apiGroups: [""]
+    resources: [nodes]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: codex-node-proxy
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: codex-node-proxy
+subjects:
+  - kind: ServiceAccount
+    name: codex-node-proxy
+    namespace: codex-security
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: codex-node-proxy
+  namespace: codex-security
+rules:
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list]
+  - apiGroups: [""]
+    resources: [serviceaccounts]
+    resourceNames: [codex-github-proxy, codex-web-proxy, codex-model-proxy]
+    verbs: [get]
+  - apiGroups: [apps]
+    resources: [deployments]
+    resourceNames: [codex-github-proxy, codex-web-proxy, codex-model-proxy]
+    verbs: [get]
+  - apiGroups: [apps]
+    resources: [replicasets]
+    verbs: [get]
+  - apiGroups: [codexrunner.io]
+    resources: [sessionpolicies]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: codex-node-proxy
+  namespace: codex-security
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: codex-node-proxy
+subjects:
+  - kind: ServiceAccount
+    name: codex-node-proxy
+    namespace: codex-security
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: codex-node-proxy
+  namespace: codex-sessions
+rules:
+  - apiGroups: [""]
+    resources: [pods, serviceaccounts]
+    verbs: [get]
+  - apiGroups: [codexrunner.io]
+    resources: [codexsessions]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: codex-node-proxy
+  namespace: codex-sessions
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: codex-node-proxy
+subjects:
+  - kind: ServiceAccount
+    name: codex-node-proxy
+    namespace: codex-security

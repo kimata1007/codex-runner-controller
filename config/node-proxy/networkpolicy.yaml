@@ -1,0 +1,16 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: session-network-boundary
+  namespace: codex-sessions
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+  egress:
+    - to:
+        - ipBlock: {cidr: 198.18.0.11/32}
+        - ipBlock: {cidr: 198.18.0.12/32}
+        - ipBlock: {cidr: 198.18.0.13/32}
+      ports:
+        - protocol: TCP
+          port: 8080

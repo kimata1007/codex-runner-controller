@@ -30,3 +30,36 @@ subjects:
   - kind: ServiceAccount
     name: codex-identity-issuer
     namespace: codex-security
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: codex-node-proxy
+rules:
+  - apiGroups: [apps]
+    resources: [deployments]
+    resourceNames: [codex-runner-api]
+    verbs: [get]
+  - apiGroups: [apps]
+    resources: [replicasets]
+    verbs: [get]
+  - apiGroups: [""]
+    resources: [serviceaccounts]
+    resourceNames: [codex-runner-api]
+    verbs: [get]
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: codex-node-proxy
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: codex-node-proxy
+subjects:
+  - kind: ServiceAccount
+    name: codex-node-proxy
+    namespace: codex-security
