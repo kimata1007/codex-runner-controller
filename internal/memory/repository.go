@@ -165,11 +165,12 @@ func (r *Repository) ClaimQueuedMessage(ctx context.Context, id string) (bool, e
 			if value.Messages[index].ID != id {
 				continue
 			}
-			if value.Messages[index].Status != "queued" {
+			if value.Messages[index].Status != "queued" || value.Messages[index].Role != "user" {
 				return false, nil
 			}
 			for activeIndex := range value.Messages {
-				if activeIndex != index && value.Messages[activeIndex].Role == "user" && value.Messages[activeIndex].Status == "running" {
+				if value.Messages[activeIndex].Role == "user" && (value.Messages[activeIndex].Status == "running" ||
+					(activeIndex < index && value.Messages[activeIndex].Status == "queued")) {
 					return false, nil
 				}
 			}
