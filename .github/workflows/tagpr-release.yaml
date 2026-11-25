@@ -54,6 +54,8 @@ jobs:
             dockerfile: Dockerfile.node-proxy
           - name: model-proxy
             dockerfile: Dockerfile.model-proxy
+          - name: web-proxy
+            dockerfile: Dockerfile.web-proxy
     steps:
       - name: Check out release tag
         uses: actions/checkout@v7.0.1
