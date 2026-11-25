@@ -74,6 +74,7 @@ func TLSConfig(cert tls.Certificate, roots *x509.CertPool, domain string, expect
 	}
 	cfg := &tls.Config{
 		MinVersion:             tls.VersionTLS13,
+		MaxVersion:             tls.VersionTLS13,
 		Certificates:           []tls.Certificate{cert},
 		SessionTicketsDisabled: true,
 	}
