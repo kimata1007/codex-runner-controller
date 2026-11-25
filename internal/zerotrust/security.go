@@ -66,11 +66,20 @@ func PeerIdentity(state tls.ConnectionState, domain string) (Identity, error) {
 // The caller must use an authorized expected identity, never a peer-supplied one.
 // Server mode supports an explicit identity check for each inbound connection.
 func TLSConfig(cert tls.Certificate, roots *x509.CertPool, domain string, expected Identity, server bool) (*tls.Config, error) {
-	if roots == nil || len(cert.Certificate) == 0 || cert.PrivateKey == nil {
-		return nil, errors.New("missing TLS credentials")
-	}
 	if _, err := ParseIdentity(string(expected), domain); err != nil {
 		return nil, err
+	}
+	return tlsConfig(cert, roots, domain, server, func(id Identity) error {
+		if id != expected {
+			return errors.New("unexpected peer identity")
+		}
+		return nil
+	})
+}
+
+func tlsConfig(cert tls.Certificate, roots *x509.CertPool, domain string, server bool, authorize func(Identity) error) (*tls.Config, error) {
+	if roots == nil || len(cert.Certificate) == 0 || cert.PrivateKey == nil || authorize == nil {
+		return nil, errors.New("missing TLS credentials")
 	}
 	cfg := &tls.Config{
 		MinVersion:             tls.VersionTLS13,
@@ -108,10 +117,10 @@ func TLSConfig(cert tls.Certificate, roots *x509.CertPool, domain string, expect
 			return fmt.Errorf("verify peer chain: %w", err)
 		}
 		id, err := peerIdentity(leaf, domain)
-		if err != nil || id != expected {
-			return errors.New("unexpected peer identity")
+		if err != nil {
+			return err
 		}
-		return nil
+		return authorize(id)
 	}
 	return cfg, nil
 }
