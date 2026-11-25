@@ -71,7 +71,7 @@ func (in *CodexSessionList) DeepCopyObject() runtime.Object {
 }
 
 func AddToScheme(scheme *runtime.Scheme) error {
-	scheme.AddKnownTypes(GroupVersion, &CodexSession{}, &CodexSessionList{})
+	scheme.AddKnownTypes(GroupVersion, &CodexSession{}, &CodexSessionList{}, &SessionPolicy{}, &SessionPolicyList{})
 	metav1.AddToGroupVersion(scheme, GroupVersion)
 	return nil
 }
