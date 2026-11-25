@@ -9,18 +9,20 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 )
 
 var component = regexp.MustCompile("^[a-z0-9][a-z0-9-]{0,127}$")
+var trustDomain = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$`)
 
 // Identity is a canonical URI SAN under the configured trust domain.
 type Identity string
 
 func ParseIdentity(raw, domain string) (Identity, error) {
 	u, err := url.Parse(raw)
-	if err != nil || domain == "" || u.Scheme != "spiffe" || u.Host != domain ||
+	if err != nil || len(domain) > 253 || !trustDomain.MatchString(domain) || u.Scheme != "spiffe" || u.Host != domain ||
 		u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" ||
 		u.RawPath != "" || u.Opaque != "" || u.String() != raw {
 		return "", errors.New("invalid workload identity")
@@ -45,7 +47,8 @@ func ParseIdentity(raw, domain string) (Identity, error) {
 }
 
 func peerIdentity(cert *x509.Certificate, domain string) (Identity, error) {
-	if cert == nil || len(cert.URIs) != 1 {
+	if cert == nil || cert.IsCA || len(cert.URIs) != 1 ||
+		len(cert.DNSNames)+len(cert.IPAddresses)+len(cert.EmailAddresses) != 0 {
 		return "", errors.New("exactly one URI SAN required")
 	}
 	return ParseIdentity(cert.URIs[0].String(), domain)
@@ -90,6 +93,9 @@ func TLSConfig(cert tls.Certificate, roots *x509.CertPool, domain string, expect
 			return errors.New("missing peer certificate")
 		}
 		leaf := cs.PeerCertificates[0]
+		if leaf.KeyUsage&x509.KeyUsageDigitalSignature == 0 || !slices.Contains(leaf.ExtKeyUsage, usage) {
+			return errors.New("missing required certificate usage")
+		}
 		intermediates := x509.NewCertPool()
 		for _, c := range cs.PeerCertificates[1:] {
 			intermediates.AddCert(c)
@@ -136,6 +142,9 @@ func NewPolicy(domain string, expires time.Time, grants []Grant) (*Policy, error
 		}
 		if g.Port == 0 {
 			return nil, errors.New("invalid destination port")
+		}
+		if _, exists := p.grants[g]; exists {
+			return nil, errors.New("duplicate network grant")
 		}
 		p.grants[g] = struct{}{}
 	}
