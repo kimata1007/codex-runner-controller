@@ -24,8 +24,10 @@ const (
 )
 
 type certificateRequest struct {
-	PodUID types.UID `json:"podUID,omitempty"`
-	CSR    []byte    `json:"csr"`
+	PodUID    types.UID `json:"podUID,omitempty"`
+	Namespace string    `json:"namespace,omitempty"`
+	PodName   string    `json:"podName,omitempty"`
+	CSR       []byte    `json:"csr"`
 }
 
 type certificateResponse struct {
@@ -36,12 +38,13 @@ type issuerHTTP struct {
 	ca       CAFiles
 	nodes    NodeAuthenticator
 	policies PolicyStore
+	trusted  TrustedWorkloads
 	limit    *rate.Limiter
 	slots    chan struct{}
 }
 
-func NewIssuerHandler(ca CAFiles, nodes NodeAuthenticator, policies PolicyStore) http.Handler {
-	h := &issuerHTTP{ca: ca, nodes: nodes, policies: policies, limit: rate.NewLimiter(40, 60), slots: make(chan struct{}, 32)}
+func NewIssuerHandler(ca CAFiles, nodes NodeAuthenticator, policies PolicyStore, trusted TrustedWorkloads) http.Handler {
+	h := &issuerHTTP{ca: ca, nodes: nodes, policies: policies, trusted: trusted, limit: rate.NewLimiter(40, 60), slots: make(chan struct{}, 32)}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST "+issuancePath, h.issue)
 	mux.HandleFunc("GET "+trustBundlePath, h.bundle)
@@ -119,6 +122,15 @@ func (h *issuerHTTP) issue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	attest := func(ctx context.Context) (Attestation, error) {
+		if request.Namespace != "" || request.PodName != "" {
+			workload, err := h.trusted.Lookup(ctx, PodReference{Namespace: request.Namespace, Name: request.PodName, UID: request.PodUID})
+			if err != nil || workload.Pod.Spec.NodeName != node.name ||
+				!liveNode(ctx, h.trusted.Reader, node.name, node.uid) {
+				return Attestation{}, ErrAttestationDenied
+			}
+			destination = workload.Binding.Identity
+			return Attestation{Identity: destination}, nil
+		}
 		if request.PodUID == "" {
 			destination = source
 			return Attestation{Identity: source}, nil

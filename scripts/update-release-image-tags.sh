@@ -12,5 +12,6 @@ perl -0pi -e 's{(ghcr\.io/kimata1007/codex-runner-(?:api|controller|agent|pwa):)
   config/manager/deployment.yaml \
   config/web/deployment.yaml
 
-perl -0pi -e 's{(ghcr\.io/kimata1007/codex-identity-issuer:)v[0-9]+\.[0-9]+\.[0-9]+}{$1$ENV{TAGPR_NEXT_VERSION}}g' \
-  config/identity-issuer/deployment.yaml
+perl -0pi -e 's{(ghcr\.io/kimata1007/codex-(?:identity-issuer|node-proxy):)v[0-9]+\.[0-9]+\.[0-9]+}{$1$ENV{TAGPR_NEXT_VERSION}}g' \
+  config/identity-issuer/deployment.yaml \
+  config/node-proxy/daemonset.yaml

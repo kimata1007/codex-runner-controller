@@ -58,7 +58,8 @@ func (s PolicyStore) Lookup(ctx context.Context, podUID types.UID, now time.Time
 	grants := make([]Grant, 0, len(spec.Grants))
 	for _, grant := range spec.Grants {
 		source, destination := Identity(grant.Source), Identity(grant.Destination)
-		if grant.Protocol != "tcp" || (source == id) == (destination == id) {
+		session, ok := topologySession(s.Domain, source, destination, grant.Port)
+		if grant.Protocol != "tcp" || !ok || session != id {
 			return SessionAuthorization{}, ErrPolicyDenied
 		}
 		grants = append(grants, Grant{Source: source, Destination: destination, Port: grant.Port})
@@ -110,14 +111,23 @@ func runningPod(pod *corev1.Pod) bool {
 }
 
 func liveNode(ctx context.Context, reader client.Reader, name string, uid types.UID) bool {
+	_, ok := readLiveNode(ctx, reader, name, uid)
+	return ok
+}
+
+func readLiveNode(ctx context.Context, reader client.Reader, name string, uid types.UID) (corev1.Node, bool) {
 	var node corev1.Node
-	if err := reader.Get(ctx, client.ObjectKey{Name: name}, &node); err != nil || node.UID != uid || node.DeletionTimestamp != nil {
-		return false
+	if name == "" || reader == nil {
+		return node, false
+	}
+	if err := reader.Get(ctx, client.ObjectKey{Name: name}, &node); err != nil || node.UID == "" ||
+		(uid != "" && node.UID != uid) || node.DeletionTimestamp != nil {
+		return node, false
 	}
 	for _, condition := range node.Status.Conditions {
 		if condition.Type == corev1.NodeReady {
-			return condition.Status == corev1.ConditionTrue
+			return node, condition.Status == corev1.ConditionTrue
 		}
 	}
-	return false
+	return node, false
 }

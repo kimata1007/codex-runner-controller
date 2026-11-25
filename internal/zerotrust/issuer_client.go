@@ -68,10 +68,19 @@ func (c *IssuerClient) TrustBundle(ctx context.Context) (*x509.CertPool, error) 
 // Issue creates a key locally and verifies the returned certificate against
 // the independently obtained trust bundle and the exact expected identity.
 func (c *IssuerClient) Issue(ctx context.Context, podUID types.UID, expected Identity) (tls.Certificate, error) {
+	return c.IssueForBinding(ctx, CertificateBinding{PodUID: podUID, Identity: expected})
+}
+
+func (c *IssuerClient) IssueForBinding(ctx context.Context, binding CertificateBinding) (tls.Certificate, error) {
+	podUID, expected := binding.PodUID, binding.Identity
 	if _, err := ParseIdentity(string(expected), c.domain); err != nil {
 		return tls.Certificate{}, err
 	}
-	if podUID != "" && !strings.HasSuffix(string(expected), "/pod/"+string(podUID)) {
+	trusted := binding.Namespace != "" && binding.PodName != ""
+	if (binding.Namespace == "") != (binding.PodName == "") || (trusted && podUID == "") {
+		return tls.Certificate{}, errors.New("incomplete workload binding")
+	}
+	if podUID != "" && !trusted && !strings.HasSuffix(string(expected), "/pod/"+string(podUID)) {
 		return tls.Certificate{}, errors.New("expected identity does not match Pod UID")
 	}
 	if podUID == "" && !strings.HasPrefix(string(expected), "spiffe://"+c.domain+"/node/") {
@@ -85,7 +94,7 @@ func (c *IssuerClient) Issue(ctx context.Context, podUID types.UID, expected Ide
 	if err != nil {
 		return tls.Certificate{}, err
 	}
-	data, err := json.Marshal(certificateRequest{PodUID: podUID, CSR: csr})
+	data, err := json.Marshal(certificateRequest{PodUID: podUID, Namespace: binding.Namespace, PodName: binding.PodName, CSR: csr})
 	if err != nil {
 		return tls.Certificate{}, err
 	}

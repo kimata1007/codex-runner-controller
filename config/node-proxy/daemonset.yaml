@@ -1,0 +1,95 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: codex-node-proxy
+  namespace: codex-security
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: codex-node-proxy
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: codex-node-proxy
+    spec:
+      serviceAccountName: codex-node-proxy
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      nodeSelector:
+        kubernetes.io/os: linux
+      securityContext:
+        seccompProfile: {type: RuntimeDefault}
+      initContainers:
+        - name: install-cni
+          image: ghcr.io/kimata1007/codex-node-proxy:v0.0.18
+          imagePullPolicy: IfNotPresent
+          args: ["-install-cni=/host-cni-config/10-kindnet.conflist"]
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+              add: [CHOWN, DAC_OVERRIDE, FOWNER, FSETID]
+          volumeMounts:
+            - {name: cni-config, mountPath: /host-cni-config}
+            - {name: cni-bin, mountPath: /host-cni-bin}
+            - {name: cni-state, mountPath: /run/codex-cni}
+            - {name: private-sockets, mountPath: /run/codex-node}
+      containers:
+        - name: node-proxy
+          image: ghcr.io/kimata1007/codex-node-proxy:v0.0.18
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 65532
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+              add: [NET_ADMIN]
+          env:
+            - name: POD_HOST_IP
+              valueFrom:
+                fieldRef: {fieldPath: status.hostIP}
+            - name: POD_NODE_NAME
+              valueFrom:
+                fieldRef: {fieldPath: spec.nodeName}
+          ports:
+            - {name: peer, containerPort: 9443, protocol: TCP}
+          readinessProbe:
+            tcpSocket: {port: peer}
+          resources:
+            requests: {cpu: 100m, memory: 64Mi}
+            limits: {cpu: "1", memory: 384Mi}
+          volumeMounts:
+            - {name: cni-state, mountPath: /run/codex-cni, readOnly: true}
+            - {name: private-sockets, mountPath: /run/codex-node}
+            - {name: issuer-trust, mountPath: /var/run/codex/issuer-trust, readOnly: true}
+            - {name: issuer-token, mountPath: /var/run/codex/issuer-token, readOnly: true}
+            - name: netns
+              mountPath: /var/run/netns
+              readOnly: true
+              mountPropagation: HostToContainer
+      volumes:
+        - name: cni-config
+          hostPath: {path: /etc/cni/net.d, type: Directory}
+        - name: cni-bin
+          hostPath: {path: /opt/cni/bin, type: Directory}
+        - name: cni-state
+          hostPath: {path: /run/codex-cni, type: DirectoryOrCreate}
+        - name: netns
+          hostPath: {path: /var/run/netns, type: DirectoryOrCreate}
+        - name: private-sockets
+          hostPath: {path: /run/codex-node, type: DirectoryOrCreate}
+        - name: issuer-trust
+          configMap:
+            name: codex-identity-issuer-trust
+        - name: issuer-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  path: token
+                  audience: codexrunner.io/identity-issuer
+                  expirationSeconds: 600

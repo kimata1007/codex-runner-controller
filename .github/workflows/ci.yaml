@@ -58,10 +58,12 @@ jobs:
         run: |
           kubectl kustomize config > /tmp/codex-runner-manifests.yaml
           kubectl kustomize config/identity-issuer > /tmp/codex-identity-issuer-manifests.yaml
+          kubectl kustomize config/node-proxy > /tmp/codex-node-proxy-manifests.yaml
       - name: Validate YAML is non-empty
         run: |
           test -s /tmp/codex-runner-manifests.yaml
           test -s /tmp/codex-identity-issuer-manifests.yaml
+          test -s /tmp/codex-node-proxy-manifests.yaml
 
   container-images:
     runs-on: ubuntu-24.04
@@ -79,6 +81,8 @@ jobs:
             dockerfile: Dockerfile.runner-pwa
           - name: identity-issuer
             dockerfile: Dockerfile.identity-issuer
+          - name: node-proxy
+            dockerfile: Dockerfile.node-proxy
     steps:
       - name: Check out
         uses: actions/checkout@v7.0.1

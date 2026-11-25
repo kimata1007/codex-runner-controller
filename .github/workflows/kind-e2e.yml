@@ -53,7 +53,7 @@ jobs:
           retention-days: 7
 
   identity-e2e:
-    name: Kubernetes identity issuance
+    name: Kubernetes identity and transport
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
@@ -71,12 +71,18 @@ jobs:
       - name: Build and load the image
         run: |
           docker build -f Dockerfile.identity-issuer -t local/codex-identity-issuer:e2e .
-          kind load docker-image --name codex-identity local/codex-identity-issuer:e2e
+          docker build -f Dockerfile.node-proxy -t local/codex-node-proxy:e2e .
+          docker build -f tests/e2e/transport/fixture/Dockerfile -t local/codex-transport-fixture:e2e .
+          kind load docker-image --name codex-identity \
+            local/codex-identity-issuer:e2e local/codex-node-proxy:e2e local/codex-transport-fixture:e2e
       - name: Verify node attestation and policy revocation
         run: bash tests/e2e/identity/run.sh
+      - name: Verify socket-attributed routes and fail-closed networking
+        run: bash tests/e2e/transport/run.sh
       - name: Collect Kubernetes diagnostics
         if: failure()
         run: |
           kubectl -n codex-security get pods -o wide
           kubectl -n codex-security logs deployment/codex-identity-issuer --all-pods=true || true
+          kubectl -n codex-security logs daemonset/codex-node-proxy --all-pods=true || true
           kubectl -n codex-sessions get events --sort-by=.lastTimestamp
