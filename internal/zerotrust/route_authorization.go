@@ -4,8 +4,6 @@ import (
 	"context"
 	"strings"
 	"time"
-
-	"k8s.io/apimachinery/pkg/types"
 )
 
 const (
@@ -25,13 +23,8 @@ func (s PolicyStore) AuthorizeRoute(ctx context.Context, source, destination Ide
 	if !ok {
 		return RoutePermission{}, ErrPolicyDenied
 	}
-	_, uid, ok := strings.Cut(string(session), "/pod/")
-	if !ok {
-		return RoutePermission{}, ErrPolicyDenied
-	}
-	now := time.Now()
-	record, err := s.Lookup(ctx, types.UID(uid), now)
-	if err != nil || record.Identity != session || !record.Policy.Allows(source, destination, port, time.Now()) {
+	record, err := s.Session(ctx, session)
+	if err != nil || !record.Policy.Allows(source, destination, port, time.Now()) {
 		return RoutePermission{}, ErrPolicyDenied
 	}
 	return RoutePermission{Version: record.Version, ExpiresAt: record.Expires}, nil

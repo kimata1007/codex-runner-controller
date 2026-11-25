@@ -3,6 +3,7 @@ package zerotrust
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	v1alpha1 "github.com/kimata1007/codex-runner-controller/api/v1alpha1"
@@ -32,6 +33,22 @@ type SessionAuthorization struct {
 	Version  int64
 	Expires  time.Time
 	Policy   *Policy
+	Model    *v1alpha1.ModelPolicy
+}
+
+func (s PolicyStore) Session(ctx context.Context, identity Identity) (SessionAuthorization, error) {
+	if _, err := ParseIdentity(string(identity), s.Domain); err != nil {
+		return SessionAuthorization{}, ErrPolicyDenied
+	}
+	_, uid, ok := strings.Cut(string(identity), "/pod/")
+	if !ok {
+		return SessionAuthorization{}, ErrPolicyDenied
+	}
+	record, err := s.Lookup(ctx, types.UID(uid), time.Now())
+	if err != nil || record.Identity != identity {
+		return SessionAuthorization{}, ErrPolicyDenied
+	}
+	return record, nil
 }
 
 func (s PolicyStore) Lookup(ctx context.Context, podUID types.UID, now time.Time) (SessionAuthorization, error) {
@@ -68,7 +85,7 @@ func (s PolicyStore) Lookup(ctx context.Context, podUID types.UID, now time.Time
 	if err != nil || !s.liveWorkload(ctx, w) {
 		return SessionAuthorization{}, ErrPolicyDenied
 	}
-	return SessionAuthorization{Identity: id, Workload: w, Version: spec.Version, Expires: spec.ExpiresAt.Time, Policy: policy}, nil
+	return SessionAuthorization{Identity: id, Workload: w, Version: spec.Version, Expires: spec.ExpiresAt.Time, Policy: policy, Model: spec.Model}, nil
 }
 
 func (s PolicyStore) liveWorkload(ctx context.Context, w v1alpha1.SessionWorkload) bool {
