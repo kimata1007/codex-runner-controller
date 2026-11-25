@@ -52,6 +52,7 @@ spec:
     spec:
       nodeName: $sink_node
       serviceAccountName: $name
+      securityContext: {runAsUser: 65532, runAsGroup: 65532, runAsNonRoot: true}
       containers:
         - name: fixture
           image: local/codex-transport-fixture:e2e
