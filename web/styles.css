@@ -381,3 +381,13 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .history-options:focus-visible, .history-delete-action:focus-visible, .topbar-delete:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 
 
+
+.output-block { min-width: 0; margin: 0 0 12px; overflow-x: auto; }
+.output-block pre { background: #f0f1ee; padding: 12px; border-radius: 8px; overflow: auto; white-space: pre; font-size: 13px; }
+.output-block code { font-family: ui-monospace, monospace; }
+.output-block table { border-collapse: collapse; font-size: 14px; }
+.output-block th, .output-block td { border: 1px solid #d9dad5; padding: 6px 10px; }
+.output-block img { max-width: 100%; height: auto; }
+.output-block .diff-add { color: #166534; background: #dcfce7; }
+.output-block .diff-remove { color: #991b1b; background: #fee2e2; }
+.output-chart { width: 100%; max-width: 720px; }
