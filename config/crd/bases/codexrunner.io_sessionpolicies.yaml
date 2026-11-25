@@ -49,6 +49,18 @@ spec:
                 version: {type: integer, format: int64, minimum: 1}
                 expiresAt: {type: string, format: date-time}
                 revoked: {type: boolean}
+                web:
+                  type: object
+                  required: [fetch, search, registries, requestsPerMinute]
+                  properties:
+                    fetch: {type: boolean}
+                    search: {type: boolean}
+                    requestsPerMinute: {type: integer, format: int64, minimum: 1, maximum: 600}
+                    registries:
+                      type: array
+                      x-kubernetes-list-type: set
+                      maxItems: 3
+                      items: {type: string, enum: [go, npm, pypi]}
                 model:
                   type: object
                   required: [budgetMicros, requestsPerMinute, models]

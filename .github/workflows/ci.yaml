@@ -60,12 +60,14 @@ jobs:
           kubectl kustomize config/identity-issuer > /tmp/codex-identity-issuer-manifests.yaml
           kubectl kustomize config/node-proxy > /tmp/codex-node-proxy-manifests.yaml
           kubectl kustomize config/model-proxy > /tmp/codex-model-proxy-manifests.yaml
+          kubectl kustomize config/web-proxy > /tmp/codex-web-proxy-manifests.yaml
       - name: Validate YAML is non-empty
         run: |
           test -s /tmp/codex-runner-manifests.yaml
           test -s /tmp/codex-identity-issuer-manifests.yaml
           test -s /tmp/codex-node-proxy-manifests.yaml
           test -s /tmp/codex-model-proxy-manifests.yaml
+          test -s /tmp/codex-web-proxy-manifests.yaml
 
   container-images:
     runs-on: ubuntu-24.04
@@ -87,6 +89,8 @@ jobs:
             dockerfile: Dockerfile.node-proxy
           - name: model-proxy
             dockerfile: Dockerfile.model-proxy
+          - name: web-proxy
+            dockerfile: Dockerfile.web-proxy
     steps:
       - name: Check out
         uses: actions/checkout@v7.0.1

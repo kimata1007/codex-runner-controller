@@ -23,6 +23,14 @@ type SessionPolicySpec struct {
 	Revoked   bool            `json:"revoked"`
 	Grants    []NetworkGrant  `json:"grants"`
 	Model     *ModelPolicy    `json:"model,omitempty"`
+	Web       *WebPolicy      `json:"web,omitempty"`
+}
+
+type WebPolicy struct {
+	Fetch             bool     `json:"fetch"`
+	Search            bool     `json:"search"`
+	Registries        []string `json:"registries"`
+	RequestsPerMinute int64    `json:"requestsPerMinute"`
 }
 
 type ModelPolicy struct {
@@ -72,6 +80,11 @@ func (in *SessionPolicy) DeepCopyObject() runtime.Object {
 	*out = *in
 	in.ObjectMeta.DeepCopyInto(&out.ObjectMeta)
 	out.Spec.Grants = slices.Clone(in.Spec.Grants)
+	if in.Spec.Web != nil {
+		web := *in.Spec.Web
+		web.Registries = slices.Clone(web.Registries)
+		out.Spec.Web = &web
+	}
 	if in.Spec.Model != nil {
 		model := *in.Spec.Model
 		model.Models = slices.Clone(model.Models)
