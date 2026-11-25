@@ -23,6 +23,7 @@ kubectl -n codex-security rollout status daemonset/codex-node-proxy --timeout=12
 nodes="$(kubectl get nodes -l '!node-role.kubernetes.io/control-plane' -o json | jq -r '[.items[].metadata.name] | sort | join(" ")')"
 read -r source_node sink_node _ <<<"$nodes"
 [[ -n "$source_node" && -n "$sink_node" ]]
+bash scripts/render-node-proxy-network-policy.sh "$source_node" "$sink_node" | kubectl apply -f -
 node_uid="$(kubectl get node "$source_node" -o jsonpath='{.metadata.uid}')"
 node_ip="$(kubectl get node "$source_node" -o json | jq -r '.status.addresses[] | select(.type == "InternalIP") | .address')"
 api_ip="$(kubectl -n default get service kubernetes -o jsonpath='{.spec.clusterIP}')"

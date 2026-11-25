@@ -52,9 +52,15 @@ func (a Attachment) Install() error {
 		proxy = append(proxy, ipv4Address(16, a.HostIP)...)
 		proxy = append(proxy, tcpPort(2, route.HostPort)...)
 		proxy = append(proxy, maskedConnection(expr.CtKeySTATUS, destinationNAT)...)
-		proxy = append(proxy, &expr.Socket{Key: expr.SocketKeyMark, Register: 1},
-			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: native32(SocketMark)}, verdict(expr.VerdictAccept))
-		addRule(conn, table, input, proxy)
+		established := append(append([]expr.Any(nil), proxy...), maskedConnection(expr.CtKeySTATE, expr.CtStateBitESTABLISHED)...)
+		established = append(established, &expr.Ct{Key: expr.CtKeyMARK, Register: 1},
+			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: native32(ProxyFlowMark)}, verdict(expr.VerdictAccept))
+		addRule(conn, table, input, established)
+		first := append(proxy, &expr.Socket{Key: expr.SocketKeyMark, Register: 1},
+			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: native32(SocketMark)},
+			&expr.Immediate{Register: 1, Data: native32(ProxyFlowMark)},
+			&expr.Ct{Key: expr.CtKeyMARK, Register: 1, SourceRegister: true}, verdict(expr.VerdictAccept))
+		addRule(conn, table, input, first)
 	}
 
 	reply := append(a.fromPod(), &expr.Ct{Key: expr.CtKeyMARK, Register: 1},
@@ -91,7 +97,7 @@ func CheckFirewall(generation string) error {
 	if table == nil {
 		return errors.New("session firewall is unavailable")
 	}
-	for name, minimum := range map[string]int{"route": 3, "in": 5, "out": 3, "forward": 2} {
+	for name, minimum := range map[string]int{"route": 3, "in": 8, "out": 3, "forward": 2} {
 		chain, err := conn.ListChain(table, name)
 		if err != nil {
 			return err

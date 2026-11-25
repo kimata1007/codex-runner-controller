@@ -13,6 +13,8 @@ Node Proxy は Linux ノード上の DaemonSet として動作する。`config/n
 
 Runner API と各サービス Proxy は、対応するソケットへのアクセスに `runAsGroup: 65532` を使用する。Node Proxy のカーネル操作には `NET_ADMIN` を使用する。
 
+Kindnet のように DNAT 後の宛先を検査する CNI では、`scripts/render-node-proxy-network-policy.sh` に実行対象ノード名を渡し、生成した NetworkPolicy を適用する。対象ノードの IPv4 InternalIP と専用 TCP ポートのみを許可する。ノードの増減や InternalIP の変更時は再生成する。
+
 Session Pod の送信元は CNI が記録した Pod UID、peer veth とネットワーク名前空間で特定する。Node Proxy がバインドしたソケットだけをカーネルが許可する。Session からの IPv6 と UDP は遮断する。IPv4 の外部取得は各サービス Proxy を使う。
 
 Pod 停止時は veth を先に撤去してからフィルターを削除する。Node Proxy 自体の停止中はフィルターが残る。Node Proxy はフィルターが失われたことを検出した場合に該当 veth を撤去する。

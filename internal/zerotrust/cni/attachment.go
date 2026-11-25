@@ -18,6 +18,7 @@ const (
 	StateDirectory   = "/run/codex-cni"
 	SocketMark       = 0xc0de0101
 	ControlReplyMark = 0xc0de0102
+	ProxyFlowMark    = 0xc0de0103
 	ProxyUID         = 0
 	SocketGroup      = 65532
 )
