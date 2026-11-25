@@ -10,5 +10,5 @@ resources:
   - manager
   - api
   - auth-broker
-  - libsql
+  - postgres
   - web
