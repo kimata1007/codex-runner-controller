@@ -101,16 +101,16 @@ func (c *Client) Exec(ctx context.Context, query string, values []Value, wantRow
 			row := make([]Value, len(raw))
 			for i, v := range raw {
 				switch x := v.(type) {
-			case nil:
-				row[i] = Null()
-			case int64:
-				row[i] = Integer(x)
-			case []byte:
-				row[i] = Text(string(x))
-			case time.Time:
-				row[i] = Text(x.UTC().Format(time.RFC3339Nano))
-			default:
-				row[i] = Text(fmt.Sprint(x))
+				case nil:
+					row[i] = Null()
+				case int64:
+					row[i] = Integer(x)
+				case []byte:
+					row[i] = Text(string(x))
+				case time.Time:
+					row[i] = Text(x.UTC().Format(time.RFC3339Nano))
+				default:
+					row[i] = Text(fmt.Sprint(x))
 				}
 			}
 			result.Rows = append(result.Rows, row)
