@@ -8,20 +8,13 @@ import (
 	"crypto/x509"
 	"errors"
 	"math/big"
+	"net/url"
 	"testing"
 	"time"
 )
 
-type testAttestor struct {
-	err error
-}
-
-func (a testAttestor) AuthorizeCertificate(context.Context, Identity) error {
-	return a.err
-}
-
-func TestIssuer(t *testing.T) {
-	now := time.Now().Truncate(time.Second)
+func makeTestCA(t *testing.T, now time.Time) (*x509.Certificate, *ecdsa.PrivateKey) {
+	t.Helper()
 	caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		t.Fatal(err)
@@ -42,17 +35,36 @@ func TestIssuer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	return ca, caKey
+}
+
+func makeTestCSR(t *testing.T) ([]byte, *ecdsa.PrivateKey) {
+	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		t.Fatal(err)
 	}
-	csr, err := x509.CreateCertificateRequest(rand.Reader, &x509.CertificateRequest{}, key)
+	claimed, err := url.Parse("spiffe://codex.local/system/runner-api")
 	if err != nil {
 		t.Fatal(err)
 	}
+	csr, err := x509.CreateCertificateRequest(rand.Reader, &x509.CertificateRequest{URIs: []*url.URL{claimed}}, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return csr, key
+}
+
+func TestIssuer(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	ca, caKey := makeTestCA(t, now)
+	csr, _ := makeTestCSR(t)
 	id := Identity("spiffe://codex.local/session/test/pod/uid-1")
-	issuer := Issuer{Domain: "codex.local", CA: ca, Signer: caKey, Attestor: testAttestor{}}
-	der, err := issuer.Issue(context.Background(), id, csr, now)
+	issuer := Issuer{Domain: "codex.local", CA: ca, Signer: caKey}
+	attest := func(context.Context) (Attestation, error) {
+		return Attestation{Identity: id, Deadline: now.Add(time.Minute)}, nil
+	}
+	der, err := issuer.Issue(context.Background(), attest, csr, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,18 +72,21 @@ func TestIssuer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(leaf.URIs) != 1 || leaf.URIs[0].String() != string(id) || leaf.NotAfter.After(now.Add(5*time.Minute)) || leaf.IsCA {
+	if len(leaf.URIs) != 1 || leaf.URIs[0].String() != string(id) || !leaf.NotAfter.Equal(now.Add(time.Minute)) || leaf.IsCA {
 		t.Fatal("unexpected issued certificate")
 	}
 	if err := leaf.CheckSignatureFrom(ca); err != nil {
 		t.Fatal(err)
 	}
-	issuer.Attestor = testAttestor{err: errors.New("denied")}
-	if _, err := issuer.Issue(context.Background(), id, csr, now); err == nil {
+	deny := func(context.Context) (Attestation, error) { return Attestation{}, errors.New("denied") }
+	if _, err := issuer.Issue(context.Background(), deny, csr, now); !errors.Is(err, ErrAttestationDenied) {
 		t.Fatal("issued certificate without attestation")
 	}
-	issuer.Attestor = nil
-	if _, err := issuer.Issue(context.Background(), id, csr, now); err == nil {
+	if _, err := issuer.Issue(context.Background(), nil, csr, now); err == nil {
 		t.Fatal("issued certificate without attestor")
+	}
+	csr[len(csr)-1] ^= 1
+	if _, err := issuer.Issue(context.Background(), attest, csr, now); !errors.Is(err, ErrInvalidCSR) {
+		t.Fatal("accepted invalid CSR signature")
 	}
 }
