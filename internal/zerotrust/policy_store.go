@@ -35,6 +35,7 @@ type SessionAuthorization struct {
 	Policy   *Policy
 	Model    *v1alpha1.ModelPolicy
 	Web      *v1alpha1.WebPolicy
+	GitHub   *v1alpha1.GitHubPolicy
 }
 
 func (s PolicyStore) Session(ctx context.Context, identity Identity) (SessionAuthorization, error) {
@@ -86,7 +87,8 @@ func (s PolicyStore) Lookup(ctx context.Context, podUID types.UID, now time.Time
 	if err != nil || !s.liveWorkload(ctx, w) {
 		return SessionAuthorization{}, ErrPolicyDenied
 	}
-	return SessionAuthorization{Identity: id, Workload: w, Version: spec.Version, Expires: spec.ExpiresAt.Time, Policy: policy, Model: spec.Model, Web: spec.Web}, nil
+	return SessionAuthorization{Identity: id, Workload: w, Version: spec.Version, Expires: spec.ExpiresAt.Time, Policy: policy,
+		Model: spec.Model, Web: spec.Web, GitHub: spec.GitHub}, nil
 }
 
 func (s PolicyStore) liveWorkload(ctx context.Context, w v1alpha1.SessionWorkload) bool {
