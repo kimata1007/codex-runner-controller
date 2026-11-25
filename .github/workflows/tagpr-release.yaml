@@ -50,6 +50,8 @@ jobs:
             dockerfile: Dockerfile.runner-pwa
           - name: identity-issuer
             dockerfile: Dockerfile.identity-issuer
+          - name: node-proxy
+            dockerfile: Dockerfile.node-proxy
     steps:
       - name: Check out release tag
         uses: actions/checkout@v7.0.1
