@@ -1,3 +1,4 @@
+import {OutputRenderer} from './output-renderer.js';
 const state = {
   conversationID: new URL(location.href).searchParams.get('conversation') || localStorage.getItem('codex.currentConversation') || '',
   repository: readStoredRepository(),
@@ -403,13 +404,14 @@ function renderHistory(conversations) {
 function addMessage(role, content) {
   const item = document.createElement('li');
   item.className = `message ${role === 'user' ? 'user' : 'assistant'}`;
-  const paragraph = document.createElement('p');
-  paragraph.textContent = content;
+  const paragraph = document.createElement(role === 'user' ? 'p' : 'div');
+  const renderer = role === 'user' ? null : new OutputRenderer(paragraph);
+  if (renderer) renderer.render(content); else paragraph.textContent = content;
   item.append(paragraph);
   elements.messages.append(item);
   elements.emptyState.hidden = true;
   scrollTranscriptToEnd();
-  return {item, paragraph};
+  return {item, paragraph, renderer, source: content};
 }
 
 function addApproval(runID, payload) {
@@ -729,7 +731,8 @@ async function readRunEvents(runID, assistantMessage, progress, options) {
         if (['agentmessage/delta', 'item/agentmessage/delta', 'item/agent_message/delta'].includes(eventType.toLowerCase())) {
           const text = payload.delta || payload.text || payload.content;
           if (typeof text === 'string' && text) {
-            assistantMessage.paragraph.textContent += text;
+            assistantMessage.source += text;
+            assistantMessage.renderer.render(assistantMessage.source);
             scrollTranscriptToEnd();
           }
         }
@@ -861,6 +864,11 @@ async function sendMessage(event) {
       const title = [...content];
       elements.conversationTitle.textContent = title.length > 48 ? `${title.slice(0, 48).join('')}…` : content;
     }
+    if (result.queued) {
+      await waitForQueuedMessage(state.conversationID, result.message.id);
+      await loadConversationList();
+      return;
+    }
     if (!result.run) {
       setStatus('');
       await loadConversationList();
@@ -892,6 +900,30 @@ async function sendMessage(event) {
   } finally {
     state.sending = false;
     elements.sendButton.disabled = false;
+  }
+}
+
+async function waitForQueuedMessage(conversationID, messageID) {
+  setStatus('前の返信が終わるまで順番待ちしています…', 'working');
+  while (state.conversationID === conversationID) {
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    let result;
+    try {
+      result = await request(`/v1/conversations/${encodeURIComponent(conversationID)}/messages`);
+    } catch (_) {
+      setStatus('順番待ちの状態を確認しています…', 'working');
+      continue;
+    }
+    const message = (result.messages || []).find((item) => item.id === messageID);
+    if (!message || message.status === 'queued') continue;
+    if (message.status === 'running') {
+      setStatus('応答中…', 'working');
+      continue;
+    }
+    await openConversation(conversationID);
+    if (message.status === 'completed') setStatus('完了');
+    else setStatus('実行に失敗しました', 'error');
+    return;
   }
 }
 

@@ -21,3 +21,5 @@ Content-Type: application/json
 `threadId`が空の場合は、libSQLに保存された会話の最新threadがあれば再開し、なければ新しいthreadを作成します。既存のclient message IDを再送した場合は、二重実行を避けるため保存済みメッセージを返します。
 
 Kubernetes構成では、メッセージ保存後にCodexSessionをActiveへ戻し、SessionActivatorがrunner PodのReadyを待ってからrunを開始します。App ServerイベントはlibSQLとSSEへ保存・配信されます。
+
+同じ会話でrunが実行中または承認待ちの場合、メッセージは`queued`として受け付け、`202 Accepted`と`queued: true`を返します。Runner APIは会話内のsequence順に1件ずつclaimして実行します。前のrunが完了すると次のメッセージを開始し、API起動時にもlibSQL上のqueuedメッセージを確認するため、待機中にRunner APIが再起動してもメッセージは保持されます。
