@@ -3,6 +3,7 @@ module github.com/kimata1007/codex-runner-controller
 go 1.24.0
 
 require (
+	github.com/lib/pq v1.10.9
 	github.com/go-logr/logr v1.4.3
 	github.com/labstack/echo/v4 v4.13.4
 	go.opentelemetry.io/otel v1.41.0
