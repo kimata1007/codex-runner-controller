@@ -623,7 +623,82 @@ async function createConversation() {
   return result;
 }
 
+function createRunProgress(assistantMessage) {
+  const panel = document.createElement('details');
+  panel.className = 'run-progress';
+  const heading = document.createElement('summary');
+  heading.textContent = '作業の途中経過';
+  const entries = document.createElement('ol');
+  panel.append(heading, entries);
+  const items = new Map();
+  const labels = {
+    commandExecution: ['コマンドを実行中', 'コマンドの実行が終了'],
+    fileChange: ['ファイルを変更中', 'ファイルの変更処理が終了'],
+    webSearch: ['ウェブを検索中', 'ウェブ検索が終了'],
+    mcpToolCall: ['ツールを実行中', 'ツールの実行が終了'],
+  };
+
+  function entry(id) {
+    if (!items.has(id)) {
+      const row = document.createElement('li');
+      items.set(id, row);
+      entries.append(row);
+      if (!panel.parentNode) {
+        panel.open = true;
+        assistantMessage.paragraph.before(panel);
+      }
+    }
+    return items.get(id);
+  }
+
+  return {
+    update(eventType, payload) {
+      if (eventType === 'item/reasoning/summaryTextDelta') {
+        const {itemId, summaryIndex, delta} = payload;
+        if (typeof itemId !== 'string' || !Number.isSafeInteger(summaryIndex) ||
+            summaryIndex < 0 || typeof delta !== 'string' || !delta) return;
+        const row = entry(itemId);
+        let part = [...row.children].find((child) => Number(child.dataset.index) >= summaryIndex);
+        if (!part || Number(part.dataset.index) !== summaryIndex) {
+          const paragraph = document.createElement('p');
+          paragraph.dataset.index = summaryIndex;
+          row.insertBefore(paragraph, part || null);
+          part = paragraph;
+        }
+        part.textContent += delta;
+        return;
+      }
+      if (eventType !== 'item/started' && eventType !== 'item/completed') return;
+      const item = payload.item;
+      if (typeof item?.id !== 'string') return;
+      const completed = eventType === 'item/completed';
+      if (item.type === 'reasoning' && completed && Array.isArray(item.summary)) {
+        const summaries = item.summary.filter((part) => typeof part === 'string' && part.trim());
+        if (summaries.length) {
+          entry(item.id).replaceChildren(...summaries.map((text) => {
+            const paragraph = document.createElement('p');
+            paragraph.textContent = text;
+            return paragraph;
+          }));
+        }
+      } else if (Object.hasOwn(labels, item.type)) {
+        entry(item.id).textContent = labels[item.type][Number(completed)];
+      }
+    },
+    finish() {
+      panel.open = false;
+    },
+  };
+}
+
 async function streamEvents(runID, assistantMessage, options = {}) {
+  const progress = createRunProgress(assistantMessage);
+  const outcome = await readRunEvents(runID, assistantMessage, progress, options);
+  if (outcome !== 'unknown') progress.finish();
+  return outcome;
+}
+
+async function readRunEvents(runID, assistantMessage, progress, options) {
   const response = await fetch(`/v1/runs/${encodeURIComponent(runID)}/events`, {credentials: 'same-origin', ...options});
   if (!response.ok || !response.body) throw new Error(`イベントを受信できませんでした（${response.status}）`);
   const reader = response.body.getReader();
@@ -635,25 +710,31 @@ async function streamEvents(runID, assistantMessage, options = {}) {
     const chunks = buffer.split('\n\n');
     buffer = chunks.pop() || '';
     for (const chunk of chunks) {
-      const eventType = chunk.split('\n').find((line) => line.startsWith('event: '))?.slice(7) || '';
-      const dataLines = chunk.split('\n').filter((line) => line.startsWith('data: '));
+      const lines = chunk.split('\n');
+      const eventType = lines.find((line) => line.startsWith('event: '))?.slice(7) || '';
+      const dataLines = lines.filter((line) => line.startsWith('data: '));
       let payload;
       if (dataLines.length) {
         try {
           payload = JSON.parse(dataLines.map((line) => line.slice(6)).join('\n'));
-          if (eventType === 'approval/requested') {
-            addApproval(runID, payload);
-            setStatus('承認待ち', 'working');
-            continue;
-          }
-          const text = payload.text || payload.delta || payload.content || '';
-          if (text) {
+        } catch (_) {
+          // A terminal event can still be handled when its payload is invalid.
+        }
+      }
+      if (payload && typeof payload === 'object') {
+        if (eventType === 'approval/requested') {
+          addApproval(runID, payload);
+          setStatus('承認待ち', 'working');
+          continue;
+        }
+        progress.update(eventType, payload);
+        if (['agentmessage/delta', 'item/agentmessage/delta', 'item/agent_message/delta'].includes(eventType.toLowerCase())) {
+          const text = payload.delta || payload.text || payload.content;
+          if (typeof text === 'string' && text) {
             assistantMessage.source += text;
             assistantMessage.renderer.render(assistantMessage.source);
             scrollTranscriptToEnd();
           }
-        } catch (_) {
-          // Ignore event payloads that are not user-visible JSON.
         }
       }
       if (eventType === 'turn/completed') {
