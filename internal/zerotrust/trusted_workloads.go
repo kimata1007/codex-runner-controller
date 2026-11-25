@@ -23,6 +23,21 @@ type TrustedWorkloads struct {
 	SecurityNamespace string
 }
 
+func (w TrustedWorkloads) proxyDeployment(destination Identity) (client.ObjectKey, bool) {
+	var name string
+	switch destination {
+	case Identity("spiffe://" + w.Domain + "/proxy/github"):
+		name = "codex-github-proxy"
+	case Identity("spiffe://" + w.Domain + "/proxy/web"):
+		name = "codex-web-proxy"
+	case Identity("spiffe://" + w.Domain + "/proxy/model"):
+		name = "codex-model-proxy"
+	default:
+		return client.ObjectKey{}, false
+	}
+	return client.ObjectKey{Namespace: w.SecurityNamespace, Name: name}, w.SecurityNamespace != ""
+}
+
 type TrustedWorkload struct {
 	Binding CertificateBinding
 	Pod     corev1.Pod

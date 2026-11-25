@@ -2,12 +2,14 @@ package zerotrust
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base32"
 	"errors"
 	"io"
+	"log/slog"
 	"net"
 	"strconv"
 	"strings"
@@ -35,6 +37,7 @@ type LocalTarget struct {
 	Destination CertificateBinding
 	Port        uint16
 	Connect     func(context.Context, Identity) (net.Conn, error)
+	Lifetime    context.Context
 }
 
 type RouteAuthority interface {
@@ -84,6 +87,14 @@ func (r *Relay) Inbound(ctx context.Context, transport net.Conn, resolve func(st
 	var target LocalTarget
 	var source Identity
 	var cert tls.Certificate
+	ctx, closeRoute := context.WithCancel(ctx)
+	defer closeRoute()
+	var stopWatch func() bool
+	defer func() {
+		if stopWatch != nil {
+			stopWatch()
+		}
+	}()
 	cfg := &tls.Config{
 		MinVersion: tls.VersionTLS13,
 		MaxVersion: tls.VersionTLS13,
@@ -93,6 +104,15 @@ func (r *Relay) Inbound(ctx context.Context, transport net.Conn, resolve func(st
 				return nil, ErrPolicyDenied
 			}
 			target = t
+			if target.Lifetime != nil {
+				if target.Lifetime.Err() != nil {
+					return nil, ErrPolicyDenied
+				}
+				if stopWatch != nil {
+					stopWatch()
+				}
+				stopWatch = context.AfterFunc(target.Lifetime, closeRoute)
+			}
 			roots, err := r.Roots(hello.Context())
 			if err != nil {
 				return nil, err
@@ -207,6 +227,10 @@ func (w activityWriter) Write(b []byte) (int, error) {
 }
 
 func (r *Relay) bridge(ctx context.Context, a, b net.Conn, source, destination Identity, port uint16, permit RoutePermission, certExpiry time.Time) error {
+	requestID := rand.Text()
+	attributes := []any{"request_id", requestID, "operation", "transport.relay", "source_identity", source,
+		"destination_identity", destination, "port", port, "policy_version", permit.Version}
+	slog.InfoContext(ctx, "relay authorized", append(attributes, "decision", "allow", "reason", "policy_grant")...)
 	var lastActivity atomic.Int64
 	lastActivity.Store(time.Now().UnixNano())
 	idle := r.idleTimeout
@@ -264,6 +288,7 @@ func (r *Relay) bridge(ctx context.Context, a, b net.Conn, source, destination I
 			}
 			current, err := r.allowed(ctx, source, destination, port)
 			if err != nil || current.Version < permit.Version {
+				slog.InfoContext(ctx, "relay authorization revoked", append(attributes, "decision", "deny", "reason", "policy_unavailable_or_revoked")...)
 				return ErrPolicyDenied
 			}
 			permit = current
