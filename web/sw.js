@@ -1,4 +1,4 @@
-const CACHE = 'codex-runner-shell-v13';
+const CACHE = 'codex-runner-shell-v14';
 const ASSETS = ['./', './index.html', './styles.css', './app.js', './output-parser.js', './output-renderer.js', './vendor/marked.js', './vendor/purify.js', './vendor/highlight.js', './vendor/highlight.css', './vendor/mermaid.js', './vendor/katex/katex.min.js', './vendor/katex/katex.min.css', './vendor/katex/contrib/auto-render.min.js', './vendor/chart.js', './manifest.webmanifest', './icon.svg'];
 const scope = new URL(self.registration.scope);
 const shellPaths = new Set(ASSETS.map((asset) => new URL(asset, scope).pathname));
