@@ -23,6 +23,8 @@ func (b ResourceBuilder) BuildSandboxPod(name string, spec v1alpha1.CodexSession
 		b.RunnerAuthRefreshURL != "" || b.OTLPEndpoint != "" {
 		return nil, fmt.Errorf("sandbox pod configuration contains legacy credentials or callbacks")
 	}
+	// Repo setup takes place over the authenticated control route after the Pod starts.
+	spec.Repository = nil
 	pod, err := (ResourceBuilder{RunnerImage: b.RunnerImage, RunnerServiceAccountName: name}).BuildPod(SandboxNamespace, name, spec)
 	if err != nil {
 		return nil, err
@@ -30,6 +32,7 @@ func (b ResourceBuilder) BuildSandboxPod(name string, spec v1alpha1.CodexSession
 	runtime := SandboxRuntimeClass
 	runID := int64(10001)
 	pod.Spec.RuntimeClassName = &runtime
+	pod.Spec.ReadinessGates = []corev1.PodReadinessGate{{ConditionType: v1alpha1.SandboxRouteReady}}
 	pod.Spec.EnableServiceLinks = boolPtr(false)
 	pod.Spec.SecurityContext.RunAsUser = &runID
 	pod.Spec.SecurityContext.RunAsGroup = &runID
