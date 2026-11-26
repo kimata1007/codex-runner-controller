@@ -139,6 +139,7 @@ func NewRouter(handler *Handler) *echo.Echo {
 		e.GET("/v1/conversations/:id/runs/active", handler.listActiveRuns)
 	}
 	e.POST("/v1/conversations/:id/messages", handler.createMessage)
+	e.POST("/v1/runs/:runID/interrupt", handler.interruptRun)
 	if handler.approvalResponder != nil {
 		e.POST("/v1/approvals/:runID/:requestID", handler.respondApproval)
 	}
@@ -681,4 +682,19 @@ func writeRepositoryError(c echo.Context, err error) error {
 		return writeError(c, http.StatusNotFound, "conversation not found")
 	}
 	return writeOperationalError(c, http.StatusInternalServerError, "internal server error", "repository", err)
+}
+
+func (h *Handler) interruptRun(c echo.Context) error {
+	interrupter, ok := h.dispatcher.(interface {
+		InterruptRun(context.Context, string) error
+	})
+	if !ok {
+		return writeError(c, http.StatusNotImplemented, "turn interruption is unavailable")
+	}
+	ctx, cancel := context.WithTimeout(c.Request().Context(), 15*time.Second)
+	defer cancel()
+	if err := interrupter.InterruptRun(ctx, c.Param("runID")); err != nil {
+		return writeOperationalError(c, http.StatusBadGateway, "could not interrupt run", "run_interrupt", err)
+	}
+	return writeJSON(c, http.StatusAccepted, map[string]string{"status": "accepted"})
 }
