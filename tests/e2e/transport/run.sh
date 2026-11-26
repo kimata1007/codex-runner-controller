@@ -28,13 +28,13 @@ node_uid="$(kubectl get node "$source_node" -o jsonpath='{.metadata.uid}')"
 node_ip="$(kubectl get node "$source_node" -o json | jq -r '.status.addresses[] | select(.type == "InternalIP") | .address')"
 api_ip="$(kubectl -n default get service kubernetes -o jsonpath='{.spec.clusterIP}')"
 
-for role in runner model; do
-  name=codex-runner-api
-  namespace=codex-system
-  if [[ "$role" == model ]]; then
-    name=codex-model-proxy
-    namespace=codex-security
-  fi
+for role in runner model github web; do
+  case "$role" in
+    runner) name=codex-runner-api; namespace=codex-system ;;
+    model) name=codex-model-proxy; namespace=codex-security ;;
+    github) name=codex-github-proxy; namespace=codex-security ;;
+    web) name=codex-web-proxy; namespace=codex-security ;;
+  esac
   cat <<EOF | kubectl apply -f -
 apiVersion: v1
 kind: ServiceAccount
@@ -141,6 +141,8 @@ runner connect "$api_ip:443"
 session deny "$api_ip:443"
 session deny "$node_ip:10250"
 runner deny "$pod_ip:8081"
+session deny '198.18.0.11:8080'
+session deny '198.18.0.12:8080'
 session deny '198.18.0.13:8080'
 
 expires="$(jq -nr 'now + 300 | todate')"
@@ -168,6 +170,14 @@ spec:
       destination: spiffe://codex.local/proxy/model
       protocol: tcp
       port: 8080
+    - source: $session_identity
+      destination: spiffe://codex.local/proxy/github
+      protocol: tcp
+      port: 8080
+    - source: $session_identity
+      destination: spiffe://codex.local/proxy/web
+      protocol: tcp
+      port: 8080
     - source: spiffe://codex.local/system/runner-api
       destination: $session_identity
       protocol: tcp
@@ -187,6 +197,8 @@ expect_response() {
   exit 1
 }
 expect_response 'session control reached' runner control "$pod_uid"
+expect_response "$session_identity" session fetch http://198.18.0.11:8080/
+expect_response "$session_identity" session fetch http://198.18.0.12:8080/
 expect_response "$session_identity" session fetch http://198.18.0.13:8080/
 kubectl -n codex-security patch deployment codex-model-proxy --type merge \
   -p "{\"spec\":{\"template\":{\"spec\":{\"nodeName\":\"$source_node\"}}}}"
@@ -197,8 +209,14 @@ if session fetch http://198.18.0.13:8080/ || runner control "$pod_uid"; then
   echo 'Revoked policy allowed a route' >&2
   exit 1
 fi
+if session fetch http://198.18.0.11:8080/ || session fetch http://198.18.0.12:8080/; then
+  echo 'Revoked policy allowed a proxy route' >&2
+  exit 1
+fi
 kubectl -n codex-security delete daemonset codex-node-proxy --wait=true --timeout=90s
 session deny "$api_ip:443"
 session deny "$node_ip:10250"
+session deny '198.18.0.11:8080'
+session deny '198.18.0.12:8080'
 session deny '198.18.0.13:8080'
 echo 'Socket-attributed mTLS routing and proxy outage isolation passed.'
