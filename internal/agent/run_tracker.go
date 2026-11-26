@@ -6,9 +6,9 @@ import "sync"
 // A session Pod processes one turn at a time, so the latest run ID is enough
 // to label asynchronous App Server notifications.
 type RunTracker struct {
-	mu    sync.RWMutex
-	runID string
-	turnID string
+	mu       sync.RWMutex
+	runID    string
+	turnID   string
 	threadID string
 }
 
