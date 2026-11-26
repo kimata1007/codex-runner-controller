@@ -10,6 +10,7 @@ RUN CGO_ENABLED=0 go build -trimpath -o /out/codex ./tests/e2e/fake-app-server
 
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /out/runner-agent-entrypoint /runner-agent-entrypoint
+COPY --from=build /out/runner-agent-entrypoint /runner-agent
 COPY --from=build /out/codex /usr/local/bin/codex
 ENV PATH=/usr/local/bin:/usr/bin:/bin
 USER 65532:65532

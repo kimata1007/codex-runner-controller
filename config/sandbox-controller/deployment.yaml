@@ -1,0 +1,35 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: codex-sandbox-controller
+  namespace: codex-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: codex-sandbox-controller
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: codex-sandbox-controller
+    spec:
+      serviceAccountName: codex-sandbox-controller
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: controller
+          image: ghcr.io/kimata1007/codex-runner-controller:v0.0.18
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: KUBERNETES_NAMESPACE
+              value: codex-sessions
+            - name: RUNNER_AGENT_IMAGE
+              value: ghcr.io/kimata1007/codex-runner-agent:v0.0.18
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          resources:
+            requests: {cpu: 25m, memory: 64Mi}
+            limits: {cpu: 500m, memory: 256Mi}
