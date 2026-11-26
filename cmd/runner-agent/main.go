@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"net/http"
 	"os"
@@ -48,6 +49,17 @@ func main() {
 	approvals := agent.NewApprovalManager(runEventSender, tracker)
 	process, err := agent.StartProcess(ctx, command, args, func(notification agent.AppServerNotification) {
 		runID := tracker.Current()
+		if notification.Method == "turn/started" {
+			var params struct {
+				ThreadID string `json:"threadId"`
+				Turn     struct {
+					ID string `json:"id"`
+				} `json:"turn"`
+			}
+			if json.Unmarshal(notification.Params, &params) == nil {
+				tracker.RecordTurn(runID, params.ThreadID, params.Turn.ID)
+			}
+		}
 		slog.Debug("App Server notification received", "associated_with_run", runID != "", "method", notification.Method)
 		if runEventSender == nil || runID == "" {
 			if terminalAppServerEvent(notification.Method) {

@@ -402,3 +402,6 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .output-block .diff-add { color: #166534; background: #dcfce7; }
 .output-block .diff-remove { color: #991b1b; background: #fee2e2; }
 .output-chart { width: 100%; max-width: 720px; }
+
+.send-button [hidden] { display: none; }
+.stop-icon { font-size: 18px; line-height: 1; }

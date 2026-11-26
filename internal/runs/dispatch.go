@@ -172,3 +172,30 @@ func (f staticClientFactory) CreateClientForConversation(context.Context, string
 	}
 	return f.client, nil
 }
+
+func (d *MessageDispatcher) InterruptRun(ctx context.Context, runID string) error {
+	if d == nil || d.store == nil || d.factory == nil {
+		return fmt.Errorf("interrupt run: dispatcher unavailable")
+	}
+	run, found, err := d.store.GetRun(ctx, runID)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return fmt.Errorf("interrupt run: run not found")
+	}
+	if run.Status != StatusRunning && run.Status != StatusWaitingApproval {
+		return fmt.Errorf("interrupt run: run is not active")
+	}
+	client, err := d.factory.CreateClientForConversation(ctx, run.ConversationID)
+	if err != nil {
+		return err
+	}
+	interrupter, ok := client.(interface {
+		InterruptRun(context.Context, string) error
+	})
+	if !ok {
+		return fmt.Errorf("interrupt run: client does not support interruption")
+	}
+	return interrupter.InterruptRun(ctx, runID)
+}

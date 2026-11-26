@@ -58,6 +58,7 @@ func NewHTTPHandlerWithAuthBroker(session SessionAPI, tracker *RunTracker, appro
 	e.POST("/v1/threads", server.startThread)
 	e.POST("/v1/threads/:id/resume", server.resumeThread)
 	e.POST("/v1/threads/:id/turns", server.startTurn)
+	e.POST("/v1/runs/:id/interrupt", server.interruptTurn)
 	e.POST("/v1/approvals/:id", server.approval)
 	e.POST("/v1/auth/tokens", server.setAuthTokens)
 	if authBroker {
@@ -278,3 +279,20 @@ func writeError(c echo.Context, status int, message string) error {
 }
 
 var _ SessionAPI = (*Session)(nil)
+
+func (s *HTTPServer) interruptTurn(c echo.Context) error {
+	interrupter, ok := s.session.(interface {
+		InterruptTurn(context.Context, string, string) error
+	})
+	if !ok {
+		return writeError(c, http.StatusServiceUnavailable, "turn interruption is unavailable")
+	}
+	threadID, turnID, active := s.tracker.Turn(c.Param("id"))
+	if !active {
+		return writeError(c, http.StatusConflict, "run is not active or turn is not ready")
+	}
+	if err := interrupter.InterruptTurn(c.Request().Context(), threadID, turnID); err != nil {
+		return writeAgentOperationalError(c, http.StatusBadGateway, "could not interrupt turn", "turn_interrupt", err)
+	}
+	return writeJSON(c, http.StatusAccepted, map[string]string{"status": "accepted"})
+}
