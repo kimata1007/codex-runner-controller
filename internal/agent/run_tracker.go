@@ -8,6 +8,8 @@ import "sync"
 type RunTracker struct {
 	mu    sync.RWMutex
 	runID string
+	turnID string
+	threadID string
 }
 
 func NewRunTracker() *RunTracker {
@@ -20,6 +22,7 @@ func (t *RunTracker) Set(runID string) {
 	}
 	t.mu.Lock()
 	t.runID = runID
+	t.turnID, t.threadID = "", ""
 	t.mu.Unlock()
 }
 
@@ -57,6 +60,22 @@ func (t *RunTracker) Clear(runID string) {
 	t.mu.Lock()
 	if t.runID == runID {
 		t.runID = ""
+		t.turnID, t.threadID = "", ""
 	}
 	t.mu.Unlock()
+}
+
+// RecordTurn associates the App Server identity with the current run.
+func (t *RunTracker) RecordTurn(runID, threadID, turnID string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if runID != "" && t.runID == runID && threadID != "" && turnID != "" {
+		t.threadID, t.turnID = threadID, turnID
+	}
+}
+
+func (t *RunTracker) Turn(runID string) (string, string, bool) {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.threadID, t.turnID, runID != "" && t.runID == runID && t.turnID != ""
 }
