@@ -39,6 +39,11 @@ func (b ResourceBuilder) BuildSandboxPod(name string, spec v1alpha1.CodexSession
 	pod.Spec.SecurityContext.FSGroup = &runID
 	agent := &pod.Spec.Containers[0]
 	agent.Env = append(agent.Env, corev1.EnvVar{Name: "CODEX_ISOLATED_SESSION", Value: "true"})
+	if spec.Access != nil && spec.Access.Model != nil {
+		agent.Env = append(agent.Env, corev1.EnvVar{
+			Name: "CODEX_MODEL_PROXY_ENABLED", Value: "true",
+		})
+	}
 	agent.Resources = corev1.ResourceRequirements{
 		Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("250m"), corev1.ResourceMemory: resource.MustParse("512Mi"),
 			corev1.ResourceEphemeralStorage: resource.MustParse("512Mi")},

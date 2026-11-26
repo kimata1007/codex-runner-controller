@@ -24,10 +24,38 @@ func TestDefaultAppServerArgsUseChatGPTTokenProvider(t *testing.T) {
 }
 
 func TestDefaultAppServerArgsStayMinimalWithoutToken(t *testing.T) {
+	t.Setenv("CODEX_ISOLATED_SESSION", "")
 	t.Setenv("ACCESS_TOKEN", "")
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
 	if got := defaultAppServerArgs(); !reflect.DeepEqual(got, []string{"-c", `sandbox_mode="danger-full-access"`, "app-server", "--listen", "stdio://"}) {
 		t.Fatalf("args = %v", got)
+	}
+}
+
+func TestIsolatedAppServerUsesTheAuthorizedModelProxy(t *testing.T) {
+	t.Setenv("CODEX_ISOLATED_SESSION", "true")
+	t.Setenv("CODEX_MODEL_PROXY_ENABLED", "true")
+	t.Setenv("ACCESS_TOKEN", "")
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
+	args := defaultAppServerArgs()
+	contains := func(value string) bool {
+		for _, argument := range args {
+			if argument == value {
+				return true
+			}
+		}
+		return false
+	}
+	for _, option := range []string{
+		`model_provider="codex_session_proxy"`,
+		`model_providers.codex_session_proxy.base_url="http://198.18.0.13:8080/v1"`,
+		`model_providers.codex_session_proxy.wire_api="responses"`,
+		`model_providers.codex_session_proxy.requires_openai_auth=false`,
+		`web_search="disabled"`,
+	} {
+		if !contains(option) {
+			t.Fatalf("isolated App Server args do not include %q: %v", option, args)
+		}
 	}
 }
 
