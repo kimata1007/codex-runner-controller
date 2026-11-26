@@ -1,8 +1,8 @@
 package main
 
 import (
-	"encoding/json"
 	"context"
+	"encoding/json"
 	"log/slog"
 	"net/http"
 	"os"
