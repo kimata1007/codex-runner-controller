@@ -17,6 +17,10 @@ type ApprovalClient interface {
 	RespondApproval(context.Context, string, any) error
 }
 
+type RunApprovalClient interface {
+	RespondRunApproval(context.Context, string, string, any) error
+}
+
 // ThreadClientFactory selects the runner-agent client for a conversation.
 type ThreadClientFactory interface {
 	CreateClientForConversation(context.Context, string) (ThreadClient, error)
@@ -113,11 +117,15 @@ func (d *MessageDispatcher) RespondApproval(ctx context.Context, runID, requestI
 	if err != nil {
 		return fmt.Errorf("message dispatcher: select session client: %w", err)
 	}
-	approvalClient, ok := client.(ApprovalClient)
-	if !ok {
+	switch approvalClient := client.(type) {
+	case RunApprovalClient:
+		err = approvalClient.RespondRunApproval(ctx, runID, requestID, response)
+	case ApprovalClient:
+		err = approvalClient.RespondApproval(ctx, requestID, response)
+	default:
 		return fmt.Errorf("message dispatcher: approval client is not configured")
 	}
-	if err := approvalClient.RespondApproval(ctx, requestID, response); err != nil {
+	if err != nil {
 		return fmt.Errorf("message dispatcher: respond approval: %w", err)
 	}
 	if approvalStore, ok := d.store.(ApprovalStore); ok {

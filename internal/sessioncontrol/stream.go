@@ -10,6 +10,7 @@ import (
 	"io"
 	"mime"
 	"net/http"
+	"regexp"
 	"sync"
 	"time"
 )
@@ -22,6 +23,8 @@ const (
 )
 
 type Kind string
+
+var methodName = regexp.MustCompile(`^[a-zA-Z0-9_/.-]+$`)
 
 const (
 	Command   Kind = "command"
@@ -46,11 +49,11 @@ func (f Frame) valid() bool {
 	}
 	switch f.Kind {
 	case Command:
-		return f.ID != "" && f.Method != "" && f.Sequence == 0 && f.Error == ""
+		return f.ID != "" && methodName.MatchString(f.Method) && f.Sequence == 0 && f.Error == ""
 	case Reply:
 		return f.ID != "" && f.Method == "" && f.Sequence == 0 && (f.Error == "" || len(f.Payload) == 0)
 	case Event:
-		return f.ID != "" && f.Method != "" && f.Sequence > 0 && f.Error == "" && len(f.Payload) != 0
+		return f.ID != "" && methodName.MatchString(f.Method) && f.Sequence > 0 && f.Error == "" && len(f.Payload) != 0
 	case Ack:
 		return f.ID != "" && f.Method == "" && f.Sequence > 0 && f.Error == "" && len(f.Payload) == 0
 	case Heartbeat:
@@ -152,7 +155,9 @@ func Dial(ctx context.Context, transport *http.Transport) (*Connection, error) {
 	req.Header.Set("Content-Type", MediaType)
 	req.Header.Set("Accept", MediaType)
 	// RoundTrip keeps the request on this transport without redirects or cookies.
+	timeout := time.AfterFunc(writeTimeout, cancel)
 	response, err := transport.RoundTrip(req)
+	timeout.Stop()
 	if err != nil {
 		cancel()
 		_ = output.Close()
