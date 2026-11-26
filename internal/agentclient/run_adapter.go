@@ -41,3 +41,7 @@ func (c *RunAdapter) RespondApproval(ctx context.Context, requestID string, resp
 
 var _ runs.ThreadClient = (*RunAdapter)(nil)
 var _ runs.ApprovalClient = (*RunAdapter)(nil)
+
+func (c *RunAdapter) InterruptRun(ctx context.Context, runID string) error {
+	return c.client.InterruptRun(ctx, runID)
+}
