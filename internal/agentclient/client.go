@@ -202,3 +202,7 @@ func (c *Client) request(ctx context.Context, method, path string, requestBody a
 }
 
 var _ agent.SessionAPI = (*Client)(nil)
+
+func (c *Client) InterruptRun(ctx context.Context, runID string) error {
+	return c.post(ctx, "/v1/runs/"+url.PathEscape(runID)+"/interrupt", struct{}{}, nil)
+}
