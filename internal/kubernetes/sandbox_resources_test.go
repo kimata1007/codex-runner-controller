@@ -90,3 +90,20 @@ func TestSandboxPodRoutesGrantedRepositoryThroughGitHubProxy(t *testing.T) {
 		t.Fatal("sandbox accepted a repository outside its GitHub grant")
 	}
 }
+
+func TestSandboxPodRoutesOnlyGrantedPackageRegistriesThroughWebProxy(t *testing.T) {
+	spec := v1alpha1.CodexSessionSpec{ConversationID: "package-proxy-test", DesiredState: v1alpha1.DesiredStateActive,
+		Execution: v1alpha1.Execution{ApprovalPolicy: "never"}, SessionData: v1alpha1.SessionData{Size: "1Gi"},
+		Access: &v1alpha1.SessionAccess{Web: &v1alpha1.WebPolicy{Registries: []string{"go", "pypi"}}}}
+	pod, err := (ResourceBuilder{RunnerImage: "example.com/runner:v1.2.3"}).BuildSandboxPod("package-proxy-test", spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := map[string]string{}
+	for _, variable := range pod.Spec.Containers[0].Env {
+		env[variable.Name] = variable.Value
+	}
+	if env["GOPROXY"] != "http://198.18.0.12:8080/packages/go" || env["PIP_INDEX_URL"] != "http://198.18.0.12:8080/packages/pypi/simple" || env["NPM_CONFIG_REGISTRY"] != "" {
+		t.Fatalf("package registry environment does not match grants: %#v", env)
+	}
+}

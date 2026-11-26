@@ -16,9 +16,16 @@ import (
 	"github.com/kimata1007/codex-runner-controller/internal/logging"
 	"github.com/kimata1007/codex-runner-controller/internal/sessioncontrol"
 	"github.com/kimata1007/codex-runner-controller/internal/telemetry"
+	"github.com/kimata1007/codex-runner-controller/internal/webmcp"
 )
 
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == "-web-mcp" {
+		if err := webmcp.Serve(context.Background(), os.Stdin, os.Stdout); err != nil {
+			os.Exit(1)
+		}
+		return
+	}
 	if len(os.Args) == 3 && os.Args[1] == "-probe" {
 		path := os.Args[2]
 		if path != "/readyz" && path != "/healthz" {
@@ -188,6 +195,13 @@ func defaultAppServerArgs() []string {
 			"-c", `model_providers.codex_session_proxy.requires_openai_auth=false`,
 			"-c", `model_providers.codex_session_proxy.supports_websockets=false`,
 		}, args...)
+		if os.Getenv("CODEX_WEB_PROXY_ENABLED") == "true" {
+			args = append([]string{
+				"-c", `mcp_servers.codex_web_proxy.command="/runner-agent"`,
+				"-c", `mcp_servers.codex_web_proxy.args=["-web-mcp"]`,
+				"-c", `mcp_servers.codex_web_proxy.startup_timeout_sec=10`,
+			}, args...)
+		}
 	}
 	if endpoint := strings.TrimRight(os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"), "/"); endpoint != "" {
 		// Codex has its own OTLP trace exporter; its configuration is not

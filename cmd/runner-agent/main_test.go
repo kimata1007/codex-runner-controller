@@ -25,6 +25,7 @@ func TestDefaultAppServerArgsUseChatGPTTokenProvider(t *testing.T) {
 
 func TestDefaultAppServerArgsStayMinimalWithoutToken(t *testing.T) {
 	t.Setenv("CODEX_ISOLATED_SESSION", "")
+	t.Setenv("CODEX_WEB_PROXY_ENABLED", "")
 	t.Setenv("ACCESS_TOKEN", "")
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
 	if got := defaultAppServerArgs(); !reflect.DeepEqual(got, []string{"-c", `sandbox_mode="danger-full-access"`, "app-server", "--listen", "stdio://"}) {
@@ -35,6 +36,7 @@ func TestDefaultAppServerArgsStayMinimalWithoutToken(t *testing.T) {
 func TestIsolatedAppServerUsesTheAuthorizedModelProxy(t *testing.T) {
 	t.Setenv("CODEX_ISOLATED_SESSION", "true")
 	t.Setenv("CODEX_MODEL_PROXY_ENABLED", "true")
+	t.Setenv("CODEX_WEB_PROXY_ENABLED", "")
 	t.Setenv("ACCESS_TOKEN", "")
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
 	args := defaultAppServerArgs()
@@ -54,6 +56,28 @@ func TestIsolatedAppServerUsesTheAuthorizedModelProxy(t *testing.T) {
 		`web_search="disabled"`,
 	} {
 		if !contains(option) {
+			t.Fatalf("isolated App Server args do not include %q: %v", option, args)
+		}
+	}
+}
+
+func TestIsolatedAppServerRegistersWebProxyToolsWhenGranted(t *testing.T) {
+	t.Setenv("CODEX_ISOLATED_SESSION", "true")
+	t.Setenv("CODEX_MODEL_PROXY_ENABLED", "")
+	t.Setenv("CODEX_WEB_PROXY_ENABLED", "true")
+	t.Setenv("ACCESS_TOKEN", "")
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
+	args := defaultAppServerArgs()
+	for _, option := range []string{
+		`mcp_servers.codex_web_proxy.command="/runner-agent"`,
+		`mcp_servers.codex_web_proxy.args=["-web-mcp"]`,
+		`mcp_servers.codex_web_proxy.startup_timeout_sec=10`,
+	} {
+		found := false
+		for _, argument := range args {
+			found = found || argument == option
+		}
+		if !found {
 			t.Fatalf("isolated App Server args do not include %q: %v", option, args)
 		}
 	}

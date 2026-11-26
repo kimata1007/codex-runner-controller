@@ -3,6 +3,7 @@ package kubernetes
 import (
 	"fmt"
 	"net/url"
+	"slices"
 	"strings"
 
 	v1alpha1 "github.com/kimata1007/codex-runner-controller/api/v1alpha1"
@@ -62,6 +63,22 @@ func (b ResourceBuilder) BuildSandboxPod(name string, spec v1alpha1.CodexSession
 	}
 	if spec.Access != nil && spec.Access.GitHub != nil {
 		agent.Env = append(agent.Env, corev1.EnvVar{Name: "CODEX_GITHUB_PROXY_ENABLED", Value: "true"})
+	}
+	if spec.Access != nil && spec.Access.Web != nil {
+		agent.Env = append(agent.Env, corev1.EnvVar{Name: "CODEX_WEB_PROXY_ENABLED", Value: "true"})
+		registries := spec.Access.Web.Registries
+		if slices.Contains(registries, "go") {
+			agent.Env = append(agent.Env, corev1.EnvVar{Name: "GOPROXY", Value: "http://198.18.0.12:8080/packages/go"})
+		}
+		if slices.Contains(registries, "npm") {
+			agent.Env = append(agent.Env, corev1.EnvVar{Name: "NPM_CONFIG_REGISTRY", Value: "http://198.18.0.12:8080/packages/npm/"})
+		}
+		if slices.Contains(registries, "pypi") {
+			agent.Env = append(agent.Env,
+				corev1.EnvVar{Name: "PIP_INDEX_URL", Value: "http://198.18.0.12:8080/packages/pypi/simple"},
+				corev1.EnvVar{Name: "PIP_TRUSTED_HOST", Value: "198.18.0.12"},
+			)
+		}
 	}
 	agent.Resources = corev1.ResourceRequirements{
 		Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("250m"), corev1.ResourceMemory: resource.MustParse("512Mi"),
