@@ -58,4 +58,38 @@ curl -fsS --max-time 15 "$api/v1/conversations/$conversation/messages" |
   jq -e 'any(.messages[]; .role == "assistant" and .content == "e2e-response-from-app-server")' >/dev/null
 [[ -z "$(kubectl -n codex-sessions get service "$conversation" --ignore-not-found -o name)" ]]
 [[ "$(curl -sS --max-time 10 -o /dev/null -w '%{http_code}' -X POST "$api/internal/runs/$run/events")" == 404 ]]
-echo "Run commands and events used the authenticated stream, with ordered persistence and SSE."
+
+second="$(curl -fsS --max-time 120 -H 'Content-Type: application/json' \
+  -d '{"content":"e2e-hold-for-interrupt","clientMessageId":"control-e2e-2"}' "$api/v1/conversations/$conversation/messages")"
+run="$(jq -er '.run.id' <<< "$second")"
+deadline=$((SECONDS + 40))
+until curl -fsS --max-time 5 "$api/v1/conversations/$conversation/approvals" |
+  jq -e --arg run "$run" 'any(.approvals[]; .runId == $run and .requestId == "9001")' >/dev/null; do
+  if (( SECONDS >= deadline )); then
+    echo "Expected a persisted approval request for the second run" >&2
+    exit 1
+  fi
+  sleep 1
+done
+curl -fsS --max-time 20 -H 'Content-Type: application/json' -d '{"response":{"decision":"accept"}}' \
+  "$api/v1/approvals/$run/9001" >/dev/null
+deadline=$((SECONDS + 40))
+until events="$(curl -sS --max-time 2 "$api/v1/runs/$run/events" 2>/dev/null || true)" &&
+  grep -Fq 'e2e-approval-received' <<< "$events"; do
+  if (( SECONDS >= deadline )); then
+    echo "Expected the App Server to receive the approval response" >&2
+    exit 1
+  fi
+  sleep 1
+done
+curl -fsS --max-time 20 -X POST "$api/v1/runs/$run/interrupt" >/dev/null
+deadline=$((SECONDS + 40))
+until events="$(curl -sS --max-time 2 "$api/v1/runs/$run/events" 2>/dev/null || true)" &&
+  grep -Fq '"status":"interrupted"' <<< "$events"; do
+  if (( SECONDS >= deadline )); then
+    echo "Expected the App Server to interrupt the second run" >&2
+    exit 1
+  fi
+  sleep 1
+done
+echo "Commands, ordered SSE events, approvals and interrupts used the authenticated control stream."
