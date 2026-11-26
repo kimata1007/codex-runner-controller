@@ -226,3 +226,10 @@ func (s *Session) StartTurn(ctx context.Context, threadID string, input []TurnIn
 	}
 	return nil
 }
+
+func (s *Session) InterruptTurn(ctx context.Context, threadID, turnID string) error {
+	if s == nil || s.client == nil || threadID == "" || turnID == "" {
+		return fmt.Errorf("interrupt turn: client, thread and turn are required")
+	}
+	return s.client.Call(ctx, "turn/interrupt", map[string]string{"threadId": threadID, "turnId": turnID}, nil)
+}
