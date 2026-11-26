@@ -52,7 +52,9 @@ func main() {
 		if notification.Method == "turn/started" {
 			var params struct {
 				ThreadID string `json:"threadId"`
-				Turn struct { ID string `json:"id"` } `json:"turn"`
+				Turn     struct {
+					ID string `json:"id"`
+				} `json:"turn"`
 			}
 			if json.Unmarshal(notification.Params, &params) == nil {
 				tracker.RecordTurn(runID, params.ThreadID, params.Turn.ID)
