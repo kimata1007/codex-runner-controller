@@ -1,6 +1,8 @@
 package v1alpha1
 
 import (
+	"slices"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -30,6 +32,11 @@ func (in *CodexSession) DeepCopyInto(out *CodexSession) {
 	}
 	if in.Spec.CredentialsRef != nil {
 		out.Spec.CredentialsRef = &SecretReference{Name: in.Spec.CredentialsRef.Name}
+	}
+	out.Status.Conditions = slices.Clone(in.Status.Conditions)
+	if access := in.Spec.Access; access != nil {
+		cloned := access.clone()
+		out.Spec.Access = &cloned
 	}
 }
 

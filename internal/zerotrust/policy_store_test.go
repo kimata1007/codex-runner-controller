@@ -119,6 +119,16 @@ func TestPolicyStoreDeniesMissingOrChangedWorkload(t *testing.T) {
 			o[2].(*v1alpha1.CodexSession).Spec.DesiredState = v1alpha1.DesiredStateSuspended
 			return o
 		},
+		"superseded session generation": func(o []client.Object) []client.Object {
+			o[0].(*v1alpha1.SessionPolicy).Spec.SessionGeneration = 1
+			o[2].SetGeneration(2)
+			return o
+		},
+		"missing generation for managed sandbox": func(o []client.Object) []client.Object {
+			o[1].(*corev1.Pod).Spec.ReadinessGates = []corev1.PodReadinessGate{{ConditionType: v1alpha1.SandboxRouteReady}}
+			o[2].SetGeneration(1)
+			return o
+		},
 		"recreated service account": func(o []client.Object) []client.Object {
 			o[3].SetUID("replacement-account")
 			return o

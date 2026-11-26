@@ -47,6 +47,7 @@ spec:
                     serviceAccountName: {type: string, minLength: 1, maxLength: 253}
                     serviceAccountUID: {type: string, minLength: 1, maxLength: 128}
                 version: {type: integer, format: int64, minimum: 1}
+                sessionGeneration: {type: integer, format: int64, minimum: 1}
                 expiresAt: {type: string, format: date-time}
                 revoked: {type: boolean}
                 github:
