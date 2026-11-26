@@ -13,6 +13,7 @@ import (
 
 	"github.com/kimata1007/codex-runner-controller/internal/agent"
 	"github.com/kimata1007/codex-runner-controller/internal/auth"
+	"github.com/kimata1007/codex-runner-controller/internal/githubmcp"
 	"github.com/kimata1007/codex-runner-controller/internal/logging"
 	"github.com/kimata1007/codex-runner-controller/internal/sessioncontrol"
 	"github.com/kimata1007/codex-runner-controller/internal/telemetry"
@@ -22,6 +23,12 @@ import (
 func main() {
 	if len(os.Args) == 2 && os.Args[1] == "-web-mcp" {
 		if err := webmcp.Serve(context.Background(), os.Stdin, os.Stdout); err != nil {
+			os.Exit(1)
+		}
+		return
+	}
+	if len(os.Args) == 2 && os.Args[1] == "-github-mcp" {
+		if err := githubmcp.Serve(context.Background(), os.Stdin, os.Stdout); err != nil {
 			os.Exit(1)
 		}
 		return
@@ -200,6 +207,13 @@ func defaultAppServerArgs() []string {
 				"-c", `mcp_servers.codex_web_proxy.command="/runner-agent"`,
 				"-c", `mcp_servers.codex_web_proxy.args=["-web-mcp"]`,
 				"-c", `mcp_servers.codex_web_proxy.startup_timeout_sec=10`,
+			}, args...)
+		}
+		if os.Getenv("CODEX_GITHUB_PROXY_ENABLED") == "true" {
+			args = append([]string{
+				"-c", `mcp_servers.codex_github_proxy.command="/runner-agent"`,
+				"-c", `mcp_servers.codex_github_proxy.args=["-github-mcp"]`,
+				"-c", `mcp_servers.codex_github_proxy.startup_timeout_sec=10`,
 			}, args...)
 		}
 	}
