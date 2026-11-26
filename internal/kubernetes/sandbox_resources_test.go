@@ -65,3 +65,28 @@ func TestSandboxPodSelectsModelProxyWithoutCredentials(t *testing.T) {
 	}
 	t.Fatal("sandbox Pod did not enable its authorized model proxy")
 }
+
+func TestSandboxPodRoutesGrantedRepositoryThroughGitHubProxy(t *testing.T) {
+	spec := v1alpha1.CodexSessionSpec{ConversationID: "git-proxy-test", DesiredState: v1alpha1.DesiredStateActive,
+		Execution: v1alpha1.Execution{ApprovalPolicy: "never"}, SessionData: v1alpha1.SessionData{Size: "1Gi"},
+		Repository: &v1alpha1.Repository{URL: "https://github.com/acme/project.git", Revision: "main"},
+		Access:     &v1alpha1.SessionAccess{GitHub: &v1alpha1.GitHubPolicy{Owner: "acme", Repository: "project", BaseBranch: "main"}}}
+	pod, err := (ResourceBuilder{RunnerImage: "example.com/runner:v1.2.3"}).BuildSandboxPod("git-proxy-test", spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := map[string]string{}
+	for _, variable := range pod.Spec.Containers[0].Env {
+		env[variable.Name] = variable.Value
+		if variable.ValueFrom != nil {
+			t.Fatalf("sandbox environment contains a credential reference: %s", variable.Name)
+		}
+	}
+	if env["CODEX_REPOSITORY_URL"] != spec.Repository.URL || env["CODEX_REPOSITORY_REVISION"] != "main" || env["CODEX_GITHUB_PROXY_ENABLED"] != "true" {
+		t.Fatalf("repository was not configured for the GitHub proxy: %#v", env)
+	}
+	spec.Access.GitHub.Repository = "another-project"
+	if _, err := (ResourceBuilder{RunnerImage: "example.com/runner:v1.2.3"}).BuildSandboxPod("git-proxy-test", spec); err == nil {
+		t.Fatal("sandbox accepted a repository outside its GitHub grant")
+	}
+}
