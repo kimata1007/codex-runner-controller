@@ -30,6 +30,11 @@ type ActiveRun struct {
 	Status string `json:"status"`
 }
 
+type ControlBinding struct {
+	ConversationID string
+	PodUID         string
+}
+
 type Event struct {
 	ID        string
 	RunID     string
