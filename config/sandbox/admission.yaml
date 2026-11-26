@@ -1,0 +1,39 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: codex-session-secretless
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    namespaceSelector:
+      matchLabels: {kubernetes.io/metadata.name: codex-sessions}
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE]
+        resources: [pods, pods/ephemeralcontainers]
+  variables:
+    - name: containers
+      expression: >-
+        object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : [])
+  validations:
+    - expression: has(object.spec.runtimeClassName) && object.spec.runtimeClassName == 'codex-gvisor'
+      message: Session Pods require the gVisor RuntimeClass.
+    - expression: has(object.spec.automountServiceAccountToken) && !object.spec.automountServiceAccountToken
+      message: Session Pods must disable service account token mounting.
+    - expression: "!has(object.spec.ephemeralContainers) || size(object.spec.ephemeralContainers) == 0"
+      message: Session Pods cannot attach ephemeral containers.
+    - expression: "!has(object.spec.volumes) || object.spec.volumes.all(v, has(v.emptyDir) || has(v.persistentVolumeClaim))"
+      message: Session Pods can mount only emptyDir and session PVCs.
+    - expression: "variables.containers.all(c, (!has(c.envFrom) || size(c.envFrom) == 0) && (!has(c.env) || c.env.all(e, !has(e.valueFrom))))"
+      message: Session Pod environment values must be explicit.
+    - expression: variables.containers.all(c, has(c.securityContext) && has(c.securityContext.readOnlyRootFilesystem) && c.securityContext.readOnlyRootFilesystem)
+      message: Session containers require a read-only root filesystem.
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: codex-session-secretless
+spec:
+  policyName: codex-session-secretless
+  validationActions: [Deny]

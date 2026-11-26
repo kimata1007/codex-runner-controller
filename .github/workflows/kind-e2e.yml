@@ -77,7 +77,13 @@ jobs:
             local/codex-identity-issuer:e2e local/codex-node-proxy:e2e local/codex-transport-fixture:e2e
       - name: Verify node attestation and policy revocation
         run: bash tests/e2e/identity/run.sh
+      - name: Install the pinned gVisor runtime
+        run: |
+          bash tests/e2e/transport/install-gvisor.sh
+          kubectl apply -k config/sandbox
       - name: Verify socket-attributed routes and fail-closed networking
+        env:
+          VERIFY_SANDBOX_PIDS: "true"
         run: bash tests/e2e/transport/run.sh
       - name: Collect Kubernetes diagnostics
         if: failure()

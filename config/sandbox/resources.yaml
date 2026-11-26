@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: codex-session-resources
+  namespace: codex-sessions
+spec:
+  hard:
+    pods: "30"
+    requests.cpu: "20"
+    requests.memory: 32Gi
+    requests.ephemeral-storage: 30Gi
+    limits.cpu: "60"
+    limits.memory: 96Gi
+    limits.ephemeral-storage: 90Gi
+    persistentvolumeclaims: "100"
+    requests.storage: 2Ti
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: codex-session-container
+  namespace: codex-sessions
+spec:
+  limits:
+    - type: Container
+      defaultRequest: {cpu: 250m, memory: 512Mi, ephemeral-storage: 512Mi}
+      default: {cpu: "2", memory: 2Gi, ephemeral-storage: 2Gi}
+      max: {cpu: "4", memory: 4Gi, ephemeral-storage: 4Gi}
