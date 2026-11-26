@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/kimata1007/codex-runner-controller/internal/mcpstdio"
 	"io"
 	"net/http"
 	"net/url"
@@ -45,7 +46,7 @@ func serve(ctx context.Context, input io.Reader, output io.Writer, baseURL strin
 	reader := bufio.NewReader(input)
 	writer := bufio.NewWriter(output)
 	for {
-		line, err := reader.ReadBytes('\n')
+		line, err := mcpstdio.ReadLine(reader)
 		if len(bytes.TrimSpace(line)) != 0 {
 			var request message
 			if json.Unmarshal(line, &request) != nil || request.JSONRPC != "2.0" {
