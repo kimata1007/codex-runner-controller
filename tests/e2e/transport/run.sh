@@ -120,6 +120,15 @@ spec:
         capabilities: {drop: [ALL]}
 EOF
 kubectl -n codex-sessions wait --for=condition=Ready --timeout=120s pod/transport-e2e
+if [[ "$(kubectl get runtimeclass codex-gvisor -o jsonpath='{.handler}')" == runsc ]]; then
+  container_id="$(kubectl -n codex-sessions get pod transport-e2e -o jsonpath='{.status.containerStatuses[0].containerID}')"
+  docker exec "$source_node" ctr -n k8s.io containers info "${container_id#containerd://}" |
+    jq -e '(.Runtime.Name // .runtime.name) == "io.containerd.runsc.v1"' >/dev/null
+  if [[ "${VERIFY_SANDBOX_PIDS:-}" == true ]]; then
+    kubectl get --raw "/api/v1/nodes/$source_node/proxy/configz" |
+      jq -e '.kubeletconfig.podPidsLimit == 1024' >/dev/null
+  fi
+fi
 pod_uid="$(kubectl -n codex-sessions get pod transport-e2e -o jsonpath='{.metadata.uid}')"
 pod_ip="$(kubectl -n codex-sessions get pod transport-e2e -o jsonpath='{.status.podIP}')"
 account_uid="$(kubectl -n codex-sessions get serviceaccount transport-e2e -o jsonpath='{.metadata.uid}')"

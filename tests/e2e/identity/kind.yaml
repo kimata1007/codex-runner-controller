@@ -1,5 +1,10 @@
 apiVersion: kind.x-k8s.io/v1alpha4
 kind: Cluster
+kubeadmConfigPatches:
+  - |
+    apiVersion: kubelet.config.k8s.io/v1beta1
+    kind: KubeletConfiguration
+    podPidsLimit: 1024
 nodes:
   - role: control-plane
   - role: worker
