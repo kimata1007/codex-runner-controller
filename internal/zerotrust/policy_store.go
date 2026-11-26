@@ -28,14 +28,15 @@ type PolicyStore struct {
 }
 
 type SessionAuthorization struct {
-	Identity Identity
-	Workload v1alpha1.SessionWorkload
-	Version  int64
-	Expires  time.Time
-	Policy   *Policy
-	Model    *v1alpha1.ModelPolicy
-	Web      *v1alpha1.WebPolicy
-	GitHub   *v1alpha1.GitHubPolicy
+	Identity          Identity
+	Workload          v1alpha1.SessionWorkload
+	Version           int64
+	SessionGeneration int64
+	Expires           time.Time
+	Policy            *Policy
+	Model             *v1alpha1.ModelPolicy
+	Web               *v1alpha1.WebPolicy
+	GitHub            *v1alpha1.GitHubPolicy
 }
 
 func (s PolicyStore) Session(ctx context.Context, identity Identity) (SessionAuthorization, error) {
@@ -84,14 +85,14 @@ func (s PolicyStore) Lookup(ctx context.Context, podUID types.UID, now time.Time
 		grants = append(grants, Grant{Source: source, Destination: destination, Port: grant.Port})
 	}
 	policy, err := NewPolicy(s.Domain, spec.ExpiresAt.Time, grants)
-	if err != nil || !s.liveWorkload(ctx, w) {
+	if err != nil || !s.liveWorkload(ctx, w, spec.SessionGeneration) {
 		return SessionAuthorization{}, ErrPolicyDenied
 	}
-	return SessionAuthorization{Identity: id, Workload: w, Version: spec.Version, Expires: spec.ExpiresAt.Time, Policy: policy,
+	return SessionAuthorization{Identity: id, Workload: w, Version: spec.Version, SessionGeneration: spec.SessionGeneration, Expires: spec.ExpiresAt.Time, Policy: policy,
 		Model: spec.Model, Web: spec.Web, GitHub: spec.GitHub}, nil
 }
 
-func (s PolicyStore) liveWorkload(ctx context.Context, w v1alpha1.SessionWorkload) bool {
+func (s PolicyStore) liveWorkload(ctx context.Context, w v1alpha1.SessionWorkload, generation int64) bool {
 	key := client.ObjectKey{Namespace: s.SessionNamespace, Name: w.PodName}
 	var pod corev1.Pod
 	if err := s.Reader.Get(ctx, key, &pod); err != nil || pod.UID != w.PodUID || !runningPod(&pod) ||
@@ -109,8 +110,14 @@ func (s PolicyStore) liveWorkload(ctx context.Context, w v1alpha1.SessionWorkloa
 	var session v1alpha1.CodexSession
 	key.Name = w.SessionName
 	if err := s.Reader.Get(ctx, key, &session); err != nil || session.UID != w.SessionUID ||
-		session.DeletionTimestamp != nil || session.Spec.DesiredState != v1alpha1.DesiredStateActive {
+		session.DeletionTimestamp != nil || session.Spec.DesiredState != v1alpha1.DesiredStateActive ||
+		session.Spec.CredentialsRef != nil || (generation != 0 && session.Generation != generation) {
 		return false
+	}
+	for _, gate := range pod.Spec.ReadinessGates {
+		if gate.ConditionType == v1alpha1.SandboxRouteReady && generation < 1 {
+			return false
+		}
 	}
 	var account corev1.ServiceAccount
 	key.Name = w.ServiceAccountName

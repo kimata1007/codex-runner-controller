@@ -2,17 +2,21 @@ package zerotrust
 
 import (
 	"context"
+	"crypto/x509"
 	"errors"
 	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
 
+	v1alpha1 "github.com/kimata1007/codex-runner-controller/api/v1alpha1"
 	"github.com/kimata1007/codex-runner-controller/internal/zerotrust/cni"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -25,6 +29,7 @@ type NodeProxy struct {
 	LocalDirectory string
 	Routes         RouteResolver
 	Issuer         *IssuerClient
+	Client         client.Client
 }
 
 type routeEnrollment struct {
@@ -43,7 +48,7 @@ type nodeRuntime struct {
 
 func (p NodeProxy) Run(ctx context.Context) error {
 	if p.Name == "" || p.UID == "" || net.ParseIP(p.PeerIP) == nil ||
-		!filepath.IsAbs(p.StateDirectory) || !filepath.IsAbs(p.LocalDirectory) || p.Issuer == nil {
+		!filepath.IsAbs(p.StateDirectory) || !filepath.IsAbs(p.LocalDirectory) || p.Issuer == nil || p.Client == nil {
 		return errors.New("invalid node proxy configuration")
 	}
 	if err := os.MkdirAll(p.LocalDirectory, 0700); err != nil {
@@ -214,7 +219,86 @@ func (n *nodeRuntime) enrollSession(ctx context.Context, attachment cni.Attachme
 			}
 		}()
 	}
+	if slices.Contains(pod.Spec.ReadinessGates, corev1.PodReadinessGate{ConditionType: v1alpha1.SandboxRouteReady}) {
+		running.Add(1)
+		go func() {
+			defer running.Done()
+			n.watchSessionRoute(local, client.ObjectKeyFromObject(&pod), binding)
+		}()
+	}
 	return routeEnrollment{reference: attachment, lifetime: local, remove: cleanup}, nil
+}
+
+func (n *nodeRuntime) watchSessionRoute(ctx context.Context, key client.ObjectKey, binding CertificateBinding) {
+	ticker := time.NewTicker(7 * time.Second)
+	defer ticker.Stop()
+	for ctx.Err() == nil {
+		probe, cancel := context.WithTimeout(ctx, 5*time.Second)
+		if err := n.probeSessionRoute(probe, key, binding); err != nil && ctx.Err() == nil {
+			slog.DebugContext(ctx, "session route probe failed", "pod_uid", binding.PodUID, "error", err)
+		}
+		cancel()
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+func (n *nodeRuntime) probeSessionRoute(ctx context.Context, key client.ObjectKey, binding CertificateBinding) error {
+	now := time.Now()
+	policy, err := n.cfg.Routes.Policies.Lookup(ctx, binding.PodUID, now)
+	if err != nil || policy.Identity != binding.Identity || policy.Workload.NodeUID != n.cfg.UID ||
+		!policy.Policy.Allows(Identity("spiffe://"+n.relay.Domain+"/system/runner-api"), binding.Identity, ControlPort, now) {
+		return ErrPolicyDenied
+	}
+	cert, err := n.certificates.Certificate(ctx, binding)
+	if err != nil {
+		return err
+	}
+	roots, err := n.relay.Roots(ctx)
+	if err != nil {
+		return err
+	}
+	if _, err := cert.Leaf.Verify(x509.VerifyOptions{Roots: roots, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}); err != nil {
+		return err
+	}
+	target, ok := n.registry.Resolve(TargetName(binding.Identity, ControlPort))
+	if !ok || target.Destination != binding {
+		return ErrPolicyDenied
+	}
+	conn, err := target.Connect(ctx, Identity("spiffe://"+n.relay.Domain+"/system/runner-api"))
+	if err != nil {
+		return err
+	}
+	_ = conn.Close()
+	return updateSessionRouteCondition(ctx, n.cfg.Client, key, binding.PodUID, n.cfg.Name, policy.SessionGeneration)
+}
+
+func updateSessionRouteCondition(ctx context.Context, kube client.Client, key client.ObjectKey, uid types.UID, node string, generation int64) error {
+	var pod corev1.Pod
+	if err := kube.Get(ctx, key, &pod); err != nil {
+		return err
+	}
+	if pod.UID != uid || pod.Spec.NodeName != node || !runningPod(&pod) ||
+		!slices.Contains(pod.Spec.ReadinessGates, corev1.PodReadinessGate{ConditionType: v1alpha1.SandboxRouteReady}) {
+		return ErrPolicyDenied
+	}
+	before := pod.DeepCopy()
+	now := metav1.Now()
+	gate := corev1.PodCondition{Type: v1alpha1.SandboxRouteReady, Status: corev1.ConditionTrue,
+		Reason: "AuthenticatedRoute", Message: strconv.FormatInt(generation, 10), LastProbeTime: now, LastTransitionTime: now}
+	index := slices.IndexFunc(pod.Status.Conditions, func(condition corev1.PodCondition) bool { return condition.Type == gate.Type })
+	if index < 0 {
+		pod.Status.Conditions = append(pod.Status.Conditions, gate)
+	} else {
+		if old := pod.Status.Conditions[index]; old.Status == gate.Status {
+			gate.LastTransitionTime = old.LastTransitionTime
+		}
+		pod.Status.Conditions[index] = gate
+	}
+	return kube.Status().Patch(ctx, &pod, client.MergeFromWithOptions(before, client.MergeFromWithOptimisticLock{}))
 }
 
 func (n *nodeRuntime) refreshProxies(ctx context.Context, enrolled map[CertificateBinding]func()) {

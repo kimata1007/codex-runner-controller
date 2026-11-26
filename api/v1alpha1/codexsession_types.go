@@ -1,6 +1,12 @@
 package v1alpha1
 
-import "fmt"
+import (
+	"fmt"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
+
+const SandboxRouteReady = "codexrunner.io/RouteReady"
 
 const (
 	DefaultIdleTimeoutSeconds int32 = 1800
@@ -25,6 +31,13 @@ type CodexSessionSpec struct {
 	Execution          Execution        `json:"execution" yaml:"execution"`
 	Repository         *Repository      `json:"repository,omitempty" yaml:"repository,omitempty"`
 	CredentialsRef     *SecretReference `json:"credentialsRef,omitempty" yaml:"credentialsRef,omitempty"`
+	Access             *SessionAccess   `json:"access,omitempty" yaml:"access,omitempty"`
+}
+
+type SessionAccess struct {
+	Model  *ModelPolicy  `json:"model,omitempty"`
+	Web    *WebPolicy    `json:"web,omitempty"`
+	GitHub *GitHubPolicy `json:"github,omitempty"`
 }
 
 type SessionData struct {
@@ -48,12 +61,13 @@ type SecretReference struct {
 }
 
 type CodexSessionStatus struct {
-	Phase              string `json:"phase,omitempty" yaml:"phase,omitempty"`
-	ThreadID           string `json:"threadId,omitempty" yaml:"threadId,omitempty"`
-	PodName            string `json:"podName,omitempty" yaml:"podName,omitempty"`
-	WorkspaceClaim     string `json:"workspaceClaim,omitempty" yaml:"workspaceClaim,omitempty"`
-	LastActivityAt     string `json:"lastActivityAt,omitempty" yaml:"lastActivityAt,omitempty"`
-	ObservedGeneration int64  `json:"observedGeneration,omitempty" yaml:"observedGeneration,omitempty"`
+	Phase              string             `json:"phase,omitempty" yaml:"phase,omitempty"`
+	ThreadID           string             `json:"threadId,omitempty" yaml:"threadId,omitempty"`
+	PodName            string             `json:"podName,omitempty" yaml:"podName,omitempty"`
+	WorkspaceClaim     string             `json:"workspaceClaim,omitempty" yaml:"workspaceClaim,omitempty"`
+	LastActivityAt     string             `json:"lastActivityAt,omitempty" yaml:"lastActivityAt,omitempty"`
+	ObservedGeneration int64              `json:"observedGeneration,omitempty" yaml:"observedGeneration,omitempty"`
+	Conditions         []metav1.Condition `json:"conditions,omitempty" yaml:"conditions,omitempty"`
 }
 
 func (s CodexSessionSpec) Validate() error {

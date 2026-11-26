@@ -7,9 +7,12 @@ import (
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	nodev1 "k8s.io/api/node/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	v1alpha1 "github.com/kimata1007/codex-runner-controller/api/v1alpha1"
@@ -50,6 +53,10 @@ func main() {
 		slog.Error("failed to add CodexSession scheme", "operation", "controller.add_codexsession_scheme", "error.type", logging.ErrorType(err))
 		os.Exit(1)
 	}
+	if err := nodev1.AddToScheme(scheme); err != nil {
+		slog.Error("failed to add node runtime scheme", "operation", "controller.add_runtime_scheme")
+		os.Exit(1)
+	}
 	mgr, err := manager.New(ctrl.GetConfigOrDie(), manager.Options{
 		Scheme: scheme,
 		Cache: cache.Options{
@@ -87,7 +94,25 @@ func main() {
 		RunnerAPITokenSecretKey:    apiTokenSecretKey,
 		RunnerServiceAccountName:   serviceAccountName,
 	}
-	if err := (&controller.CodexSessionController{Client: mgr.GetClient(), Builder: builder}).SetupWithManager(mgr); err != nil {
+	sessionController := &controller.CodexSessionController{Client: mgr.GetClient(), Builder: builder}
+	if namespace == kubernetes.SandboxNamespace {
+		config := rest.CopyConfig(mgr.GetConfig())
+		config.QPS, config.Burst = 100, 150
+		kube, err := client.New(config, client.Options{Scheme: scheme})
+		if err != nil {
+			slog.Error("failed to create live sandbox controller client")
+			os.Exit(1)
+		}
+		domain, policyNamespace := os.Getenv("CODEX_TRUST_DOMAIN"), os.Getenv("CODEX_POLICY_NAMESPACE")
+		if domain == "" {
+			domain = "codex.local"
+		}
+		if policyNamespace == "" {
+			policyNamespace = "codex-security"
+		}
+		sessionController.Isolated = &controller.SandboxReconciler{Client: kube, Builder: builder, Domain: domain, PolicyNamespace: policyNamespace}
+	}
+	if err := sessionController.SetupWithManager(mgr); err != nil {
 		slog.Error("failed to set up controller", "operation", "controller.setup", "error.type", logging.ErrorType(err))
 		os.Exit(1)
 	}

@@ -1,0 +1,92 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: codex-sandbox-controller
+  namespace: codex-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: codex-sandbox-controller
+rules:
+  - apiGroups: [""]
+    resources: [namespaces]
+    resourceNames: [codex-sessions]
+    verbs: [get]
+  - apiGroups: [""]
+    resources: [nodes]
+    verbs: [get]
+  - apiGroups: [node.k8s.io]
+    resources: [runtimeclasses]
+    resourceNames: [codex-gvisor]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: codex-sandbox-controller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: codex-sandbox-controller
+subjects:
+  - kind: ServiceAccount
+    name: codex-sandbox-controller
+    namespace: codex-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: codex-sandbox-controller
+  namespace: codex-sessions
+rules:
+  - apiGroups: [codexrunner.io]
+    resources: [codexsessions]
+    verbs: [get, list, watch, update]
+  - apiGroups: [codexrunner.io]
+    resources: [codexsessions/status, codexsessions/finalizers]
+    verbs: [update]
+  - apiGroups: [""]
+    resources: [pods, persistentvolumeclaims, serviceaccounts]
+    verbs: [get, list, watch, create]
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: codex-sandbox-controller
+  namespace: codex-sessions
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: codex-sandbox-controller
+subjects:
+  - kind: ServiceAccount
+    name: codex-sandbox-controller
+    namespace: codex-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: codex-sandbox-controller
+  namespace: codex-security
+rules:
+  - apiGroups: [codexrunner.io]
+    resources: [sessionpolicies]
+    verbs: [get, list, create, update, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: codex-sandbox-controller
+  namespace: codex-security
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: codex-sandbox-controller
+subjects:
+  - kind: ServiceAccount
+    name: codex-sandbox-controller
+    namespace: codex-system

@@ -100,7 +100,7 @@ func run(ctx context.Context) error {
 		return errors.New("peer listener is not a Kubernetes Node internal address")
 	}
 	proxy := zerotrust.NodeProxy{
-		Name: *nodeName, UID: node.UID, PeerIP: *peerIP, StateDirectory: *state, LocalDirectory: *local, Issuer: issuer,
+		Name: *nodeName, UID: node.UID, PeerIP: *peerIP, StateDirectory: *state, LocalDirectory: *local, Issuer: issuer, Client: kube,
 		Routes: zerotrust.RouteResolver{
 			Policies: zerotrust.PolicyStore{
 				Reader: kube, Domain: *domain, PolicyNamespace: *policyNamespace, SessionNamespace: *sessionNamespace, RuntimeClass: *runtimeClass,

@@ -17,14 +17,15 @@ type SessionPolicy struct {
 }
 
 type SessionPolicySpec struct {
-	Workload  SessionWorkload `json:"workload"`
-	Version   int64           `json:"version"`
-	ExpiresAt metav1.Time     `json:"expiresAt"`
-	Revoked   bool            `json:"revoked"`
-	Grants    []NetworkGrant  `json:"grants"`
-	Model     *ModelPolicy    `json:"model,omitempty"`
-	Web       *WebPolicy      `json:"web,omitempty"`
-	GitHub    *GitHubPolicy   `json:"github,omitempty"`
+	Workload          SessionWorkload `json:"workload"`
+	Version           int64           `json:"version"`
+	SessionGeneration int64           `json:"sessionGeneration,omitempty"`
+	ExpiresAt         metav1.Time     `json:"expiresAt"`
+	Revoked           bool            `json:"revoked"`
+	Grants            []NetworkGrant  `json:"grants"`
+	Model             *ModelPolicy    `json:"model,omitempty"`
+	Web               *WebPolicy      `json:"web,omitempty"`
+	GitHub            *GitHubPolicy   `json:"github,omitempty"`
 }
 
 type GitHubPolicy struct {
@@ -89,21 +90,27 @@ func (in *SessionPolicy) DeepCopyObject() runtime.Object {
 	*out = *in
 	in.ObjectMeta.DeepCopyInto(&out.ObjectMeta)
 	out.Spec.Grants = slices.Clone(in.Spec.Grants)
-	if in.Spec.GitHub != nil {
-		github := *in.Spec.GitHub
-		out.Spec.GitHub = &github
-	}
-	if in.Spec.Web != nil {
-		web := *in.Spec.Web
-		web.Registries = slices.Clone(web.Registries)
-		out.Spec.Web = &web
-	}
-	if in.Spec.Model != nil {
-		model := *in.Spec.Model
-		model.Models = slices.Clone(model.Models)
-		out.Spec.Model = &model
-	}
+	access := (SessionAccess{Model: in.Spec.Model, Web: in.Spec.Web, GitHub: in.Spec.GitHub}).clone()
+	out.Spec.Model, out.Spec.Web, out.Spec.GitHub = access.Model, access.Web, access.GitHub
 	return out
+}
+
+func (a SessionAccess) clone() SessionAccess {
+	if a.GitHub != nil {
+		github := *a.GitHub
+		a.GitHub = &github
+	}
+	if a.Web != nil {
+		web := *a.Web
+		web.Registries = slices.Clone(web.Registries)
+		a.Web = &web
+	}
+	if a.Model != nil {
+		model := *a.Model
+		model.Models = slices.Clone(model.Models)
+		a.Model = &model
+	}
+	return a
 }
 
 func (in *SessionPolicyList) DeepCopyObject() runtime.Object {

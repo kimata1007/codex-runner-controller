@@ -63,6 +63,7 @@ jobs:
           kubectl kustomize config/web-proxy > /tmp/codex-web-proxy-manifests.yaml
           kubectl kustomize config/github-proxy > /tmp/codex-github-proxy-manifests.yaml
           kubectl kustomize config/sandbox > /tmp/codex-sandbox-manifests.yaml
+          kubectl kustomize config/sandbox-controller > /tmp/codex-sandbox-controller-manifests.yaml
       - name: Validate YAML is non-empty
         run: |
           test -s /tmp/codex-runner-manifests.yaml
@@ -72,6 +73,7 @@ jobs:
           test -s /tmp/codex-web-proxy-manifests.yaml
           test -s /tmp/codex-github-proxy-manifests.yaml
           test -s /tmp/codex-sandbox-manifests.yaml
+          test -s /tmp/codex-sandbox-controller-manifests.yaml
 
   container-images:
     runs-on: ubuntu-24.04
