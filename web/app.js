@@ -498,6 +498,40 @@ function scrollTranscriptToEnd() {
 }
 
 let resumedRunController = null;
+let activeTurn = null;
+
+function updateSendButton() {
+  const stopping = activeTurn && activeTurn.conversationID === state.conversationID;
+  elements.sendButton.type = stopping ? 'button' : 'submit';
+  elements.sendButton.disabled = stopping ? activeTurn.interrupting : state.sending;
+  elements.sendButton.setAttribute('aria-label', stopping ? '応答を中断' : 'メッセージを送信');
+  elements.sendButton.title = stopping ? '応答を中断' : 'メッセージを送信';
+  elements.sendButton.querySelector('svg').hidden = Boolean(stopping);
+  elements.sendButton.querySelector('.stop-icon').hidden = !stopping;
+}
+
+async function interruptActiveTurn() {
+  const turn = activeTurn;
+  if (!turn || turn.conversationID !== state.conversationID || turn.interrupting) return;
+  turn.interrupting = true;
+  updateSendButton();
+  try {
+    await request(`/v1/runs/${encodeURIComponent(turn.runID)}/interrupt`, {method: 'POST'});
+    if (activeTurn === turn) setStatus('中断しています…', 'working');
+  } catch (error) {
+    if (activeTurn === turn) {
+      turn.interrupting = false;
+      updateSendButton();
+      setStatus(`中断できませんでした: ${error.message}`, 'error');
+    }
+  }
+}
+
+function clearActiveTurn() {
+  activeTurn = null;
+  updateSendButton();
+}
+
 
 async function resumeActiveRuns(conversationID, signal) {
   try {
@@ -527,6 +561,7 @@ async function resumeActiveRuns(conversationID, signal) {
 async function openConversation(id) {
   resumedRunController?.abort();
   resumedRunController = null;
+  clearActiveTurn();
   closeSidebar();
   setStatus('チャットを開いています…');
   try {
@@ -582,6 +617,7 @@ function conversationTitle(conversation) {
 function startNewConversation() {
   resumedRunController?.abort();
   resumedRunController = null;
+  clearActiveTurn();
   clearDeleteSelection();
   state.conversationID = '';
   localStorage.removeItem('codex.currentConversation');
@@ -693,9 +729,16 @@ function createRunProgress(assistantMessage) {
 
 async function streamEvents(runID, assistantMessage, options = {}) {
   const progress = createRunProgress(assistantMessage);
-  const outcome = await readRunEvents(runID, assistantMessage, progress, options);
-  if (outcome !== 'unknown') progress.finish();
-  return outcome;
+  const turn = {runID, conversationID: state.conversationID, interrupting: false};
+  activeTurn = turn;
+  updateSendButton();
+  try {
+    const outcome = await readRunEvents(runID, assistantMessage, progress, options);
+    if (outcome !== 'unknown') progress.finish();
+    return outcome;
+  } finally {
+    if (activeTurn === turn) clearActiveTurn();
+  }
 }
 
 async function readRunEvents(runID, assistantMessage, progress, options) {
@@ -831,10 +874,10 @@ async function connectChatGPT() {
 async function sendMessage(event) {
   event.preventDefault();
   const content = elements.message.value.trim();
-  if (!content || state.sending) return;
+  if (!content || state.sending || activeTurn) return;
 
   state.sending = true;
-  elements.sendButton.disabled = true;
+  updateSendButton();
   elements.message.value = '';
   resizeComposer();
   let userMessage = null;
@@ -899,7 +942,7 @@ async function sendMessage(event) {
     await loadConversationList();
   } finally {
     state.sending = false;
-    elements.sendButton.disabled = false;
+    updateSendButton();
   }
 }
 
@@ -971,12 +1014,15 @@ elements.contextToggle.addEventListener('click', () => {
 });
 elements.removeRepository.addEventListener('click', () => setRepository(null));
 elements.composer.addEventListener('submit', sendMessage);
+elements.sendButton.addEventListener('click', () => {
+  if (activeTurn) void interruptActiveTurn();
+});
 elements.deleteSelected.addEventListener('click', () => {
   if (state.deleteTarget) archiveConversation(state.deleteTarget.id, state.deleteTarget.title);
 });
 elements.message.addEventListener('input', resizeComposer);
 elements.message.addEventListener('keydown', (event) => {
-  if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+  if (event.key === 'Enter' && !event.shiftKey && !event.isComposing && !activeTurn) {
     event.preventDefault();
     elements.composer.requestSubmit();
   }
