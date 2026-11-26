@@ -143,6 +143,9 @@ func NewRouter(handler *Handler) *echo.Echo {
 	if handler.approvalResponder != nil {
 		e.POST("/v1/approvals/:runID/:requestID", handler.respondApproval)
 	}
+	if handler.isolatedControl {
+		e.POST("/v1/runs/:runID/interrupt", handler.interruptRun)
+	}
 	if _, ok := handler.repository.(ApprovalLister); ok {
 		e.GET("/v1/conversations/:id/approvals", handler.listPendingApprovals)
 	}

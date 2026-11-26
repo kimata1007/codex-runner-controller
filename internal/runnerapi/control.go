@@ -6,15 +6,19 @@ import (
 	"encoding/json"
 	"errors"
 	"math"
+	"net/http"
 	"time"
 
 	"github.com/kimata1007/codex-runner-controller/internal/conversation"
 	"github.com/kimata1007/codex-runner-controller/internal/runs"
 	"github.com/kimata1007/codex-runner-controller/internal/sessioncontrol"
+	"github.com/labstack/echo/v4"
 )
 
 type ControlStore interface {
 	BindControlRun(context.Context, string, string, string) error
+	AuthorizeControlRun(context.Context, string, string, string) error
+	ControlTurnID(context.Context, string) (string, error)
 	AppendControlEvent(context.Context, string, string, string, int64, string, string) (runs.Event, error)
 }
 
@@ -29,6 +33,31 @@ func (h *Handler) BindControlRun(ctx context.Context, conversationID, runID, pod
 		return errors.New("session control store is unavailable")
 	}
 	return store.BindControlRun(ctx, conversationID, runID, podUID)
+}
+
+func (h *Handler) AuthorizeControlRun(ctx context.Context, conversationID, runID, podUID string) error {
+	store, ok := h.repository.(ControlStore)
+	if !ok {
+		return errors.New("session control store is unavailable")
+	}
+	return store.AuthorizeControlRun(ctx, conversationID, runID, podUID)
+}
+
+func (h *Handler) interruptRun(c echo.Context) error {
+	store, configured := h.repository.(ControlStore)
+	dispatcher, supported := h.dispatcher.(*runs.MessageDispatcher)
+	if !configured || !supported {
+		return writeError(c, http.StatusServiceUnavailable, "session control is unavailable")
+	}
+	runID, ctx := c.Param("runID"), c.Request().Context()
+	turnID, err := store.ControlTurnID(ctx, runID)
+	if err != nil {
+		return writeOperationalError(c, http.StatusConflict, "active turn is unavailable", "turn_interrupt", err)
+	}
+	if err := dispatcher.Interrupt(ctx, runID, turnID); err != nil {
+		return writeOperationalError(c, http.StatusBadGateway, "failed to interrupt the active turn", "turn_interrupt", err)
+	}
+	return writeJSON(c, http.StatusAccepted, map[string]string{"status": "accepted"})
 }
 
 func (h *Handler) ControlEvent(ctx context.Context, conversationID, podUID string, frame sessioncontrol.Frame) (bool, error) {

@@ -2,12 +2,55 @@ package libsql
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strconv"
 	"time"
 
 	"github.com/kimata1007/codex-runner-controller/internal/runs"
 )
+
+func (r *Repository) AuthorizeControlRun(ctx context.Context, conversationID, runID, podUID string) error {
+	result, err := r.client.Exec(ctx, `SELECT r.id FROM run_controls rc
+		JOIN runs r ON r.id = rc.run_id JOIN conversations c ON c.id = r.conversation_id
+		WHERE r.id = ? AND c.id = ? AND c.user_id = ? AND rc.pod_uid = ?
+			AND c.status != 'archived' AND r.status IN ('running', 'waiting_approval')`,
+		[]Value{Text(runID), Text(conversationID), Text(r.userID), Text(podUID)}, true)
+	if err != nil {
+		return err
+	}
+	if len(result.Rows) != 1 {
+		return errors.New("run is unavailable for this session")
+	}
+	return nil
+}
+
+func (r *Repository) ControlTurnID(ctx context.Context, runID string) (string, error) {
+	result, err := r.client.Exec(ctx, `SELECT e.payload, r.thread_id FROM events e
+		JOIN run_controls rc ON rc.run_id = e.run_id JOIN runs r ON r.id = e.run_id
+		JOIN conversations c ON c.id = r.conversation_id
+		WHERE e.run_id = ? AND c.user_id = ? AND c.status != 'archived' AND e.event_type = 'turn/started'
+			AND r.status IN ('running', 'waiting_approval') ORDER BY e.sequence DESC LIMIT 1`,
+		[]Value{Text(runID), Text(r.userID)}, true)
+	if err != nil {
+		return "", err
+	}
+	if len(result.Rows) != 1 || len(result.Rows[0]) != 2 {
+		return "", errors.New("active turn is unavailable")
+	}
+	var notification struct {
+		ThreadID string `json:"threadId"`
+		Turn     struct {
+			ID string `json:"id"`
+		} `json:"turn"`
+	}
+	row := result.Rows[0]
+	if json.Unmarshal([]byte(row[0].Value), &notification) != nil || notification.ThreadID != row[1].Value ||
+		notification.Turn.ID == "" || len(notification.Turn.ID) > 128 {
+		return "", errors.New("active turn identity is incomplete")
+	}
+	return notification.Turn.ID, nil
+}
 
 // BindControlRun records the Pod selected by Runner API before sending a turn.
 // An existing binding can be reused by a retry on the same Pod.

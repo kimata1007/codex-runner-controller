@@ -136,6 +136,30 @@ func (d *MessageDispatcher) RespondApproval(ctx context.Context, runID, requestI
 	return nil
 }
 
+func (d *MessageDispatcher) Interrupt(ctx context.Context, runID, turnID string) error {
+	if d == nil || d.store == nil || d.factory == nil || runID == "" || turnID == "" {
+		return fmt.Errorf("message dispatcher: run and turn are required")
+	}
+	run, ok, err := d.store.GetRun(ctx, runID)
+	if err != nil {
+		return fmt.Errorf("message dispatcher: get run: %w", err)
+	}
+	if !ok || run.ThreadID == "" || (run.Status != StatusRunning && run.Status != StatusWaitingApproval) {
+		return fmt.Errorf("message dispatcher: active run is unavailable")
+	}
+	client, err := d.factory.CreateClientForConversation(ctx, run.ConversationID)
+	if err != nil {
+		return fmt.Errorf("message dispatcher: select session client: %w", err)
+	}
+	interrupt, ok := client.(interface {
+		InterruptRun(context.Context, string, string, string) error
+	})
+	if !ok {
+		return fmt.Errorf("message dispatcher: interrupt client is not configured")
+	}
+	return interrupt.InterruptRun(ctx, runID, run.ThreadID, turnID)
+}
+
 func (d *MessageDispatcher) prepareThread(ctx context.Context, client ThreadClient, threadID string) (string, error) {
 	if threadID == "" {
 		newThreadID, err := client.StartThread(ctx)

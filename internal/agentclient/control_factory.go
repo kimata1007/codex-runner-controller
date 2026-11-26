@@ -30,6 +30,7 @@ type ControlTargetResolver interface {
 
 type ControlAuthority interface {
 	BindControlRun(context.Context, string, string, string) error
+	AuthorizeControlRun(context.Context, string, string, string) error
 	ControlEvent(context.Context, string, string, sessioncontrol.Frame) (bool, error)
 	ControlHeartbeat(context.Context, string)
 }
@@ -301,12 +302,28 @@ func (c *controlClient) StartTurn(ctx context.Context, threadID, runID, text str
 }
 
 func (c *controlClient) RespondRunApproval(ctx context.Context, runID, requestID string, response any) error {
+	if err := c.link.authority.AuthorizeControlRun(ctx, c.link.conversationID, runID, string(c.link.podUID)); err != nil {
+		return err
+	}
 	payload, err := json.Marshal(map[string]any{"runId": runID, "requestId": requestID, "response": response})
 	if err != nil {
 		return err
 	}
 	sum := sha256.Sum256([]byte(runID + "\x00" + requestID))
 	_, err = c.link.call(ctx, sessioncontrol.Frame{Kind: sessioncontrol.Command, ID: hex.EncodeToString(sum[:]), Method: "approval/respond", Payload: payload})
+	return err
+}
+
+func (c *controlClient) InterruptRun(ctx context.Context, runID, threadID, turnID string) error {
+	if err := c.link.authority.AuthorizeControlRun(ctx, c.link.conversationID, runID, string(c.link.podUID)); err != nil {
+		return err
+	}
+	payload, err := json.Marshal(map[string]string{"runId": runID, "threadId": threadID, "turnId": turnID})
+	if err != nil {
+		return err
+	}
+	sum := sha256.Sum256([]byte("interrupt\x00" + runID + "\x00" + turnID))
+	_, err = c.link.call(ctx, sessioncontrol.Frame{Kind: sessioncontrol.Command, ID: hex.EncodeToString(sum[:]), Method: "turn/interrupt", Payload: payload})
 	return err
 }
 
