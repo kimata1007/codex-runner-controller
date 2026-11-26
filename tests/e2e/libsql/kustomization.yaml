@@ -1,0 +1,42 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../../config/libsql
+patches:
+  # Kind runs sqld directly on temporary storage because the image's wrapper
+  # tries to chown the database under a host-path PVC with capabilities dropped.
+  - target:
+      kind: StatefulSet
+      name: libsql
+    patch: |-
+      apiVersion: apps/v1
+      kind: StatefulSet
+      metadata:
+        name: libsql
+      spec:
+        template:
+          spec:
+            containers:
+              - name: libsql
+                command: ["/bin/sqld"]
+                args:
+                  - --db-path
+                  - /var/lib/sqld/iku.db
+                  - --http-listen-addr
+                  - 0.0.0.0:8080
+                  - --grpc-listen-addr
+                  - 0.0.0.0:5001
+                securityContext:
+                  runAsUser: 0
+                  runAsGroup: 0
+  - target:
+      kind: StatefulSet
+      name: libsql
+    patch: |-
+      - op: remove
+        path: /spec/volumeClaimTemplates
+      - op: add
+        path: /spec/template/spec/volumes
+        value:
+          - name: data
+            emptyDir: {}

@@ -8,7 +8,7 @@ fi
 cd "$(dirname "$0")/../../.."
 
 kubectl -n codex-system delete deployment codex-runner-api --ignore-not-found --wait=true
-kubectl -n codex-system apply -k config/libsql
+kubectl -n codex-system apply -k tests/e2e/libsql
 kubectl -n codex-system rollout status statefulset/libsql --timeout=120s
 kubectl kustomize config/node-proxy |
   sed 's|image: ghcr.io/kimata1007/codex-node-proxy:[^ ]*|image: local/codex-node-proxy:e2e|' |

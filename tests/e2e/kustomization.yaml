@@ -7,7 +7,7 @@ resources:
   - ../../config/rbac
   - ../../config/manager
   - ../../config/api
-  - ../../config/libsql
+  - libsql
 images:
   - name: ghcr.io/kimata1007/codex-runner-api
     newName: local/runner-api
@@ -39,44 +39,3 @@ patches:
                 env:
                   - name: RUNNER_AGENT_IMAGE
                     value: local/runner-agent:e2e
-  # The upstream libSQL docker-wrapper.sh attempts chown during startup.
-  # Kind CI bypasses that wrapper and invokes sqld directly as root; the
-  # production StatefulSet and its entrypoint remain unchanged.
-  - target:
-      kind: StatefulSet
-      name: libsql
-    patch: |-
-      apiVersion: apps/v1
-      kind: StatefulSet
-      metadata:
-        name: libsql
-      spec:
-        template:
-          spec:
-            containers:
-              - name: libsql
-                command: ["/bin/sqld"]
-                args:
-                  - --db-path
-                  - /var/lib/sqld/iku.db
-                  - --http-listen-addr
-                  - 0.0.0.0:8080
-                  - --grpc-listen-addr
-                  - 0.0.0.0:5001
-                securityContext:
-                  runAsUser: 0
-                  runAsGroup: 0
-  # The libSQL database only needs ephemeral storage for this CI run.
-  # Kind's host-path PVC prevents the pinned image from chown-ing iku.db.
-  # Keep the production StatefulSet untouched while using an emptyDir here.
-  - target:
-      kind: StatefulSet
-      name: libsql
-    patch: |-
-      - op: remove
-        path: /spec/volumeClaimTemplates
-      - op: add
-        path: /spec/template/spec/volumes
-        value:
-          - name: data
-            emptyDir: {}
