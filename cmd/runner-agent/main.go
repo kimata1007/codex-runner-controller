@@ -18,6 +18,22 @@ import (
 )
 
 func main() {
+	if len(os.Args) == 3 && os.Args[1] == "-probe" {
+		path := os.Args[2]
+		if path != "/readyz" && path != "/healthz" {
+			os.Exit(1)
+		}
+		client := http.Client{Timeout: time.Second}
+		response, err := client.Get("http://127.0.0.1:8081" + path)
+		if err != nil {
+			os.Exit(1)
+		}
+		_ = response.Body.Close()
+		if response.StatusCode != http.StatusOK {
+			os.Exit(1)
+		}
+		return
+	}
 	slog.SetDefault(logging.New("runner-agent"))
 	shutdown, err := telemetry.Start(context.Background(), "runner-agent")
 	if err != nil {
