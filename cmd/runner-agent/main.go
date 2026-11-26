@@ -14,6 +14,7 @@ import (
 	"github.com/kimata1007/codex-runner-controller/internal/agent"
 	"github.com/kimata1007/codex-runner-controller/internal/auth"
 	"github.com/kimata1007/codex-runner-controller/internal/logging"
+	"github.com/kimata1007/codex-runner-controller/internal/sessioncontrol"
 	"github.com/kimata1007/codex-runner-controller/internal/telemetry"
 )
 
@@ -54,8 +55,19 @@ func main() {
 	}
 
 	tracker := agent.NewRunTracker()
+	isolated := os.Getenv("CODEX_ISOLATED_SESSION") == "true"
+	var control *agent.SessionControl
 	var runEventSender agent.RunEventSender
-	if eventURL := os.Getenv("RUNNER_EVENT_URL"); eventURL != "" {
+	if isolated {
+		for _, name := range []string{"RUNNER_AGENT_TOKEN", "RUNNER_API_TOKEN", "RUNNER_EVENT_URL", "RUNNER_HEARTBEAT_URL", "RUNNER_AUTH_REFRESH_URL", "ACCESS_TOKEN", "GIT_AUTH_TOKEN"} {
+			if os.Getenv(name) != "" {
+				slog.Error("isolated session has a legacy credential or callback", "variable", name)
+				os.Exit(1)
+			}
+		}
+		control = agent.NewSessionControl(ctx, tracker)
+		runEventSender = control
+	} else if eventURL := os.Getenv("RUNNER_EVENT_URL"); eventURL != "" {
 		runEventSender = agent.NewHTTPRunEventSender(eventURL).WithBearerToken(os.Getenv("RUNNER_API_TOKEN"))
 		runEventSender = agent.NewQueuedRunEventSender(ctx, runEventSender, func(err error) {
 			slog.Error("failed to forward App Server run event", "operation", "event.forward", "error.type", logging.ErrorType(err))
@@ -95,7 +107,11 @@ func main() {
 
 	session := agent.NewSession(process.Client)
 	authRefresher := agent.ChatGPTAuthTokenRefresher{URL: os.Getenv("RUNNER_AUTH_REFRESH_URL"), Bearer: os.Getenv("RUNNER_AGENT_TOKEN")}
-	session.SetRequestHandler(agent.ChainRequestHandlers(approvals.Handle, authRefresher.Handle))
+	if isolated {
+		session.SetRequestHandler(approvals.Handle)
+	} else {
+		session.SetRequestHandler(agent.ChainRequestHandlers(approvals.Handle, authRefresher.Handle))
+	}
 	if err := session.Initialize(ctx, agent.ClientInfo{
 		Name:    "codex-runner-controller",
 		Title:   "Codex Runner Controller",
@@ -109,9 +125,23 @@ func main() {
 	if address == "" {
 		address = ":8081"
 	}
+	var handler http.Handler
+	if isolated {
+		mux := http.NewServeMux()
+		mux.Handle(sessioncontrol.Path, control.Handler(session, approvals))
+		health := func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"status":"ok"}`))
+		}
+		mux.HandleFunc("GET /readyz", health)
+		mux.HandleFunc("GET /healthz", health)
+		handler = mux
+	} else {
+		handler = auth.BearerToken(agent.NewHTTPHandlerWithAuthBroker(session, tracker, approvals, os.Getenv("RUNNER_AUTH_BROKER") == "true"), os.Getenv("RUNNER_AGENT_TOKEN"))
+	}
 	server := &http.Server{
 		Addr:              address,
-		Handler:           telemetry.HTTPHandler(auth.BearerToken(agent.NewHTTPHandlerWithAuthBroker(session, tracker, approvals, os.Getenv("RUNNER_AUTH_BROKER") == "true"), os.Getenv("RUNNER_AGENT_TOKEN"))),
+		Handler:           telemetry.HTTPHandler(handler),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,

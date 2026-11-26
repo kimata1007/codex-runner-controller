@@ -10,13 +10,18 @@ import (
 
 type ApprovalManager struct {
 	mu      sync.Mutex
-	pending map[string]chan any
+	pending map[string]*pendingApproval
 	sender  RunEventSender
 	tracker *RunTracker
 }
 
+type pendingApproval struct {
+	runID    string
+	decision chan any
+}
+
 func NewApprovalManager(sender RunEventSender, tracker *RunTracker) *ApprovalManager {
-	return &ApprovalManager{pending: make(map[string]chan any), sender: sender, tracker: tracker}
+	return &ApprovalManager{pending: make(map[string]*pendingApproval), sender: sender, tracker: tracker}
 }
 
 func (m *ApprovalManager) Handle(ctx context.Context, message Message) (any, error) {
@@ -30,27 +35,28 @@ func (m *ApprovalManager) Handle(ctx context.Context, message Message) (any, err
 		return nil, fmt.Errorf("approval request id is required")
 	}
 	requestID := strconv.FormatInt(*message.ID, 10)
-	decision := make(chan any, 1)
+	pending := &pendingApproval{runID: m.tracker.Current(), decision: make(chan any, 1)}
 	m.mu.Lock()
-	m.pending[requestID] = decision
+	m.pending[requestID] = pending
 	m.mu.Unlock()
 	defer func() {
 		m.mu.Lock()
-		delete(m.pending, requestID)
+		if m.pending[requestID] == pending {
+			delete(m.pending, requestID)
+		}
 		m.mu.Unlock()
 	}()
 
-	if m.sender != nil && m.tracker != nil && m.tracker.Current() != "" {
-		runID := m.tracker.Current()
+	if m.sender != nil && pending.runID != "" {
 		payload, _ := json.Marshal(struct {
 			RequestID string          `json:"requestId"`
 			Method    string          `json:"method"`
 			Params    json.RawMessage `json:"params"`
 		}{RequestID: requestID, Method: message.Method, Params: message.Params})
-		_ = m.sender.Send(context.Background(), AppServerRunEvent{RunID: runID, EventType: "approval/requested", Payload: payload})
+		_ = m.sender.Send(context.Background(), AppServerRunEvent{RunID: pending.runID, EventType: "approval/requested", Payload: payload})
 	}
 	select {
-	case response := <-decision:
+	case response := <-pending.decision:
 		return response, nil
 	case <-ctx.Done():
 		return nil, ctx.Err()
@@ -58,13 +64,25 @@ func (m *ApprovalManager) Handle(ctx context.Context, message Message) (any, err
 }
 
 func (m *ApprovalManager) Resolve(requestID string, response any) error {
+	return m.resolve("", requestID, response)
+}
+
+func (m *ApprovalManager) ResolveForRun(runID, requestID string, response any) error {
+	if runID == "" {
+		return fmt.Errorf("approval run id is required")
+	}
+	return m.resolve(runID, requestID, response)
+}
+
+func (m *ApprovalManager) resolve(runID, requestID string, response any) error {
 	m.mu.Lock()
-	decision, ok := m.pending[requestID]
-	m.mu.Unlock()
-	if !ok {
+	defer m.mu.Unlock()
+	pending := m.pending[requestID]
+	if pending == nil || (runID != "" && pending.runID != runID) {
 		return fmt.Errorf("approval request %q not found", requestID)
 	}
-	decision <- response
+	delete(m.pending, requestID)
+	pending.decision <- response
 	return nil
 }
 

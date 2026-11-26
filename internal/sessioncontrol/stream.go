@@ -63,9 +63,16 @@ func (f Frame) valid() bool {
 // Stream carries concurrent sends and a single receive loop. The caller
 // validates frame direction and binds command IDs to the authorized session.
 type Stream struct {
-	reader *bufio.Scanner
-	write  func([]byte) error
-	mu     sync.Mutex
+	reader        *bufio.Scanner
+	write         func([]byte) error
+	stopReceiving func()
+	mu            sync.Mutex
+}
+
+func (s *Stream) StopReceiving() {
+	if s.stopReceiving != nil {
+		s.stopReceiving()
+	}
 }
 
 func newStream(reader io.Reader, write func([]byte) error) *Stream {
@@ -104,16 +111,18 @@ func (s *Stream) Send(frame Frame) error {
 	if !frame.valid() {
 		return errors.New("invalid session control frame")
 	}
-	data, err := json.Marshal(frame)
-	if err != nil {
+	var data bytes.Buffer
+	encoder := json.NewEncoder(&data)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(frame); err != nil {
 		return err
 	}
-	if len(data) > MaxFrameBytes {
+	if data.Len() > MaxFrameBytes+1 {
 		return errors.New("session control frame exceeds the size limit")
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.write(append(data, '\n'))
+	return s.write(data.Bytes())
 }
 
 type Connection struct {
@@ -204,6 +213,7 @@ func Serve(w http.ResponseWriter, r *http.Request, handle func(context.Context, 
 		}
 		return control.SetWriteDeadline(time.Time{})
 	})
+	stream.stopReceiving = func() { _ = control.SetReadDeadline(time.Now()) }
 	handle(r.Context(), stream)
 }
 
