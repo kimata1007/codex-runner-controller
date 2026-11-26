@@ -75,9 +75,10 @@ jobs:
           docker build -f tests/e2e/transport/fixture/Dockerfile -t local/codex-transport-fixture:e2e .
           docker build -f Dockerfile.runner-controller -t local/runner-controller:e2e .
           docker build -f tests/e2e/fake-app-server/Dockerfile -t local/runner-agent:e2e .
+          docker build -f Dockerfile.runner-api -t local/runner-api:e2e .
           kind load docker-image --name codex-identity \
             local/codex-identity-issuer:e2e local/codex-node-proxy:e2e local/codex-transport-fixture:e2e \
-            local/runner-controller:e2e local/runner-agent:e2e
+            local/runner-controller:e2e local/runner-agent:e2e local/runner-api:e2e
       - name: Verify node attestation and policy revocation
         run: bash tests/e2e/identity/run.sh
       - name: Install the pinned gVisor runtime
@@ -90,6 +91,8 @@ jobs:
         run: bash tests/e2e/transport/run.sh
       - name: Verify the Session lifecycle and authenticated readiness
         run: bash tests/e2e/transport/controller.sh
+      - name: Verify the Runner API control stream and persisted SSE
+        run: bash tests/e2e/transport/control-api.sh
       - name: Collect Kubernetes diagnostics
         if: failure()
         run: |
@@ -98,3 +101,4 @@ jobs:
           kubectl -n codex-security logs daemonset/codex-node-proxy --all-pods=true || true
           kubectl -n codex-sessions get events --sort-by=.lastTimestamp
           kubectl -n codex-system logs deployment/codex-sandbox-controller --all-pods=true || true
+          kubectl -n codex-system logs deployment/codex-runner-api --all-pods=true || true

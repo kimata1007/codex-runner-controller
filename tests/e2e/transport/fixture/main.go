@@ -39,8 +39,8 @@ func run(args []string) error {
 			fmt.Fprint(w, "session control reached")
 		})}
 		return server.ListenAndServe()
-	case "model":
-		path := zerotrust.ServiceSocket(zerotrust.NodeRuntimeDirectory, "model", types.UID(os.Getenv("POD_UID")))
+	case "model", "github", "web":
+		path := zerotrust.ServiceSocket(zerotrust.NodeRuntimeDirectory, args[0], types.UID(os.Getenv("POD_UID")))
 		listener, err := zerotrust.ListenPrivate(path)
 		if err != nil {
 			return err

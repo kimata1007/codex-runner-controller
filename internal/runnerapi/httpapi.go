@@ -37,6 +37,7 @@ type Handler struct {
 	eventProjector    RunEventProjector
 	eventHub          RunEventHub
 	authBroker        ChatGPTAuthBroker
+	isolatedControl   bool
 }
 
 // HandlerDependencies groups the optional collaborators used by the HTTP API.
@@ -142,14 +143,19 @@ func NewRouter(handler *Handler) *echo.Echo {
 	if handler.approvalResponder != nil {
 		e.POST("/v1/approvals/:runID/:requestID", handler.respondApproval)
 	}
+	if handler.isolatedControl {
+		e.POST("/v1/runs/:runID/interrupt", handler.interruptRun)
+	}
 	if _, ok := handler.repository.(ApprovalLister); ok {
 		e.GET("/v1/conversations/:id/approvals", handler.listPendingApprovals)
 	}
 	if handler.eventStore != nil && handler.eventHub != nil {
-		e.POST("/internal/runs/:runID/events", handler.receiveAppServerRunEvent)
+		if !handler.isolatedControl {
+			e.POST("/internal/runs/:runID/events", handler.receiveAppServerRunEvent)
+		}
 		e.GET("/v1/runs/:runID/events", events.NewSSEHandler(handler.eventStore, handler.eventHub))
 	}
-	if handler.activity != nil {
+	if handler.activity != nil && !handler.isolatedControl {
 		e.POST("/internal/sessions/:conversationID/heartbeat", handler.receiveHeartbeat)
 	}
 	return e

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -26,7 +27,9 @@ import (
 	"github.com/kimata1007/codex-runner-controller/internal/runs"
 	"github.com/kimata1007/codex-runner-controller/internal/session"
 	"github.com/kimata1007/codex-runner-controller/internal/telemetry"
+	"github.com/kimata1007/codex-runner-controller/internal/zerotrust"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 )
@@ -51,6 +54,8 @@ func main() {
 		slog.Error("failed to initialize repository", "operation", "startup.repository", "error.type", logging.ErrorType(err))
 		os.Exit(1)
 	}
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 	dispatcher, activator, authBroker, err := runtimeFromEnvironment(repository)
 	if err != nil {
 		slog.Error("failed to initialize runtime", "operation", "startup.runtime", "error.type", logging.ErrorType(err))
@@ -62,6 +67,29 @@ func main() {
 		dependencies.EventHub = events.NewBroker()
 	}
 	apiHandler := runnerapi.NewHandler(dependencies)
+	if sandbox, ok := activator.(*kubernetes.SessionActivator); ok && sandbox.Namespace == kubernetes.SandboxNamespace {
+		controlStore, ok := repository.(interface {
+			runnerapi.ControlStore
+			runs.Store
+			ActiveControlBindings(context.Context) ([]runs.ControlBinding, error)
+		})
+		if !ok || dependencies.EventStore == nil {
+			slog.Error("isolated control requires an event-capable run store")
+			os.Exit(1)
+		}
+		factory := agentclient.NewControlFactory(ctx, sandbox, apiHandler, filepath.Join(zerotrust.NodeRuntimeDirectory, "runner-api.sock"))
+		apiHandler.UseIsolatedControl(runs.NewMessageDispatcherWithFactory(controlStore, factory))
+		restoreContext, cancel := context.WithTimeout(ctx, 15*time.Second)
+		bindings, err := controlStore.ActiveControlBindings(restoreContext)
+		cancel()
+		if err != nil {
+			slog.Error("failed to restore active session control bindings", "error.type", logging.ErrorType(err))
+			os.Exit(1)
+		}
+		for _, binding := range bindings {
+			factory.Restore(binding.ConversationID, types.UID(binding.PodUID))
+		}
+	}
 	var httpHandler http.Handler = runnerapi.NewRouter(apiHandler)
 	httpHandler = auth.BearerTokenForPathPrefix(httpHandler, os.Getenv("RUNNER_API_TOKEN"), "/internal/runs/")
 	httpHandler = auth.BearerTokenForPathPrefix(httpHandler, os.Getenv("RUNNER_AGENT_TOKEN"), "/internal/sessions/")
@@ -77,8 +105,6 @@ func main() {
 		IdleTimeout: 60 * time.Second,
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
 	if store, ok := repository.(conversation.RetentionStore); ok {
 		var cleaner runnerapi.ConversationSessionCleaner
 		if value, ok := activator.(runnerapi.ConversationSessionCleaner); ok {
@@ -106,8 +132,15 @@ func main() {
 
 func runtimeFromEnvironment(repository conversation.Repository) (runnerapi.MessageDispatcher, session.Activator, runnerapi.ChatGPTAuthBroker, error) {
 	agentURL := os.Getenv("RUNNER_AGENT_URL")
+	isolated := os.Getenv("RUNNER_SESSION_NAMESPACE") == kubernetes.SandboxNamespace
+	if isolated && (agentURL != "" || os.Getenv("RUNNER_AUTH_ENCRYPTION_KEY") != "" || gitCredentialsSecretNameFromEnvironment() != "") {
+		return nil, nil, nil, errors.New("isolated sessions cannot use legacy agent endpoints or credential providers")
+	}
 	runStore, ok := repository.(runs.Store)
 	if !ok {
+		if isolated {
+			return nil, nil, nil, errors.New("isolated sessions require a run-capable libSQL repository")
+		}
 		if agentURL != "" {
 			return nil, nil, nil, errors.New("RUNNER_AGENT_URL requires a run-capable libSQL repository")
 		}
@@ -152,6 +185,9 @@ func runtimeFromEnvironment(repository conversation.Repository) (runnerapi.Messa
 			Model:              params.Model,
 			ApprovalPolicy:     params.ApprovalPolicy,
 			ReadyTimeout:       kubernetes.DefaultSessionReadyTimeout,
+		}
+		if isolated {
+			return nil, activator, nil, nil
 		}
 		resolver = kubernetes.SessionEndpointResolver{Namespace: namespace}
 	}

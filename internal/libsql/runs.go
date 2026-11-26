@@ -122,6 +122,13 @@ func (r *Repository) GetRun(ctx context.Context, runID string) (runs.Run, bool, 
 }
 
 func (r *Repository) ApplyAppServerEvent(ctx context.Context, runID, eventType, payload string) error {
+	if eventType == "approval/requested" {
+		if err := r.persistApproval(ctx, runID, payload); err != nil {
+			return err
+		}
+		_, err := r.client.Exec(ctx, `UPDATE runs SET status = 'waiting_approval' WHERE id = ? AND status = 'running'`, []Value{Text(runID)}, false)
+		return err
+	}
 	status, ok := runs.StatusForEvent(eventType, payload)
 	if !ok {
 		return nil
@@ -146,11 +153,6 @@ func (r *Repository) ApplyAppServerEvent(ctx context.Context, runID, eventType, 
 	}
 	if status == runs.StatusCompleted {
 		if err := r.persistAssistantMessage(ctx, runID); err != nil {
-			return err
-		}
-	}
-	if status == runs.StatusWaitingApproval {
-		if err := r.persistApproval(ctx, runID, payload); err != nil {
 			return err
 		}
 	}

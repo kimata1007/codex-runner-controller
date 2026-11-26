@@ -13,11 +13,26 @@ import (
 
 	"github.com/kimata1007/codex-runner-controller/internal/agent"
 	"github.com/kimata1007/codex-runner-controller/internal/auth"
+	"github.com/kimata1007/codex-runner-controller/internal/githubmcp"
 	"github.com/kimata1007/codex-runner-controller/internal/logging"
+	"github.com/kimata1007/codex-runner-controller/internal/sessioncontrol"
 	"github.com/kimata1007/codex-runner-controller/internal/telemetry"
+	"github.com/kimata1007/codex-runner-controller/internal/webmcp"
 )
 
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == "-web-mcp" {
+		if err := webmcp.Serve(context.Background(), os.Stdin, os.Stdout); err != nil {
+			os.Exit(1)
+		}
+		return
+	}
+	if len(os.Args) == 2 && os.Args[1] == "-github-mcp" {
+		if err := githubmcp.Serve(context.Background(), os.Stdin, os.Stdout); err != nil {
+			os.Exit(1)
+		}
+		return
+	}
 	if len(os.Args) == 3 && os.Args[1] == "-probe" {
 		path := os.Args[2]
 		if path != "/readyz" && path != "/healthz" {
@@ -54,8 +69,19 @@ func main() {
 	}
 
 	tracker := agent.NewRunTracker()
+	isolated := os.Getenv("CODEX_ISOLATED_SESSION") == "true"
+	var control *agent.SessionControl
 	var runEventSender agent.RunEventSender
-	if eventURL := os.Getenv("RUNNER_EVENT_URL"); eventURL != "" {
+	if isolated {
+		for _, name := range []string{"RUNNER_AGENT_TOKEN", "RUNNER_API_TOKEN", "RUNNER_EVENT_URL", "RUNNER_HEARTBEAT_URL", "RUNNER_AUTH_REFRESH_URL", "ACCESS_TOKEN", "GIT_AUTH_TOKEN"} {
+			if os.Getenv(name) != "" {
+				slog.Error("isolated session has a legacy credential or callback", "variable", name)
+				os.Exit(1)
+			}
+		}
+		control = agent.NewSessionControl(ctx, tracker)
+		runEventSender = control
+	} else if eventURL := os.Getenv("RUNNER_EVENT_URL"); eventURL != "" {
 		runEventSender = agent.NewHTTPRunEventSender(eventURL).WithBearerToken(os.Getenv("RUNNER_API_TOKEN"))
 		runEventSender = agent.NewQueuedRunEventSender(ctx, runEventSender, func(err error) {
 			slog.Error("failed to forward App Server run event", "operation", "event.forward", "error.type", logging.ErrorType(err))
@@ -95,7 +121,11 @@ func main() {
 
 	session := agent.NewSession(process.Client)
 	authRefresher := agent.ChatGPTAuthTokenRefresher{URL: os.Getenv("RUNNER_AUTH_REFRESH_URL"), Bearer: os.Getenv("RUNNER_AGENT_TOKEN")}
-	session.SetRequestHandler(agent.ChainRequestHandlers(approvals.Handle, authRefresher.Handle))
+	if isolated {
+		session.SetRequestHandler(approvals.Handle)
+	} else {
+		session.SetRequestHandler(agent.ChainRequestHandlers(approvals.Handle, authRefresher.Handle))
+	}
 	if err := session.Initialize(ctx, agent.ClientInfo{
 		Name:    "codex-runner-controller",
 		Title:   "Codex Runner Controller",
@@ -109,9 +139,23 @@ func main() {
 	if address == "" {
 		address = ":8081"
 	}
+	var handler http.Handler
+	if isolated {
+		mux := http.NewServeMux()
+		mux.Handle(sessioncontrol.Path, control.Handler(session, approvals))
+		health := func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"status":"ok"}`))
+		}
+		mux.HandleFunc("GET /readyz", health)
+		mux.HandleFunc("GET /healthz", health)
+		handler = mux
+	} else {
+		handler = auth.BearerToken(agent.NewHTTPHandlerWithAuthBroker(session, tracker, approvals, os.Getenv("RUNNER_AUTH_BROKER") == "true"), os.Getenv("RUNNER_AGENT_TOKEN"))
+	}
 	server := &http.Server{
 		Addr:              address,
-		Handler:           telemetry.HTTPHandler(auth.BearerToken(agent.NewHTTPHandlerWithAuthBroker(session, tracker, approvals, os.Getenv("RUNNER_AUTH_BROKER") == "true"), os.Getenv("RUNNER_AGENT_TOKEN"))),
+		Handler:           telemetry.HTTPHandler(handler),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,
@@ -148,6 +192,31 @@ func main() {
 func defaultAppServerArgs() []string {
 	// Kubernetes already isolates each conversation Pod. Do not invoke the Codex Linux sandbox.
 	args := []string{"-c", `sandbox_mode="danger-full-access"`, "app-server", "--listen", "stdio://"}
+	if os.Getenv("CODEX_ISOLATED_SESSION") == "true" {
+		args = append([]string{
+			"-c", `web_search="disabled"`,
+			"-c", `model_provider="codex_session_proxy"`,
+			"-c", `model_providers.codex_session_proxy.name="Codex Session Model Proxy"`,
+			"-c", `model_providers.codex_session_proxy.base_url="http://198.18.0.13:8080/v1"`,
+			"-c", `model_providers.codex_session_proxy.wire_api="responses"`,
+			"-c", `model_providers.codex_session_proxy.requires_openai_auth=false`,
+			"-c", `model_providers.codex_session_proxy.supports_websockets=false`,
+		}, args...)
+		if os.Getenv("CODEX_WEB_PROXY_ENABLED") == "true" {
+			args = append([]string{
+				"-c", `mcp_servers.codex_web_proxy.command="/runner-agent"`,
+				"-c", `mcp_servers.codex_web_proxy.args=["-web-mcp"]`,
+				"-c", `mcp_servers.codex_web_proxy.startup_timeout_sec=10`,
+			}, args...)
+		}
+		if os.Getenv("CODEX_GITHUB_PROXY_ENABLED") == "true" {
+			args = append([]string{
+				"-c", `mcp_servers.codex_github_proxy.command="/runner-agent"`,
+				"-c", `mcp_servers.codex_github_proxy.args=["-github-mcp"]`,
+				"-c", `mcp_servers.codex_github_proxy.startup_timeout_sec=10`,
+			}, args...)
+		}
+	}
 	if endpoint := strings.TrimRight(os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"), "/"); endpoint != "" {
 		// Codex has its own OTLP trace exporter; its configuration is not
 		// inherited from the Go OpenTelemetry SDK environment alone.

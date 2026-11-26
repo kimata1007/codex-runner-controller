@@ -70,7 +70,10 @@ func validateWebURL(u *url.URL) error {
 }
 
 func NewPublicWeb() *PublicWeb {
-	dialer := &net.Dialer{Timeout: 5 * time.Second}
+	return newPublicWeb(net.DefaultResolver, &net.Dialer{Timeout: 5 * time.Second})
+}
+
+func newPublicWeb(resolver *net.Resolver, dialer *net.Dialer) *PublicWeb {
 	transport := &http.Transport{
 		// Never honor ambient HTTP_PROXY variables.
 		Proxy:                  nil,
@@ -84,15 +87,9 @@ func NewPublicWeb() *PublicWeb {
 			if err != nil || port != "443" {
 				return nil, errors.New("invalid web destination")
 			}
-			ips, err := net.DefaultResolver.LookupNetIP(ctx, "ip", host)
-			if err != nil || len(ips) == 0 {
+			ips, err := resolver.LookupNetIP(ctx, "ip", host)
+			if err != nil || !publicDNSAnswers(ips) {
 				return nil, errors.New("web DNS resolution failed")
-			}
-			// Reject mixed public/private DNS answers, not just the selected IP.
-			for _, ip := range ips {
-				if !publicIP(ip) {
-					return nil, errors.New("web DNS resolved non-public address")
-				}
 			}
 			for _, ip := range ips {
 				conn, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort(ip.String(), port))
@@ -104,15 +101,29 @@ func NewPublicWeb() *PublicWeb {
 		},
 	}
 	return &PublicWeb{client: &http.Client{
-		Transport: transport,
-		Timeout:   20 * time.Second,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) >= 5 {
-				return errors.New("too many redirects")
-			}
-			return validateWebURL(req.URL)
-		},
+		Transport:     transport,
+		Timeout:       20 * time.Second,
+		CheckRedirect: checkPublicRedirect,
 	}}
+}
+
+func publicDNSAnswers(ips []netip.Addr) bool {
+	if len(ips) == 0 {
+		return false
+	}
+	for _, ip := range ips {
+		if !publicIP(ip) {
+			return false
+		}
+	}
+	return true
+}
+
+func checkPublicRedirect(req *http.Request, via []*http.Request) error {
+	if len(via) >= 5 {
+		return errors.New("too many redirects")
+	}
+	return validateWebURL(req.URL)
 }
 
 type WebResult struct {

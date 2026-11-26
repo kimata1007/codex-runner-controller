@@ -79,6 +79,18 @@ func (r *SandboxReconciler) sync(ctx context.Context, s *v1alpha1.CodexSession) 
 	if err := s.Spec.Validate(); err != nil || s.Spec.CredentialsRef != nil {
 		return v1alpha1.PhaseFailed, "", "InvalidSandboxConfiguration", err
 	}
+	if s.Spec.Access != nil && s.Spec.Access.Model != nil {
+		allowed := false
+		for _, model := range s.Spec.Access.Model.Models {
+			if model.Name == s.Spec.Execution.Model {
+				allowed = true
+				break
+			}
+		}
+		if !allowed || s.Spec.Execution.Model == "" {
+			return v1alpha1.PhaseFailed, "", "ModelPolicyMismatch", nil
+		}
+	}
 	key := client.ObjectKeyFromObject(s)
 	var pod corev1.Pod
 	getPod := r.Client.Get(ctx, key, &pod)

@@ -17,6 +17,10 @@ type ApprovalClient interface {
 	RespondApproval(context.Context, string, any) error
 }
 
+type RunApprovalClient interface {
+	RespondRunApproval(context.Context, string, string, any) error
+}
+
 // ThreadClientFactory selects the runner-agent client for a conversation.
 type ThreadClientFactory interface {
 	CreateClientForConversation(context.Context, string) (ThreadClient, error)
@@ -113,11 +117,15 @@ func (d *MessageDispatcher) RespondApproval(ctx context.Context, runID, requestI
 	if err != nil {
 		return fmt.Errorf("message dispatcher: select session client: %w", err)
 	}
-	approvalClient, ok := client.(ApprovalClient)
-	if !ok {
+	switch approvalClient := client.(type) {
+	case RunApprovalClient:
+		err = approvalClient.RespondRunApproval(ctx, runID, requestID, response)
+	case ApprovalClient:
+		err = approvalClient.RespondApproval(ctx, requestID, response)
+	default:
 		return fmt.Errorf("message dispatcher: approval client is not configured")
 	}
-	if err := approvalClient.RespondApproval(ctx, requestID, response); err != nil {
+	if err != nil {
 		return fmt.Errorf("message dispatcher: respond approval: %w", err)
 	}
 	if approvalStore, ok := d.store.(ApprovalStore); ok {
@@ -126,6 +134,30 @@ func (d *MessageDispatcher) RespondApproval(ctx context.Context, runID, requestI
 		}
 	}
 	return nil
+}
+
+func (d *MessageDispatcher) Interrupt(ctx context.Context, runID, turnID string) error {
+	if d == nil || d.store == nil || d.factory == nil || runID == "" || turnID == "" {
+		return fmt.Errorf("message dispatcher: run and turn are required")
+	}
+	run, ok, err := d.store.GetRun(ctx, runID)
+	if err != nil {
+		return fmt.Errorf("message dispatcher: get run: %w", err)
+	}
+	if !ok || run.ThreadID == "" || (run.Status != StatusRunning && run.Status != StatusWaitingApproval) {
+		return fmt.Errorf("message dispatcher: active run is unavailable")
+	}
+	client, err := d.factory.CreateClientForConversation(ctx, run.ConversationID)
+	if err != nil {
+		return fmt.Errorf("message dispatcher: select session client: %w", err)
+	}
+	interrupt, ok := client.(interface {
+		InterruptRun(context.Context, string, string, string) error
+	})
+	if !ok {
+		return fmt.Errorf("message dispatcher: interrupt client is not configured")
+	}
+	return interrupt.InterruptRun(ctx, runID, run.ThreadID, turnID)
 }
 
 func (d *MessageDispatcher) prepareThread(ctx context.Context, client ThreadClient, threadID string) (string, error) {

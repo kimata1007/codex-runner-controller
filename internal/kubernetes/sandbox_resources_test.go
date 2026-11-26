@@ -43,3 +43,67 @@ func TestSandboxPodExcludesCredentialsAndHasRuntimeLimits(t *testing.T) {
 		t.Fatal("sandbox accepted a legacy Secret reference")
 	}
 }
+
+func TestSandboxPodSelectsModelProxyWithoutCredentials(t *testing.T) {
+	spec := v1alpha1.CodexSessionSpec{ConversationID: "proxy-test", DesiredState: v1alpha1.DesiredStateActive,
+		Execution:   v1alpha1.Execution{Model: "approved-model", ApprovalPolicy: "never"},
+		SessionData: v1alpha1.SessionData{Size: "1Gi"},
+		Access: &v1alpha1.SessionAccess{Model: &v1alpha1.ModelPolicy{BudgetMicros: 1000, RequestsPerMinute: 10,
+			Models: []v1alpha1.ModelGrant{{Name: "approved-model", MaxInputBytes: 4096, MaxOutputTokens: 512,
+				InputMicrosPerMillion: 100, OutputMicrosPerMillion: 200}}}}}
+	pod, err := (ResourceBuilder{RunnerImage: "example.com/runner:v1.2.3"}).BuildSandboxPod("proxy-test", spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, env := range pod.Spec.Containers[0].Env {
+		if env.Name == "CODEX_MODEL_PROXY_ENABLED" && env.Value == "true" {
+			return
+		}
+		if env.Name == "ACCESS_TOKEN" || env.Name == "RUNNER_API_TOKEN" || env.Name == "RUNNER_AGENT_TOKEN" {
+			t.Fatalf("sandbox Pod contains a model or runner credential: %s", env.Name)
+		}
+	}
+	t.Fatal("sandbox Pod did not enable its authorized model proxy")
+}
+
+func TestSandboxPodRoutesGrantedRepositoryThroughGitHubProxy(t *testing.T) {
+	spec := v1alpha1.CodexSessionSpec{ConversationID: "git-proxy-test", DesiredState: v1alpha1.DesiredStateActive,
+		Execution: v1alpha1.Execution{ApprovalPolicy: "never"}, SessionData: v1alpha1.SessionData{Size: "1Gi"},
+		Repository: &v1alpha1.Repository{URL: "https://github.com/acme/project.git", Revision: "main"},
+		Access:     &v1alpha1.SessionAccess{GitHub: &v1alpha1.GitHubPolicy{Owner: "acme", Repository: "project", BaseBranch: "main"}}}
+	pod, err := (ResourceBuilder{RunnerImage: "example.com/runner:v1.2.3"}).BuildSandboxPod("git-proxy-test", spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := map[string]string{}
+	for _, variable := range pod.Spec.Containers[0].Env {
+		env[variable.Name] = variable.Value
+		if variable.ValueFrom != nil {
+			t.Fatalf("sandbox environment contains a credential reference: %s", variable.Name)
+		}
+	}
+	if env["CODEX_REPOSITORY_URL"] != spec.Repository.URL || env["CODEX_REPOSITORY_REVISION"] != "main" || env["CODEX_GITHUB_PROXY_ENABLED"] != "true" {
+		t.Fatalf("repository was not configured for the GitHub proxy: %#v", env)
+	}
+	spec.Access.GitHub.Repository = "another-project"
+	if _, err := (ResourceBuilder{RunnerImage: "example.com/runner:v1.2.3"}).BuildSandboxPod("git-proxy-test", spec); err == nil {
+		t.Fatal("sandbox accepted a repository outside its GitHub grant")
+	}
+}
+
+func TestSandboxPodRoutesOnlyGrantedPackageRegistriesThroughWebProxy(t *testing.T) {
+	spec := v1alpha1.CodexSessionSpec{ConversationID: "package-proxy-test", DesiredState: v1alpha1.DesiredStateActive,
+		Execution: v1alpha1.Execution{ApprovalPolicy: "never"}, SessionData: v1alpha1.SessionData{Size: "1Gi"},
+		Access: &v1alpha1.SessionAccess{Web: &v1alpha1.WebPolicy{Registries: []string{"go", "pypi"}}}}
+	pod, err := (ResourceBuilder{RunnerImage: "example.com/runner:v1.2.3"}).BuildSandboxPod("package-proxy-test", spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := map[string]string{}
+	for _, variable := range pod.Spec.Containers[0].Env {
+		env[variable.Name] = variable.Value
+	}
+	if env["GOPROXY"] != "http://198.18.0.12:8080/packages/go" || env["PIP_INDEX_URL"] != "http://198.18.0.12:8080/packages/pypi/simple" || env["NPM_CONFIG_REGISTRY"] != "" {
+		t.Fatalf("package registry environment does not match grants: %#v", env)
+	}
+}

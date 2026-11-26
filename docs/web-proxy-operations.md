@@ -6,6 +6,10 @@ Brave Search を有効にする場合は `codex-security` の Secret `codex-brav
 
 セッション内の入口は `http://198.18.0.12:8080`。
 
+Zero Trust SandboxでWeb access grantがある場合、Codex App Serverに `codex_web_proxy` MCP serverを登録する。`web_search` と `web_fetch` ツールはこの入口だけを呼び、Session IdentityとWeb policyはProxy側で検証する。検索権限がなければ検索要求はProxyが拒否する。Sandboxの通常のHTTP(S) egressは許可しない。
+
+Package registry grantは標準クライアントの環境変数へ反映する。Goは `GOPROXY`、npmは `NPM_CONFIG_REGISTRY`、PyPIは `PIP_INDEX_URL` と `PIP_TRUSTED_HOST` を使用する。grantされていないRegistryの環境変数は設定しない。パッケージサイズと宛先の制限はProxy側で適用する。
+
 | 操作 | 経路 |
 | --- | --- |
 | 公開 HTTPS の取得 | `GET /v1/fetch?url=…` |

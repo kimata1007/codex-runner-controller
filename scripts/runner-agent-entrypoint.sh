@@ -5,6 +5,14 @@ workspace="${CODEX_CWD:-/var/lib/codex/workspace}"
 mkdir -p "$workspace"
 
 git_cmd() {
+	if [ "${CODEX_ISOLATED_SESSION:-}" = "true" ]; then
+		if [ -n "${GIT_AUTH_TOKEN:-}" ]; then
+			echo "isolated session must not receive a Git credential" >&2
+			exit 1
+		fi
+		git -c "url.http://198.18.0.11:8080/.insteadOf=https://github.com/" "$@"
+		return
+	fi
 	if [ -n "${GIT_AUTH_TOKEN:-}" ]; then
 		git -c "http.extraHeader=Authorization: Bearer ${GIT_AUTH_TOKEN}" "$@"
 	else
@@ -19,7 +27,7 @@ if [ -n "${CODEX_REPOSITORY_URL:-}" ]; then
 	fi
 
 	if [ -d "$workspace/.git" ]; then
-		remote_url=$(git -C "$workspace" remote get-url origin)
+		remote_url=$(git -C "$workspace" config --get remote.origin.url)
 		if [ "$remote_url" != "$CODEX_REPOSITORY_URL" ]; then
 			echo "repository workspace origin does not match CODEX_REPOSITORY_URL" >&2
 			exit 1

@@ -40,6 +40,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "GitHub operation denied", http.StatusForbidden)
 		return
 	}
+	h.serveAuthenticated(w, r, identity)
+}
+
+// serveAuthenticated applies the per-session policy and operation checks after
+// ServeHTTP has obtained the transport-authenticated local workload identity.
+func (h *Handler) serveAuthenticated(w http.ResponseWriter, r *http.Request, identity zerotrust.Identity) {
+	w.Header().Set("Cache-Control", "no-store")
 	ctx, stop := context.WithTimeout(r.Context(), 5*time.Minute)
 	defer stop()
 	r = r.WithContext(ctx)
