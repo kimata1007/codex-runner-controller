@@ -506,7 +506,7 @@ function updateSendButton() {
   elements.sendButton.disabled = stopping ? activeTurn.interrupting : state.sending;
   elements.sendButton.setAttribute('aria-label', stopping ? '応答を中断' : 'メッセージを送信');
   elements.sendButton.title = stopping ? '応答を中断' : 'メッセージを送信';
-  elements.sendButton.querySelector('svg').hidden = Boolean(stopping);
+  elements.sendButton.querySelector('svg').toggleAttribute('hidden', Boolean(stopping));
   elements.sendButton.querySelector('.stop-icon').hidden = !stopping;
 }
 
@@ -874,7 +874,7 @@ async function connectChatGPT() {
 async function sendMessage(event) {
   event.preventDefault();
   const content = elements.message.value.trim();
-  if (!content || state.sending || activeTurn) return;
+  if (!content || state.sending || activeTurn?.conversationID === state.conversationID) return;
 
   state.sending = true;
   updateSendButton();
@@ -1015,14 +1015,14 @@ elements.contextToggle.addEventListener('click', () => {
 elements.removeRepository.addEventListener('click', () => setRepository(null));
 elements.composer.addEventListener('submit', sendMessage);
 elements.sendButton.addEventListener('click', () => {
-  if (activeTurn) void interruptActiveTurn();
+  if (activeTurn?.conversationID === state.conversationID) void interruptActiveTurn();
 });
 elements.deleteSelected.addEventListener('click', () => {
   if (state.deleteTarget) archiveConversation(state.deleteTarget.id, state.deleteTarget.title);
 });
 elements.message.addEventListener('input', resizeComposer);
 elements.message.addEventListener('keydown', (event) => {
-  if (event.key === 'Enter' && !event.shiftKey && !event.isComposing && !activeTurn) {
+  if (event.key === 'Enter' && !event.shiftKey && !event.isComposing && activeTurn?.conversationID !== state.conversationID) {
     event.preventDefault();
     elements.composer.requestSubmit();
   }
