@@ -874,7 +874,7 @@ async function connectChatGPT() {
 async function sendMessage(event) {
   event.preventDefault();
   const content = elements.message.value.trim();
-  if (!content || state.sending || activeTurn?.conversationID === state.conversationID) return;
+  if (!content || state.sending || (activeTurn && activeTurn.conversationID === state.conversationID)) return;
 
   state.sending = true;
   updateSendButton();
@@ -960,7 +960,11 @@ async function waitForQueuedMessage(conversationID, messageID) {
     const message = (result.messages || []).find((item) => item.id === messageID);
     if (!message || message.status === 'queued') continue;
     if (message.status === 'running') {
-      setStatus('応答中…', 'working');
+      const active = await request(`/v1/conversations/${encodeURIComponent(conversationID)}/runs/active`);
+      if ((active.runs || []).length) {
+        await openConversation(conversationID);
+        return;
+      }
       continue;
     }
     await openConversation(conversationID);
