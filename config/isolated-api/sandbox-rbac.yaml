@@ -1,0 +1,29 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: codex-runner-api
+  namespace: codex-sessions
+rules:
+  - apiGroups: [codexrunner.io]
+    resources: [codexsessions]
+    verbs: [get, create, update, delete]
+  - apiGroups: [codexrunner.io]
+    resources: [codexsessions/status]
+    verbs: [update]
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: codex-runner-api
+  namespace: codex-sessions
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: codex-runner-api
+subjects:
+  - kind: ServiceAccount
+    name: codex-runner-api
+    namespace: codex-system

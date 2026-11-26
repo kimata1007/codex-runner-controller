@@ -1,0 +1,72 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../api
+  - sandbox-rbac.yaml
+patches:
+  - target:
+      labelSelector: app.kubernetes.io/component=api
+    patch: |-
+      - op: add
+        path: /metadata/namespace
+        value: codex-system
+  - target:
+      kind: Deployment
+      name: codex-runner-api
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: codex-runner-api
+      spec:
+        template:
+          spec:
+            containers:
+              - name: api
+                env:
+                  - name: RUNNER_SESSION_NAMESPACE
+                    value: codex-sessions
+                  - name: RUNNER_API_TOKEN
+                    $patch: delete
+                  - name: RUNNER_AGENT_TOKEN
+                    $patch: delete
+                  - name: RUNNER_AUTH_ENCRYPTION_KEY
+                    $patch: delete
+                volumeMounts:
+                  - name: control-socket
+                    mountPath: /run/codex-node
+                    readOnly: true
+            volumes:
+              - name: control-socket
+                hostPath:
+                  path: /run/codex-node
+                  type: Directory
+  - target:
+      kind: Secret
+      name: codex-runner-chatgpt-auth
+    patch: |-
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: codex-runner-chatgpt-auth
+      $patch: delete
+  - target:
+      kind: Role
+      name: codex-runner-api
+      labelSelector: app.kubernetes.io/component=api
+    patch: |-
+      apiVersion: rbac.authorization.k8s.io/v1
+      kind: Role
+      metadata:
+        name: codex-runner-api
+      $patch: delete
+  - target:
+      kind: RoleBinding
+      name: codex-runner-api
+      labelSelector: app.kubernetes.io/component=api
+    patch: |-
+      apiVersion: rbac.authorization.k8s.io/v1
+      kind: RoleBinding
+      metadata:
+        name: codex-runner-api
+      $patch: delete
